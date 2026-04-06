@@ -1,0 +1,10 @@
+{
+  "/api/spire-test/route": "app/api/spire-test/route.js",
+  "/api/spire/forecast/route": "app/api/spire/forecast/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/spire/tides-point/route": "app/api/spire/tides-point/route.js",
+  "/api/weather/route": "app/api/weather/route.js",
+  "/api/spire/forecast-point/route": "app/api/spire/forecast-point/route.js",
+  "/api/tides/route": "app/api/tides/route.js",
+  "/page": "app/page.js"
+}
