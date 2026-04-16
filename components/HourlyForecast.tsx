@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import type { SamuiWeatherForecastRow } from '../lib/spire';
+import { formatTempC, type SamuiWeatherForecastRow } from '../lib/spire';
 import { getSunInfo } from '../lib/sun';
 
 interface HourlyForecastProps {
@@ -29,8 +29,6 @@ export default function HourlyForecast({ rows }: HourlyForecastProps) {
           const timeStr = isNow
             ? 'NOW'
             : d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' });
-
-          const temp = Math.round(row.temp);
 
           let pop = row.pop;
           if (!pop && row.precipRate > 0) {
@@ -69,7 +67,7 @@ export default function HourlyForecast({ rows }: HourlyForecastProps) {
                   <span className="text-2xl drop-shadow-md">{Icon}</span>
                 </div>
 
-                <span className="text-xs font-bold text-white">{temp}°</span>
+                <span className="text-xs font-bold text-white">{formatTempC(row.temp)}°</span>
               </div>
 
               {/* Sunset divider */}
@@ -127,7 +125,6 @@ export function HourlyStripForCalendarDay({
           timeZone: 'Asia/Bangkok',
         });
 
-        const temp = Math.round(row.temp);
         let pop = row.pop;
         if (!pop && row.precipRate > 0) {
           pop = Math.min(100, Math.round(row.precipRate * 20) + 20);
@@ -157,7 +154,7 @@ export function HourlyStripForCalendarDay({
               )}
               <span className="text-xl drop-shadow-md">{Icon}</span>
             </div>
-            <span className="text-xs font-bold text-white">{temp}°</span>
+            <span className="text-xs font-bold text-white">{formatTempC(row.temp)}°</span>
           </div>
         );
       })}

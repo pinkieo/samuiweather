@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import { MAP_FLY_TO_IDS } from '@/lib/island-pois';
+import { DAILY_DIGEST_URL } from '@/lib/reddit-digest';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +44,8 @@ export interface SammiChatResponse {
   reply: string;
   sources: { title: string; url: string; similarity: number }[];
   usedVectorSearch: boolean;
+  /** True when the daily Reddit digest row was included in context */
+  usedDailyDigest?: boolean;
   /** When set, client flies Mapbox to this POI (`lib/island-pois` id) */
   mapFlyTo?: string | null;
 }
@@ -62,14 +65,14 @@ function buildSystemPrompt(weatherContext?: SammiChatRequest['weatherContext']):
 
   // ── Satellite Intelligence briefing ─────────────────────────────────────────
   const sitrep = w
-    ? `SITREP: ${w.temp ?? '?'}°C · precip ${w.precipRate?.toFixed(1) ?? '0'} mm/h · wind ${w.windSpeed?.toFixed(0) ?? '?'} kts`
+    ? `SITREP: ${typeof w.temp === 'number' ? w.temp.toFixed(1) : '?'}°C · precip ${w.precipRate?.toFixed(1) ?? '0'} mm/h · wind ${typeof w.windSpeed === 'number' ? w.windSpeed.toFixed(2) : '?'} kts`
     : '';
 
   // Wind cardinal → tactical vector assessment
   const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
   const windCardinal = w?.windDir != null ? dirs[Math.round(w.windDir / 22.5) % 16] : null;
   const windVector = windCardinal
-    ? `Wind vector: ${windCardinal} at ${w?.windSpeed?.toFixed(0) ?? '?'} kts.${
+    ? `Wind vector: ${windCardinal} at ${typeof w?.windSpeed === 'number' ? w.windSpeed.toFixed(2) : '?'} kts.${
         ['NE','ENE','E','ESE'].includes(windCardinal)
           ? ' NE/E vector — aircraft on finals approach low over Bang Rak beach (high tactical interest). East coast exposure elevated — redirect to west-coast assets.'
           : ['W','WNW','NW','NNW','SW','WSW'].includes(windCardinal)
@@ -210,6 +213,7 @@ export async function POST(req: NextRequest) {
              "Satellite feeds and radar are still active. Ask the host to connect the AI module.",
       sources: [],
       usedVectorSearch: false,
+      usedDailyDigest: false,
       mapFlyTo: null,
     } satisfies SammiChatResponse);
   }
@@ -226,8 +230,31 @@ export async function POST(req: NextRequest) {
     let sources: SammiChatResponse['sources'] = [];
     let context = '';
 
+    let usedDailyDigest = false;
+
     try {
       const supabase = getSupabase();
+
+      const { data: digestRow } = await supabase
+        .from('island_embeddings')
+        .select('content, updated_at')
+        .eq('url', DAILY_DIGEST_URL)
+        .maybeSingle();
+
+      let digestBlock = '';
+      const rawDigest =
+        digestRow?.content && typeof digestRow.content === 'string'
+          ? digestRow.content.trim()
+          : '';
+      if (rawDigest.length > 0) {
+        usedDailyDigest = true;
+        const stamp =
+          digestRow?.updated_at && typeof digestRow.updated_at === 'string'
+            ? new Date(digestRow.updated_at).toISOString().slice(0, 10)
+            : 'recent';
+        digestBlock = `DAILY PULSE (${stamp}) — aggregated from local subreddits:\n${rawDigest.slice(0, 3500)}`;
+      }
+
       const { data, error } = await supabase.rpc('match_island_info', {
         query_embedding: queryEmbedding,
         match_count: 4,
@@ -245,6 +272,10 @@ export async function POST(req: NextRequest) {
           .map(m => `• ${m.title}: ${m.content.slice(0, 300)}`)
           .join('\n');
       }
+
+      if (digestBlock) {
+        context = context ? `${digestBlock}\n\n---\n\nPer-post matches:\n${context}` : digestBlock;
+      }
     } catch {
       // Vector search unavailable — continue without context
     }
@@ -257,7 +288,7 @@ export async function POST(req: NextRequest) {
     if (context) {
       messages.push({
         role: 'system',
-        content: `Here is relevant local community knowledge from r/kohsamui:\n${context}`,
+        content: `Here is relevant local community knowledge (daily pulse + matching threads from r/kohsamui and related subs):\n${context}`,
       });
     }
 
@@ -289,6 +320,7 @@ export async function POST(req: NextRequest) {
       reply,
       sources,
       usedVectorSearch: sources.length > 0,
+      usedDailyDigest,
       mapFlyTo,
     } satisfies SammiChatResponse);
 

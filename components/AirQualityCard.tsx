@@ -33,7 +33,13 @@ const aqiConfig: Record<
 
 type LoadState = 'loading' | 'ok' | 'error';
 
-export default function AirQualityCard() {
+export default function AirQualityCard({
+  latitude,
+  longitude,
+}: {
+  latitude?: number;
+  longitude?: number;
+} = {}) {
   const [data, setData] = useState<AirQualityData | null>(null);
   const [status, setStatus] = useState<LoadState>('loading');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -42,7 +48,11 @@ export default function AirQualityCard() {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
 
-    fetch('/api/airquality', { signal: controller.signal })
+    const q =
+      latitude != null && longitude != null
+        ? `?lat=${encodeURIComponent(String(latitude))}&lon=${encodeURIComponent(String(longitude))}`
+        : '';
+    fetch(`/api/airquality${q}`, { signal: controller.signal })
       .then(async (res) => {
         clearTimeout(timer);
         const json = await res.json() as AirQualityData & { error?: string };
@@ -60,7 +70,7 @@ export default function AirQualityCard() {
       });
 
     return () => { clearTimeout(timer); controller.abort(); };
-  }, []);
+  }, [latitude, longitude]);
 
   if (status === 'loading') return <CardSkeleton label="Air Quality" />;
   if (status === 'error' || !data) return <CardError label="Air Quality" detail={errorMsg} />;

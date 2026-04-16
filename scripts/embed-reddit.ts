@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import { config } from 'dotenv';
 import { resolve } from 'path';
+import { upsertDailyCommunityDigest } from '@/lib/reddit-digest';
 
 // Load .env.local from project root
 config({ path: resolve(process.cwd(), '.env.local') });
@@ -24,7 +25,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const OPENAI_API_KEY          = process.env.OPENAI_API_KEY!;
 const REDDIT_LIMIT  = 100;   // max per request
 const REDDIT_PAGES  = 5;     // pages per feed = up to 500 posts per feed
-const SUBREDDITS    = ['kohsamui', 'weathersamui'];
+const SUBREDDITS    = ['kohsamui', 'weathersamui', 'samui'];
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !OPENAI_API_KEY) {
   console.error('❌  Missing env vars. Check SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY in .env.local');
@@ -47,6 +48,8 @@ interface RedditChild {
     num_comments: number;
     created_utc: number;
     link_flair_text?: string;
+    /** Set by our fetch layer (not Reddit JSON) */
+    subreddit?: string;
   };
 }
 
@@ -72,7 +75,7 @@ async function fetchFeed(
       data: { children: RedditChild[]; after: string | null };
     };
 
-    const batch = json.data.children.map(c => c.data);
+    const batch = json.data.children.map(c => ({ ...c.data, subreddit }));
     posts.push(...batch);
     console.log(`    r/${subreddit} ${sort}${params} page ${page + 1}: ${batch.length} posts`);
 
@@ -184,6 +187,21 @@ async function main() {
     // Small delay to stay within OpenAI rate limits
     await new Promise(r => setTimeout(r, 200));
   }
+
+  console.log('\n📰  Daily digest…');
+  const digestRes = await upsertDailyCommunityDigest(
+    supabase,
+    openai,
+    posts.map(p => ({
+      title: p.title,
+      selftext: p.selftext,
+      permalink: p.permalink,
+      score: p.score,
+      subreddit: p.subreddit ?? 'kohsamui',
+    })),
+  );
+  if (digestRes.ok) console.log('    ✓ Digest updated');
+  else console.warn('    ⚠ Digest skipped:', digestRes.error);
 
   console.log('\n✅  Done! Sammi\'s brain has been updated.');
 }

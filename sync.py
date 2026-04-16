@@ -23,6 +23,11 @@ from supabase import Client, create_client
 # ---------------------------
 _ENV_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=_ENV_DIR / ".env", override=True)
+load_dotenv(dotenv_path=_ENV_DIR / ".env.local", override=True)
+
+# Next.js uses SUPABASE_SERVICE_ROLE_KEY; this script historically used SUPABASE_KEY.
+if not os.getenv("SUPABASE_KEY") and os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
+    os.environ["SUPABASE_KEY"] = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 if not os.getenv("SUPABASE_URL"):
     raise RuntimeError("ENV NOT LOADED (SUPABASE_URL missing)")

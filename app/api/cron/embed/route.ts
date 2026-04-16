@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
+import { upsertDailyCommunityDigest } from '@/lib/reddit-digest';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 min — enough for 100 posts
 
 // Subreddits to sync (per architecture doc)
-const SUBREDDITS = ['kohsamui', 'weathersamui'];
+const SUBREDDITS = ['kohsamui', 'weathersamui', 'samui'];
 const LIMIT      = 100;
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
@@ -26,14 +27,15 @@ interface RedditPost {
   title: string; selftext: string; url: string;
   permalink: string; author: string; score: number;
   num_comments: number; created_utc: number; link_flair_text?: string;
+  subreddit: string;
 }
 
 async function fetchFeed(sub: string, sort: string, t = ''): Promise<RedditPost[]> {
   const url = `https://www.reddit.com/r/${sub}/${sort}.json?limit=${LIMIT}${t ? `&t=${t}` : ''}`;
   const res = await fetch(url, { headers: { 'User-Agent': 'SamuiConcierge/1.0' } });
   if (!res.ok) return [];
-  const json = await res.json() as { data: { children: { data: RedditPost }[] } };
-  return json.data.children.map(c => c.data);
+  const json = await res.json() as { data: { children: { data: Omit<RedditPost, 'subreddit'> }[] } };
+  return json.data.children.map(c => ({ ...c.data, subreddit: sub }));
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -49,7 +51,15 @@ export async function POST(req: NextRequest) {
   );
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
-  const stats = { fetched: 0, inserted: 0, updated: 0, skipped: 0, errors: 0 };
+  const stats = {
+    fetched: 0,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    errors: 0,
+    digestOk: false as boolean,
+    digestError: null as string | null,
+  };
 
   // Fetch all feeds in parallel
   const fetches = SUBREDDITS.flatMap(sub => [
@@ -115,6 +125,23 @@ export async function POST(req: NextRequest) {
       console.error('[cron/embed]', post.title.slice(0, 40), err);
       stats.errors++;
     }
+  }
+
+  const digestRes = await upsertDailyCommunityDigest(
+    supabase,
+    openai,
+    posts.map(p => ({
+      title: p.title,
+      selftext: p.selftext,
+      permalink: p.permalink,
+      score: p.score,
+      subreddit: p.subreddit,
+    })),
+  );
+  stats.digestOk = digestRes.ok;
+  stats.digestError = digestRes.error ?? null;
+  if (!digestRes.ok) {
+    console.warn('[cron/embed] digest', digestRes.error ?? 'failed');
   }
 
   console.log('[cron/embed] done', stats);

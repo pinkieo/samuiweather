@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { formatTempC, formatWindKts } from '../lib/spire';
 import Map, { Source, Layer, NavigationControl } from 'react-map-gl/mapbox';
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -27,7 +28,11 @@ function tideSummary(raw: unknown): string {
         values.tide_height ??
         values.height ??
         values.sea_surface_height_above_mean_sea_level;
-      if (typeof h === 'number') return `${h >= 0 ? '+' : ''}${h.toFixed(1)}`;
+      if (typeof h === 'number') {
+        const cm = Math.round(h * 100);
+        const sign = cm > 0 ? '+' : '';
+        return `${sign}${cm} cm`;
+      }
     }
   }
   return '—';
@@ -159,7 +164,7 @@ export default function SamuiMap() {
           <div className="mt-10 space-y-6">
             <div className="flex items-center gap-4">
               <div className="text-5xl font-light">
-                {weather ? `${weather.temp}°` : wxError ? '—°' : '…'}
+                {weather ? `${formatTempC(weather.temp)}°` : wxError ? '—°' : '…'}
               </div>
               <div className="h-10 w-px bg-white/10" />
               <div>
@@ -180,7 +185,7 @@ export default function SamuiMap() {
                 <p className="font-mono text-xl tracking-tighter">
                   {weather ? (
                     <>
-                      {weather.windSpeed}
+                      {formatWindKts(weather.windSpeed)}
                       <span className="ml-1 text-xs opacity-50">kts</span>
                     </>
                   ) : (

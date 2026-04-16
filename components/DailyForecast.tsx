@@ -1,9 +1,12 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import type { SamuiWeatherForecastRow } from '../lib/spire';
+import { formatTempC, formatWindKts, type SamuiWeatherForecastRow } from '../lib/spire';
 import { getSunInfo } from '../lib/sun';
 import { HourlyStripForCalendarDay } from './HourlyForecast';
+
+/** Spire extended outlook — cap UI at 30 calendar days when hourly data supports it */
+const MAX_DAILY_OUTLOOK = 30;
 
 interface DailyForecastProps {
   rows: SamuiWeatherForecastRow[];
@@ -25,8 +28,7 @@ interface DailyData {
 
 export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) {
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
-  const [showExtendedDays, setShowExtendedDays] = useState(false);
-  const extendedRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
 
   const dailyMap = new Map<string, DailyData>();
 
@@ -81,9 +83,7 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
     }
   }
 
-  const dailyArray = Array.from(dailyMap.values());
-  const next3 = dailyArray.slice(0, 3);
-  const extended = dailyArray.slice(3, 15);
+  const dailyArray = Array.from(dailyMap.values()).slice(0, MAX_DAILY_OUTLOOK);
 
   if (dailyArray.length === 0) return null;
 
@@ -118,15 +118,22 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
       })()
     : '';
 
+  const dayCount = dailyArray.length;
+
   return (
     <div className="flex flex-col gap-3">
-      <p className="pl-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">
-        Next 3 days · tap for hourly
-      </p>
+      <div className="flex items-center justify-between gap-2 pl-1 pr-0.5">
+        <p className="text-[9px] font-black uppercase tracking-widest text-cyan-400">
+          Daily outlook · {dayCount} {dayCount === 1 ? 'day' : 'days'} · swipe · tap for hourly
+        </p>
+      </div>
 
-      <div className="flex items-stretch gap-2 sm:gap-3">
-        <div className="grid min-w-0 flex-1 grid-cols-3 gap-2 sm:gap-3">
-          {next3.map((day, index) => {
+      <div className="relative">
+        <div
+          ref={stripRef}
+          className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto pb-2 pt-0.5 [scrollbar-width:thin] [scrollbar-color:rgba(34,211,238,0.35)_transparent] sm:gap-2.5"
+        >
+          {dailyArray.map((day, index) => {
             const isToday = index === 0;
             const isTomorrow = index === 1;
             const displayDay = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : day.dayName;
@@ -137,6 +144,7 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
               return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : day.dateStr;
             })();
             const isOpen = expandedDayKey === day.dateStr;
+            const precipH = Math.min(18, Math.max(2, day.maxPrecipRate * 3));
 
             return (
               <button
@@ -144,58 +152,52 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
                 type="button"
                 onClick={() => handleDayTap(day)}
                 className={[
-                  'flex flex-col items-center justify-between rounded-3xl border bg-slate-900/80 p-3 shadow-2xl backdrop-blur-xl transition-all sm:p-4',
-                  isOpen ? 'border-cyan-500/50 ring-1 ring-cyan-500/20' : 'border-white/10 hover:border-cyan-500/30 hover:bg-slate-800/80',
+                  'flex w-[5.25rem] shrink-0 snap-start flex-col items-center rounded-2xl border px-2 py-2.5 shadow-lg backdrop-blur-xl transition sm:w-[5.75rem] sm:px-2.5 sm:py-3',
+                  isToday ? 'border-cyan-500/40 bg-slate-900/90' : 'border-white/10 bg-slate-900/75',
+                  isOpen ? 'ring-1 ring-cyan-500/35' : 'hover:border-cyan-500/25 hover:bg-slate-800/85',
                 ].join(' ')}
               >
                 <span
-                  className={`text-xs font-medium capitalize ${isToday ? 'font-bold text-white' : 'text-slate-300'}`}
+                  className={`line-clamp-1 text-[10px] font-semibold capitalize leading-tight ${isToday ? 'text-white' : 'text-slate-300'}`}
                 >
                   {displayDay}
                 </span>
-                <span className="mb-1 text-[9px] text-slate-500 sm:mb-2">{shortDate}</span>
+                <span className="mb-0.5 text-[8px] text-slate-500">{shortDate}</span>
 
-                <div className="relative mb-1 flex h-10 w-10 items-center justify-center text-3xl drop-shadow-md sm:h-12 sm:w-12 sm:text-4xl">
+                <div className="relative mb-0.5 flex h-9 w-9 items-center justify-center text-2xl sm:h-10 sm:w-10 sm:text-3xl">
                   {Icon}
                   {day.maxPop >= 10 && (
-                    <span className="absolute -bottom-2 text-[9px] font-black text-cyan-400">
+                    <span className="absolute -bottom-1 text-[8px] font-black text-cyan-400">
                       {Math.round(day.maxPop)}%
                     </span>
                   )}
                 </div>
 
-                <div className="mt-1 flex w-full items-center justify-between px-0.5 text-sm font-mono sm:mt-2">
-                  <span className="font-bold text-white">{Math.round(day.maxTemp)}°</span>
-                  <span className="text-slate-400">{Math.round(day.minTemp)}°</span>
+                <div className="flex h-4 w-full items-end justify-center">
+                  <div
+                    className="w-1 rounded-full bg-cyan-500/55"
+                    style={{ height: `${precipH}px` }}
+                    title="Precip intensity (proxy)"
+                  />
                 </div>
 
-                <div className="mt-1 flex items-center gap-1 text-[9px] text-slate-400">
-                  💨 {Math.round(day.maxWindGust)} kts
+                <div className="mt-1 flex w-full items-center justify-between text-[10px] font-mono leading-none sm:text-[11px]">
+                  <span className="font-bold text-white">{formatTempC(day.maxTemp)}°</span>
+                  <span className="text-slate-400">{formatTempC(day.minTemp)}°</span>
+                </div>
+
+                <div className="mt-0.5 line-clamp-1 text-[7px] text-slate-500 sm:text-[8px]">
+                  💨 {formatWindKts(day.maxWindGust)}
                 </div>
               </button>
             );
           })}
         </div>
-
-        {extended.length > 0 && (
-          <button
-            type="button"
-            onClick={() => {
-              setShowExtendedDays(true);
-              window.setTimeout(() => {
-                extendedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-              }, 50);
-            }}
-            className="flex w-11 shrink-0 flex-col items-center justify-center gap-1 rounded-3xl border border-dashed border-cyan-500/35 bg-slate-900/60 px-1 text-cyan-300/90 shadow-xl backdrop-blur-md transition hover:border-cyan-400/50 hover:bg-slate-800/80"
-            aria-label="Show days 4 through 15"
-            title="More forecast — up to 15 days"
-          >
-            <span className="text-lg font-black leading-none">→</span>
-            <span className="text-[7px] font-black uppercase leading-tight tracking-tighter text-slate-500">
-              4–15
-            </span>
-          </button>
-        )}
+        {/* Scroll hint */}
+        <div
+          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-teal-950/80 to-transparent sm:w-12"
+          aria-hidden
+        />
       </div>
 
       {expandedDayKey && expandedDay && (
@@ -204,47 +206,6 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
             Hourly · {expandedLabel}
           </p>
           <HourlyStripForCalendarDay rows={rows} dateKey={expandedDayKey} />
-        </div>
-      )}
-
-      {extended.length > 0 && showExtendedDays && (
-        <div
-          id="extended-daily-forecast"
-          ref={extendedRef}
-          className="rounded-2xl border border-white/10 bg-slate-900/50 px-3 py-3 backdrop-blur-xl"
-        >
-          <p className="mb-2 text-[9px] font-black uppercase tracking-widest text-slate-400">
-            Days 4–15 · tap to jump timeline · tap again for hourly
-          </p>
-          <div className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto pb-1 pt-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            {extended.map((day) => {
-              const precipH = Math.min(20, Math.max(2, day.maxPrecipRate * 3));
-              const Icon = getIcon(day);
-              const isOpen = expandedDayKey === day.dateStr;
-              return (
-                <button
-                  key={day.dateStr}
-                  type="button"
-                  onClick={() => handleDayTap(day)}
-                  className={[
-                    'flex shrink-0 snap-center flex-col items-center gap-0.5 rounded-xl px-2.5 py-2 transition',
-                    isOpen ? 'bg-cyan-500/15 ring-1 ring-cyan-500/30' : 'hover:bg-white/5',
-                  ].join(' ')}
-                  title={`${day.dayName} ${day.dateStr}`}
-                >
-                  <span className="text-[9px] font-bold capitalize text-slate-400">{day.dayName}</span>
-                  <span className="text-base">{Icon}</span>
-                  <div className="flex h-5 w-full flex-col items-center justify-end">
-                    <div
-                      className="w-1.5 rounded-full bg-cyan-500/60"
-                      style={{ height: `${precipH}px` }}
-                    />
-                  </div>
-                  <span className="text-[8px] font-mono text-slate-400">{Math.round(day.maxTemp)}°</span>
-                </button>
-              );
-            })}
-          </div>
         </div>
       )}
     </div>

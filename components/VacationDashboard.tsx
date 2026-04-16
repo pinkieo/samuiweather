@@ -1,10 +1,10 @@
 'use client';
 
-import type { SamuiWeatherForecastRow } from '../lib/spire';
+import { formatTempC, formatWindKts, SAMUI_CENTER, type SamuiWeatherForecastRow } from '../lib/spire';
 import type { TideTrend } from '../lib/tides';
 import { getBeachAdvise, beachAdviseLabels, explainTideHeightMsl } from '../lib/tides';
 import { getWindInfo, getBeachGuideSentence } from '../lib/vacation';
-import { getSunInfo } from '../lib/sun';
+import { getSunInfoAt } from '../lib/sun';
 import HourlyForecast from './HourlyForecast';
 import DailyForecast from './DailyForecast';
 
@@ -14,6 +14,9 @@ export type VacationDashboardProps = {
   onSelectedIndexChange: (index: number) => void;
   tideTrend: TideTrend;
   tideHeightM: number | null;
+  /** Sunrise/sunset for verdict (defaults to Koh Samui). */
+  sunLatitude?: number;
+  sunLongitude?: number;
 };
 
 // ─── Verdict logic ────────────────────────────────────────────────────────────
@@ -27,11 +30,14 @@ interface Verdict {
   dot: string;
 }
 
-function getVerdict(row: SamuiWeatherForecastRow, sunInfo: ReturnType<typeof getSunInfo>): Verdict {
+function getVerdict(
+  row: SamuiWeatherForecastRow,
+  sunInfo: ReturnType<typeof getSunInfoAt>,
+): Verdict {
   if (!sunInfo.isDay) {
     return {
       label: '🌙 Night Mode',
-      sub: `Clear night · ${row.temp}°C · Light breeze ${row.windSpeed.toFixed(0)} kts`,
+      sub: `Clear night · ${formatTempC(row.temp)}°C · Light breeze ${formatWindKts(row.windSpeed)} kts`,
       bg: 'bg-indigo-950/60', border: 'border-indigo-500/30', text: 'text-indigo-200', dot: 'bg-indigo-400',
     };
   }
@@ -45,34 +51,34 @@ function getVerdict(row: SamuiWeatherForecastRow, sunInfo: ReturnType<typeof get
   if (row.precipRate > 0.4) {
     return {
       label: '🌧️ Rain Likely · Bring Umbrella',
-      sub: `${row.precipRate.toFixed(1)} mm/h · ${row.temp}°C · Brief showers expected`,
+      sub: `${row.precipRate.toFixed(1)} mm/h · ${formatTempC(row.temp)}°C · Brief showers expected`,
       bg: 'bg-blue-950/60', border: 'border-blue-500/30', text: 'text-blue-200', dot: 'bg-blue-400',
     };
   }
   if (row.windSpeed > 18) {
     return {
       label: '💨 Wind Advisory · Choppy Seas',
-      sub: `${row.windSpeed.toFixed(0)} kts wind · Consider sheltered beaches`,
+      sub: `${formatWindKts(row.windSpeed)} kts wind · Consider sheltered beaches`,
       bg: 'bg-amber-950/60', border: 'border-amber-500/30', text: 'text-amber-200', dot: 'bg-amber-400',
     };
   }
   if ((row.uvIndex != null && row.uvIndex > 10) || row.temp > 34) {
     return {
       label: '☀️ Extreme Heat · Seek Shade',
-      sub: `${row.temp}°C · UV ${row.uvIndex?.toFixed(0) ?? '—'} · Apply SPF 50+ every 2 hours`,
+      sub: `${formatTempC(row.temp)}°C · UV ${row.uvIndex?.toFixed(0) ?? '—'} · Apply SPF 50+ every 2 hours`,
       bg: 'bg-orange-950/60', border: 'border-orange-500/30', text: 'text-orange-200', dot: 'bg-orange-400',
     };
   }
   if (row.uvIndex != null && row.uvIndex > 7) {
     return {
       label: '🏖️ Great Beach Day · High UV',
-      sub: `${row.temp}°C · UV ${row.uvIndex.toFixed(0)} · Apply SPF 50+ sunscreen`,
+      sub: `${formatTempC(row.temp)}°C · UV ${row.uvIndex.toFixed(0)} · Apply SPF 50+ sunscreen`,
       bg: 'bg-yellow-950/60', border: 'border-yellow-500/30', text: 'text-yellow-200', dot: 'bg-yellow-400',
     };
   }
   return {
     label: '🏖️ Perfect Beach Day',
-    sub: `${row.temp}°C · ${row.windSpeed.toFixed(0)} kts · Ideal conditions`,
+    sub: `${formatTempC(row.temp)}°C · ${formatWindKts(row.windSpeed)} kts · Ideal conditions`,
     bg: 'bg-emerald-950/60', border: 'border-emerald-500/30', text: 'text-emerald-200', dot: 'bg-emerald-400',
   };
 }
@@ -85,11 +91,13 @@ export default function VacationDashboard({
   onSelectedIndexChange,
   tideTrend,
   tideHeightM,
+  sunLatitude = SAMUI_CENTER.lat,
+  sunLongitude = SAMUI_CENTER.lon,
 }: VacationDashboardProps) {
   const row = rows[selectedIndex] ?? rows[0];
   if (!row) return null;
 
-  const sunInfo = getSunInfo(new Date(row.time));
+  const sunInfo = getSunInfoAt(sunLatitude, sunLongitude, new Date(row.time));
   const verdict = getVerdict(row, sunInfo);
 
   // Weather Now
@@ -98,7 +106,7 @@ export default function VacationDashboard({
 
   // Beach Guide
   const { dir, sheltered } = getWindInfo(row.windDir);
-  const windSpeed = row.windSpeed.toFixed(1);
+  const windSpeed = formatWindKts(row.windSpeed);
   const beachStatus = getBeachAdvise(tideTrend, tideHeightM);
   const tideShort =
     tideHeightM != null && !Number.isNaN(tideHeightM)
@@ -136,7 +144,7 @@ export default function VacationDashboard({
         <HourlyForecast rows={rows} />
       </div>
 
-      {/* ── 2. Next 3 days ─────────────────────────────────────────────── */}
+      {/* ── 2. Daily outlook (scrollable, up to 30 days) ──────────────── */}
       <DailyForecast rows={rows} onDayClick={onSelectedIndexChange} />
 
       {/* ── 3. Verdict Hero ─────────────────────────────────────────────── */}
@@ -154,11 +162,11 @@ export default function VacationDashboard({
           <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">Weather Now</p>
           <p className="text-sm font-bold leading-snug text-white">{weatherText}</p>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-white">{row.temp}°C</span>
+            <span className="text-3xl font-extrabold text-white">{formatTempC(row.temp)}°C</span>
             <span className="text-xs font-bold text-slate-400">{row.precipRate.toFixed(1)} mm/h</span>
           </div>
           <p className="mt-0.5 text-[11px] tracking-wider text-white/50">
-            Feels like {row.feelsLike}°C
+            Feels like {formatTempC(row.feelsLike)}°C
           </p>
           <p className="mt-2 text-[10px] text-slate-400">
             💧 {row.humidity}% humidity · ☁️ {row.cloudCover.toFixed(0)}% cloud cover

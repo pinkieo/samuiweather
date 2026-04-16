@@ -79,17 +79,31 @@ export function metersPerSecondToKnots(ms: number): number {
   return ms * 1.94384;
 }
 
+/** °C from Kelvin, one decimal (matches Spire precision in UI). */
 export function convertSpireValue(
   value: number,
   type: 'temp' | 'wind',
 ): number {
   if (type === 'temp') {
-    return Math.round(value - 273.15);
+    const c = value - 273.15;
+    return Math.round(c * 10) / 10;
   }
   if (type === 'wind') {
-    return parseFloat((value * 1.94384).toFixed(1));
+    return parseFloat((value * 1.94384).toFixed(2));
   }
   return value;
+}
+
+/** Display helper for Spire-derived °C values */
+export function formatTempC(n: number): string {
+  if (Number.isNaN(n)) return '—';
+  return n.toFixed(1);
+}
+
+/** Display helper for Spire-derived wind (kts) */
+export function formatWindKts(n: number): string {
+  if (Number.isNaN(n)) return '—';
+  return n.toFixed(2);
 }
 
 /** Eén uniforme rij voor MapViewer: Spire + live WAQI alleen op index 0. */
@@ -251,11 +265,13 @@ export function mapSpireForecastPointData(raw: unknown): SamuiWeatherForecastRow
 }
 
 /**
- * Parallel Spire (+ bundle-fallback) + WAQI; één array voor de frontend.
+ * Parallel Spire (+ bundle-fallback) + WAQI at a point; één array voor de frontend.
  */
-export async function getSamuiForecastMerged(signal?: AbortSignal): Promise<
-  SamuiWeatherForecastRow[]
-> {
+export async function getForecastMergedAt(
+  lat: number,
+  lon: number,
+  signal?: AbortSignal,
+): Promise<SamuiWeatherForecastRow[]> {
   const token = getSpireApiToken();
   if (!token) {
     throw new Error('SPIRE_API_TOKEN ontbreekt');
@@ -270,11 +286,7 @@ export async function getSamuiForecastMerged(signal?: AbortSignal): Promise<
       'basic,maritime_atmos',
       'basic',
     ] as const) {
-      const url = buildForecastPointUrl(
-        SAMUI_CENTER.lat,
-        SAMUI_CENTER.lon,
-        bundles,
-      );
+      const url = buildForecastPointUrl(lat, lon, bundles);
       const r = await fetch(url, {
         headers: { 'spire-api-key': token },
         signal,
@@ -290,7 +302,7 @@ export async function getSamuiForecastMerged(signal?: AbortSignal): Promise<
 
   const fetchWaqi = (): Promise<unknown> => {
     if (!waqiToken) return Promise.resolve(null);
-    const url = `https://api.waqi.info/feed/geo:${SAMUI_CENTER.lat};${SAMUI_CENTER.lon}/?token=${encodeURIComponent(waqiToken)}`;
+    const url = `https://api.waqi.info/feed/geo:${lat};${lon}/?token=${encodeURIComponent(waqiToken)}`;
     return fetch(url, { signal, next: { revalidate: 60 } })
       .then((r) => (r.ok ? r.json() : null))
       .catch((e) => {
@@ -301,7 +313,7 @@ export async function getSamuiForecastMerged(signal?: AbortSignal): Promise<
 
   const fetchUv = (): Promise<unknown> => {
     if (!uvKey) return Promise.resolve(null);
-    const url = `https://api.openuv.io/api/v1/uv?lat=${SAMUI_CENTER.lat}&lng=${SAMUI_CENTER.lon}`;
+    const url = `https://api.openuv.io/api/v1/uv?lat=${lat}&lng=${lon}`;
     return fetch(url, {
       headers: { 'x-access-token': uvKey },
       signal,
@@ -336,4 +348,11 @@ export async function getSamuiForecastMerged(signal?: AbortSignal): Promise<
   });
 
   return mergeSpireWithWaqi(rows, waqiJson, uvJson);
+}
+
+/** Koh Samui dashboard default. */
+export async function getSamuiForecastMerged(
+  signal?: AbortSignal,
+): Promise<SamuiWeatherForecastRow[]> {
+  return getForecastMergedAt(SAMUI_CENTER.lat, SAMUI_CENTER.lon, signal);
 }

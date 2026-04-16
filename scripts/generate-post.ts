@@ -54,7 +54,7 @@ async function main() {
   }
   console.log(`    ✓ ${rows.length} forecast hours loaded`);
   const spireFresh = spireFreshness(rows[0].time);
-  console.log(`    Now: ${rows[0].temp}°C · ${rows[0].windSpeed.toFixed(1)} kts · ${rows[0].precipRate.toFixed(2)} mm/h`);
+  console.log(`    Now: ${rows[0].temp.toFixed(1)}°C · ${rows[0].windSpeed.toFixed(2)} kts · ${rows[0].precipRate.toFixed(2)} mm/h`);
   console.log(`    Satellite sync: ${spireFresh.syncTimeIct} ICT (${spireFresh.label})${spireFresh.isStale ? ' ⚠️  STALE' : ' ✓'}`);
 
   // Phase 2 — mainland rain radar (derived from SPIRE precip rate)

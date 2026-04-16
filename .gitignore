@@ -10,3 +10,6 @@ out/
 
 # misc
 *.tsbuildinfo
+
+# Local RainViewer practice loop (npm run radar:snapshot)
+public/radar-practice.json

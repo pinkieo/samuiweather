@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import type { UVData } from '../app/api/uvindex/route';
-import { getSunInfo } from '../lib/sun';
+import { getSunInfo, getSunInfoAt } from '../lib/sun';
 
 // ─── UV scale (WHO) ───────────────────────────────────────────────────────────
 
@@ -32,8 +32,12 @@ const uvConfig: Record<
 
 function formatBurnTime(minutes: number | null): string {
   if (minutes == null || minutes <= 0) return 'protect immediately';
-  if (minutes >= 120) return `${Math.round(minutes / 60)} hrs`;
-  return `${Math.round(minutes)} min`;
+  const m = Math.round(minutes);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (rem === 0) return `${h} ${h === 1 ? 'hour' : 'hours'}`;
+  return `${h} ${h === 1 ? 'hour' : 'hours'} and ${rem} min`;
 }
 
 function formatMaxTime(iso: string): string {
@@ -48,7 +52,13 @@ function formatMaxTime(iso: string): string {
 
 type LoadState = 'loading' | 'ok' | 'error';
 
-export default function UVIndexCard() {
+export default function UVIndexCard({
+  latitude,
+  longitude,
+}: {
+  latitude?: number;
+  longitude?: number;
+} = {}) {
   const [data, setData] = useState<UVData | null>(null);
   const [status, setStatus] = useState<LoadState>('loading');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -57,7 +67,11 @@ export default function UVIndexCard() {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
 
-    fetch('/api/uvindex', { signal: controller.signal })
+    const q =
+      latitude != null && longitude != null
+        ? `?lat=${encodeURIComponent(String(latitude))}&lon=${encodeURIComponent(String(longitude))}`
+        : '';
+    fetch(`/api/uvindex${q}`, { signal: controller.signal })
       .then(async (res) => {
         clearTimeout(timer);
         const json = await res.json() as UVData & { error?: string };
@@ -75,7 +89,7 @@ export default function UVIndexCard() {
       });
 
     return () => { clearTimeout(timer); controller.abort(); };
-  }, []);
+  }, [latitude, longitude]);
 
   if (status === 'loading') return <CardSkeleton label="UV Index" />;
   if (status === 'error' || !data) return <CardError label="UV Index" detail={errorMsg} />;
@@ -86,7 +100,10 @@ export default function UVIndexCard() {
   const burnStr = formatBurnTime(data.burnMinutes);
   const maxTimeStr = formatMaxTime(data.uvMaxTime);
   
-  const sun = getSunInfo();
+  const sun =
+    latitude != null && longitude != null
+      ? getSunInfoAt(latitude, longitude)
+      : getSunInfo();
   const riseStr = sun.sunrise.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' });
   const setStr = sun.sunset.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' });
   
@@ -106,8 +123,12 @@ export default function UVIndexCard() {
     if (msToSunset <= 45 * 60000) {
       isGoldenHour = true;
       sunsetText = `Golden Hour! Sunset in ${mins} min.`;
+    } else if (hours === 0) {
+      sunsetText = `Sunset in ${mins} min`;
+    } else if (mins === 0) {
+      sunsetText = `Sunset in ${hours} ${hours === 1 ? 'hour' : 'hours'}`;
     } else {
-      sunsetText = `Sunset in ${hours}h ${mins}m`;
+      sunsetText = `Sunset in ${hours} ${hours === 1 ? 'hour' : 'hours'} and ${mins} min`;
     }
   }
 

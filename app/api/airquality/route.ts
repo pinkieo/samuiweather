@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
+import { SAMUI_CENTER } from '@/lib/spire';
 
-const LAT = 9.512;
-const LON = 100.0136;
 const TIMEOUT_MS = 5000;
 
 export interface AirQualityData {
@@ -15,7 +14,24 @@ export interface AirQualityData {
 
 export const revalidate = 3600;
 
-export async function GET() {
+function parseLatLon(request: Request): { lat: number; lon: number } {
+  const { searchParams } = new URL(request.url);
+  const lat = Number(searchParams.get('lat'));
+  const lon = Number(searchParams.get('lon'));
+  if (
+    Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= -55 &&
+    lat <= 55 &&
+    lon >= -180 &&
+    lon <= 180
+  ) {
+    return { lat, lon };
+  }
+  return { lat: SAMUI_CENTER.lat, lon: SAMUI_CENTER.lon };
+}
+
+export async function GET(request: Request) {
   const token = process.env.NEXT_PUBLIC_AQICN_TOKEN;
   console.log('[airquality] token aanwezig:', !!token);
 
@@ -24,7 +40,8 @@ export async function GET() {
     return NextResponse.json({ error: 'NEXT_PUBLIC_AQICN_TOKEN niet ingesteld' }, { status: 500 });
   }
 
-  const url = `https://api.waqi.info/feed/geo:${LAT};${LON}/?token=${token}`;
+  const { lat, lon } = parseLatLon(request);
+  const url = `https://api.waqi.info/feed/geo:${lat};${lon}/?token=${token}`;
   console.log('[airquality] fetch →', url.replace(token, 'TOKEN'));
 
   const controller = new AbortController();

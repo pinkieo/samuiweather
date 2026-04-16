@@ -21,11 +21,26 @@ function tidePhase(trend: TideTrend): { title: string; sub: string } {
   return { title: 'Tide trend unknown', sub: 'Not enough data to infer direction.' };
 }
 
+/** Time until next high/low — whole hours + minutes (no decimal hours). */
 function formatHoursUntil(whenMs: number): string {
-  const h = Math.max(0, (whenMs - Date.now()) / 3600000);
-  if (h < 1) return `${Math.round(h * 60)} min`;
-  if (h < 24) return `${h.toFixed(1)} h`;
-  return `${Math.round(h / 24)} d`;
+  const ms = Math.max(0, whenMs - Date.now());
+  const totalMins = Math.floor(ms / 60000);
+  if (totalMins < 1) return 'under 1 min';
+
+  const days = Math.floor(totalMins / (24 * 60));
+  const remAfterDays = totalMins - days * 24 * 60;
+  const hours = Math.floor(remAfterDays / 60);
+  const mins = remAfterDays % 60;
+
+  if (days > 0) {
+    const bits: string[] = [`${days} ${days === 1 ? 'day' : 'days'}`];
+    if (hours > 0) bits.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`);
+    if (mins > 0) bits.push(`${mins} min`);
+    return bits.join(', ');
+  }
+  if (hours === 0) return `${mins} min`;
+  if (mins === 0) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  return `${hours} ${hours === 1 ? 'hour' : 'hours'} and ${mins} min`;
 }
 
 function nextEventLabel(x: NextTideExtremum): string {
@@ -70,7 +85,11 @@ export default function TideCard({ trend, heightM, nextExtremum }: TideCardProps
 
   const rawStr =
     heightM != null && !Number.isNaN(heightM)
-      ? `${heightM >= 0 ? '+' : ''}${heightM.toFixed(2)} m vs MSL`
+      ? (() => {
+          const cm = Math.round(heightM * 100);
+          const sign = cm > 0 ? '+' : '';
+          return `${sign}${cm} cm vs MSL`;
+        })()
       : null;
 
   return (

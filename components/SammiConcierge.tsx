@@ -1,9 +1,13 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import type { SammiResponse } from '../app/api/reddit/route';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { SammiChatResponse } from '../app/api/sammi/chat/route';
-import type { SamuiWeatherForecastRow } from '../lib/spire';
+import {
+  formatTomorrowOneLiner,
+  getTomorrowForecastRow,
+  pickDailySamuiTip,
+} from '../lib/samui-concierge-intel';
+import { formatTempC, formatWindKts, type SamuiWeatherForecastRow } from '../lib/spire';
 
 // ─── Mood palette ─────────────────────────────────────────────────────────────
 
@@ -49,6 +53,8 @@ const moodCfg = {
     send:   'bg-slate-600 hover:bg-slate-500',
   },
 };
+
+type SammiMood = 'positive' | 'cautious' | 'alert' | 'neutral';
 
 // ─── Daily Steer ──────────────────────────────────────────────────────────────
 
@@ -133,7 +139,7 @@ function getDailySteer(rows: SamuiWeatherForecastRow[]): DailySteer {
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
-function Avatar({ sammiMood }: { sammiMood: SammiResponse['sammiMood'] }) {
+function Avatar({ sammiMood }: { sammiMood: SammiMood }) {
   const cfg = moodCfg[sammiMood];
   const [imgFailed, setImgFailed] = useState(false);
   return (
@@ -186,22 +192,31 @@ interface ConflictStatus {
 export default function SammiConcierge({
   forecastRows = [],
   onMapFlyTo,
+  className,
+  samuiIntel = true,
 }: {
   forecastRows?: SamuiWeatherForecastRow[];
   /** When Sammi returns `mapFlyTo` from chat API, parent pans the Mapbox map */
   onMapFlyTo?: (locationId: string) => void;
+  /** e.g. `mb-0` when parent handles fixed positioning */
+  className?: string;
+  /** false on Krabi test tab — skip Samui-only conflict / METAR divergence context */
+  samuiIntel?: boolean;
 }) {
-  const [redditData, setRedditData]   = useState<SammiResponse | null>(null);
   const [chatInput, setChatInput]     = useState('');
   const [chatMsgs, setChatMsgs]       = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [conflictStatus, setConflictStatus] = useState<ConflictStatus | null>(null);
 
-  const inputRef      = useRef<HTMLInputElement>(null);
-  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const inputRef       = useRef<HTMLInputElement>(null);
+  const intelScrollRef = useRef<HTMLDivElement>(null);
 
-  // Fetch conflict status
+  // Fetch conflict status (Koh Samui product only — VTSM + island meteoblue)
   useEffect(() => {
+    if (!samuiIntel) {
+      setConflictStatus(null);
+      return;
+    }
     fetch('/api/conflict-status')
       .then(r => r.ok ? r.json() : null)
       .then((d: { scenario: string; confidence: string; isAlert: boolean; statusBoard?: { source: string; verdict: string }[] } | null) => {
@@ -214,28 +229,13 @@ export default function SammiConcierge({
         setConflictStatus({ scenario: d.scenario, confidence: d.confidence, isAlert: d.isAlert, spireRain, meteoblueRain, satelliteDisagree });
       })
       .catch(() => {});
-  }, []);
+  }, [samuiIntel]);
 
-  // Fetch Reddit sammiSays
-  useEffect(() => {
-    const ctrl  = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    fetch('/api/reddit', { signal: ctrl.signal })
-      .then(r => r.ok ? r.json() : null)
-      .then((json: SammiResponse | null) => { clearTimeout(timer); if (json) setRedditData(json); })
-      .catch(() => clearTimeout(timer));
-    return () => { clearTimeout(timer); ctrl.abort(); };
-  }, []);
+  const tomorrowRow = useMemo(() => getTomorrowForecastRow(forecastRows), [forecastRows]);
+  const islandTip    = useMemo(() => pickDailySamuiTip(), []);
 
-  // Auto-focus input on mount
   useEffect(() => {
-    const t = setTimeout(() => inputRef.current?.focus(), 400);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Auto-scroll chat to bottom
-  useEffect(() => {
-    const el = chatScrollRef.current;
+    const el = intelScrollRef.current;
     if (!el) return;
     requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
   }, [chatMsgs, chatLoading]);
@@ -279,151 +279,154 @@ export default function SammiConcierge({
       setChatMsgs(prev => [...prev, { role: 'sammi', text: 'Signal lost. Try again in a moment.' }]);
     } finally {
       setChatLoading(false);
-      // Re-focus input after response
-      requestAnimationFrame(() => inputRef.current?.focus());
+      // Re-focus without scrolling the parent drawer
+      requestAnimationFrame(() =>
+        inputRef.current?.focus({ preventScroll: true }),
+      );
     }
   };
 
-  const sammiMood = redditData?.sammiMood ?? 'neutral';
+  /** Mood styling — community line removed; Supabase-backed chat uses its own context. */
+  const sammiMood: SammiMood = 'neutral';
   const cfg       = moodCfg[sammiMood];
   const steer     = getDailySteer(forecastRows);
   const now       = forecastRows[0];
 
   return (
-    <div className="mb-4 w-full">
-      <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900/90 via-slate-800/60 to-slate-900/90 backdrop-blur-xl">
+    <div className={['mb-4 flex min-h-0 w-full flex-col', className].filter(Boolean).join(' ')}>
+      <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-teal-200/15 bg-gradient-to-br from-teal-950/90 via-cyan-950/50 to-slate-900/90 backdrop-blur-xl">
         <div className="pointer-events-none absolute -right-10 top-0 h-full w-24 -rotate-12 bg-white/[0.025]" />
 
-        {/* ── Samui weather expert · briefing card ───────────────────────── */}
-        <div className="flex items-start gap-3 px-4 py-4">
-          <Avatar sammiMood={sammiMood} />
-
-          <div className="min-w-0 flex-1 space-y-2">
-
-            {/* SITREP row */}
-            {now && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${cfg.badge}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot} animate-pulse`} />
-                  Live conditions
-                </span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[8px] font-bold text-white/50">
-                  {Math.round(now.temp)}°C
-                </span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[8px] font-bold text-white/50">
-                  {now.precipRate > 0 ? `${now.precipRate.toFixed(1)} mm/h` : 'No rain'}
-                </span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[8px] font-bold text-white/50">
-                  {DIRS[Math.round((now.windDir ?? 0) / 22.5) % 16]} {Math.round(now.windSpeed)} kts
-                </span>
-              </div>
-            )}
-
-            {/* Steer of the moment */}
-            <div className={`rounded-xl border px-3 py-2.5 ${cfg.bubble}`}>
-              <p className="mb-1 text-[8px] font-black uppercase tracking-widest text-white/35">
-                {steer.icon} Daily Steer
-              </p>
-              <p className="text-[11px] font-medium leading-relaxed text-white/90">
-                {steer.text}
-              </p>
-              {/* Reddit sammiSays as secondary note */}
-              {redditData?.sammiSays && (
-                <p className="mt-1.5 text-[10px] italic leading-relaxed text-white/40">
-                  {redditData.sammiSays}
-                </p>
-              )}
-            </div>
-
-            {/* CTA */}
-            <p className="text-[9px] font-semibold text-white/30">
-              Ask the Samui weather expert — beaches, rain windows, or tonight&apos;s plan ↓
-            </p>
-          </div>
-        </div>
-
-        {/* ── Chat — always open, zero gap from intelligence card ─────────── */}
-        <div className="flex flex-col px-4 pb-4">
-
-          {/* Message history */}
-          <div
-            ref={chatScrollRef}
-            className="mb-2 flex max-h-52 flex-col gap-2 overflow-y-auto pr-1"
-          >
-            {chatMsgs.length === 0 && (
-              <p className="py-1 text-center text-[10px] text-white/20">
-                Samui weather expert standing by…
-              </p>
-            )}
-            {chatMsgs.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`
-                  max-w-[88%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed
-                  ${m.role === 'user'
-                    ? 'rounded-br-sm bg-white/10 text-white/80'
-                    : `rounded-bl-sm border text-white/90 ${cfg.bubble}`}
-                `}>
-                  {m.text}
-                  {m.usedVectorSearch && (m.sources?.length ?? 0) > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {m.sources!.slice(0, 2).map((s, j) => (
-                        <a key={j} href={s.url} target="_blank" rel="noopener noreferrer"
-                          className="inline-block max-w-[120px] truncate rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[8px] text-white/40 transition hover:text-white/70">
-                          ↗ {s.title.slice(0, 24)}…
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-
-            {chatLoading && (
-              <div className="flex justify-start">
-                <div className={`rounded-2xl rounded-bl-sm border px-4 py-2.5 text-[11px] ${cfg.bubble}`}>
-                  <span className="inline-flex gap-1">
-                    <span className="animate-bounce" style={{ animationDelay: '0ms'   }}>·</span>
-                    <span className="animate-bounce" style={{ animationDelay: '150ms' }}>·</span>
-                    <span className="animate-bounce" style={{ animationDelay: '300ms' }}>·</span>
+        {/* Scrollable intel + chat; ask bar fixed below (always in view) */}
+        <div
+          ref={intelScrollRef}
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 [scrollbar-gutter:stable]"
+        >
+          <div className="flex items-start gap-3">
+            <Avatar sammiMood={sammiMood} />
+            <div className="min-w-0 flex-1 space-y-2">
+              {now && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${cfg.badge}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot} animate-pulse`} />
+                    Live
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[8px] font-bold text-white/50">
+                    {formatTempC(now.temp)}°C
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[8px] font-bold text-white/50">
+                    {now.precipRate > 0 ? `${now.precipRate.toFixed(1)} mm/h` : 'No rain'}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[8px] font-bold text-white/50">
+                    {DIRS[Math.round((now.windDir ?? 0) / 22.5) % 16]} {formatWindKts(now.windSpeed)} kts
                   </span>
                 </div>
+              )}
+
+              {tomorrowRow && (
+                <div className="rounded-xl border border-cyan-500/20 bg-cyan-950/25 px-3 py-2">
+                  <p className="mb-0.5 text-[8px] font-black uppercase tracking-widest text-cyan-300/80">
+                    Tomorrow (ICT) · ~noon snapshot
+                  </p>
+                  <p className="text-[11px] font-medium leading-snug text-white/90">
+                    {formatTomorrowOneLiner(tomorrowRow)}
+                  </p>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
+                <p className="mb-0.5 text-[8px] font-black uppercase tracking-widest text-white/35">
+                  Island tip
+                </p>
+                <p className="text-[10px] leading-snug text-white/75">{islandTip}</p>
               </div>
-            )}
+
+              <div className={`rounded-xl border px-3 py-2.5 ${cfg.bubble}`}>
+                <p className="mb-1 text-[8px] font-black uppercase tracking-widest text-white/35">
+                  {steer.icon} Daily Steer
+                </p>
+                <p className="text-[11px] font-medium leading-relaxed text-white/90">{steer.text}</p>
+              </div>
+            </div>
           </div>
 
-          {/* Input row — sticky at the bottom of the chat section */}
-          <form
-            onSubmit={(e) => { e.preventDefault(); void sendMessage(); }}
-            className="sticky bottom-0 flex items-center gap-2 bg-transparent pt-1"
-            suppressHydrationWarning
-          >
-            <input
-              ref={inputRef}
-              type="text"
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              placeholder="Beach conditions? Market tonight? Best sunset spot?"
-              disabled={chatLoading}
-              suppressHydrationWarning
-              className={`
-                flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2
-                text-[11px] text-white placeholder-white/25
-                outline-none ring-0 focus:ring-1 ${cfg.input}
-                transition disabled:opacity-50
-              `}
-            />
-            <button
-              type="submit"
-              disabled={chatLoading || !chatInput.trim()}
-              suppressHydrationWarning
-              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white transition ${cfg.send} disabled:opacity-40`}
-            >
-              <svg className="h-3.5 w-3.5 fill-current" viewBox="0 0 24 24">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-              </svg>
-            </button>
-          </form>
+          {(chatMsgs.length > 0 || chatLoading) && (
+            <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+              {chatMsgs.map((m, i) => (
+                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`
+                    max-w-[92%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed
+                    ${m.role === 'user'
+                      ? 'rounded-br-sm bg-white/10 text-white/80'
+                      : `rounded-bl-sm border text-white/90 ${cfg.bubble}`}
+                  `}
+                  >
+                    {m.text}
+                    {m.usedVectorSearch && (m.sources?.length ?? 0) > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {m.sources!.slice(0, 2).map((s, j) => (
+                          <a
+                            key={j}
+                            href={s.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-block max-w-[120px] truncate rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[8px] text-white/40 transition hover:text-white/70"
+                          >
+                            ↗ {s.title.slice(0, 24)}…
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="flex justify-start">
+                  <div className={`rounded-2xl rounded-bl-sm border px-4 py-2.5 text-[11px] ${cfg.bubble}`}>
+                    <span className="inline-flex gap-1">
+                      <span className="animate-bounce" style={{ animationDelay: '0ms' }}>·</span>
+                      <span className="animate-bounce" style={{ animationDelay: '150ms' }}>·</span>
+                      <span className="animate-bounce" style={{ animationDelay: '300ms' }}>·</span>
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
+
+        <form
+          onSubmit={(e) => { e.preventDefault(); void sendMessage(); }}
+          className="flex shrink-0 items-center gap-2 border-t border-white/10 bg-teal-950/55 px-4 py-2.5 backdrop-blur-md"
+          suppressHydrationWarning
+        >
+          <input
+            ref={inputRef}
+            type="text"
+            value={chatInput}
+            onChange={e => setChatInput(e.target.value)}
+            placeholder="Ask Sammi — beaches, rain, markets…"
+            disabled={chatLoading}
+            suppressHydrationWarning
+            className={`
+              min-h-[40px] flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2
+              text-[11px] text-white placeholder-white/30
+              outline-none ring-0 focus:ring-1 ${cfg.input}
+              transition disabled:opacity-50
+            `}
+          />
+          <button
+            type="submit"
+            disabled={chatLoading || !chatInput.trim()}
+            suppressHydrationWarning
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white transition ${cfg.send} disabled:opacity-40`}
+          >
+            <svg className="h-3.5 w-3.5 fill-current" viewBox="0 0 24 24">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+            </svg>
+          </button>
+        </form>
       </div>
     </div>
   );

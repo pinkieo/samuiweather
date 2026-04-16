@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-/** Last N RainViewer `past` frames for the animated radar player (proxied tiles stay on /api/radar/...). */
-const FRAME_COUNT = 5;
+/** If nothing falls in the last-hour window, use the last N scans (RainViewer ~10 min cadence). */
+const FALLBACK_TAIL = 18;
 
 export async function GET() {
   try {
@@ -25,9 +25,17 @@ export async function GET() {
           [])
         : [];
     const list = Array.isArray(past) ? past : [];
-    const last = list.slice(-FRAME_COUNT);
+    const now = Math.floor(Date.now() / 1000);
+    const hourAgo = now - 3600;
+    const inHour = list
+      .filter((f: { time: number }) => f.time >= hourAgo)
+      .sort((a: { time: number }, b: { time: number }) => a.time - b.time);
+    const fallback = list
+      .slice(-FALLBACK_TAIL)
+      .sort((a: { time: number }, b: { time: number }) => a.time - b.time);
+    const picked = inHour.length > 0 ? inHour : fallback;
     return NextResponse.json({
-      frames: last.map((f: { path: string; time: number }) => ({
+      frames: picked.map((f: { path: string; time: number }) => ({
         path: f.path,
         time: f.time,
       })),

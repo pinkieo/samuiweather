@@ -1,12 +1,15 @@
 {
   "private": true,
   "scripts": {
+    "clean": "node -e \"const fs=require('fs');try{fs.rmSync('.next',{recursive:true,force:true});}catch(e){if(e.code!=='ENOENT')throw e;}\"",
     "dev": "next dev",
+    "dev:clean": "npm run clean && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "embed": "npx tsx scripts/embed-reddit.ts",
-    "generate-post": "npx tsx scripts/generate-post.ts"
+    "generate-post": "npx tsx scripts/generate-post.ts",
+    "radar:snapshot": "npx tsx scripts/snapshot-radar-frames.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

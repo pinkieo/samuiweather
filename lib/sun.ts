@@ -9,8 +9,13 @@ export interface SunInfo {
   sunPosition: number; // 0 to 1 progress during day, <0 or >1 during night
 }
 
-export function getSunInfo(date: Date = new Date()): SunInfo {
-  const times = SunCalc.getTimes(date, SAMUI_CENTER.lat, SAMUI_CENTER.lon);
+/** Sun/moon times for an arbitrary point (e.g. Krabi test tab). */
+export function getSunInfoAt(
+  lat: number,
+  lon: number,
+  date: Date = new Date(),
+): SunInfo {
+  const times = SunCalc.getTimes(date, lat, lon);
   
   const now = date.getTime();
   const rise = times.sunrise.getTime();
@@ -36,4 +41,9 @@ export function getSunInfo(date: Date = new Date()): SunInfo {
     isDay,
     sunPosition,
   };
+}
+
+/** Koh Samui centroid (legacy callers). */
+export function getSunInfo(date: Date = new Date()): SunInfo {
+  return getSunInfoAt(SAMUI_CENTER.lat, SAMUI_CENTER.lon, date);
 }

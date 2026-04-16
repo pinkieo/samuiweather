@@ -90,8 +90,8 @@ function formatSpireContext(snap: SpireSnapshot, radar: RadarStatus): string {
 
   return `
 SPIRE SATELLITE DATA (${time} ICT):
-- Temperature: ${snap.temp}°C (feels like ${snap.feelsLike}°C)
-- Wind: ${snap.windSpeed.toFixed(1)} kts from ${compass} (gusts to ${snap.windGust.toFixed(1)} kts)
+- Temperature: ${snap.temp.toFixed(1)}°C (feels like ${snap.feelsLike.toFixed(1)}°C)
+- Wind: ${snap.windSpeed.toFixed(2)} kts from ${compass} (gusts to ${snap.windGust.toFixed(2)} kts)
 - Precipitation rate: ${snap.precipRate.toFixed(2)} mm/h | Rain probability: ${snap.pop}%
 - Humidity: ${snap.humidity}% | Cloud cover: ${snap.cloudCover.toFixed(0)}%
 ${snap.uvIndex != null ? `- UV Index: ${snap.uvIndex.toFixed(1)}` : ''}
@@ -414,9 +414,9 @@ export async function generateSammiRedditPost(
   const forecastSummary = `
 6-HOUR OUTLOOK (from SPIRE):
 - Max precipitation rate expected: ${maxPrecip.toFixed(2)} mm/h
-- Average wind: ${avgWind.toFixed(1)} kts
+- Average wind: ${avgWind.toFixed(2)} kts
 - Hours with rain likely: ${rainHours}/6
-- Temps staying around: ${Math.round(soon.reduce((s,r)=>s+r.temp,0)/(soon.length||1))}°C
+- Temps staying around: ${(soon.reduce((s,r)=>s+r.temp,0)/(soon.length||1)).toFixed(1)}°C
 `.trim();
 
   const webcamContext  = formatWebcamContext(webcams);
@@ -515,7 +515,7 @@ export async function generateSammiRedditPost(
   const body = (parsed.body ?? raw) + visualEvidence;
 
   return {
-    title:              parsed.title ?? `Samui Today — ${snapshot.temp}°C · ${snapshot.windSpeed.toFixed(0)} kts`,
+    title:              parsed.title ?? `Samui Today — ${snapshot.temp.toFixed(1)}°C · ${snapshot.windSpeed.toFixed(2)} kts`,
     body,
     subreddit:          'weathersamui',
     flair:              'Daily Update',
