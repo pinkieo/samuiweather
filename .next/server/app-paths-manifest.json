@@ -1,6 +1,0 @@
-{
-  "/api/radar/[...path]/route": "app/api/radar/[...path]/route.js",
-  "/api/radar/frames/route": "app/api/radar/frames/route.js",
-  "/api/conflict-status/route": "app/api/conflict-status/route.js",
-  "/page": "app/page.js"
-}
