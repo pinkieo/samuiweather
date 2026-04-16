@@ -6,7 +6,6 @@ import {
 } from '@/lib/metar';
 import { metarFreshness, type SourceFreshness } from '@/lib/data-freshness';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 300;
 
 export interface MetarApiResponse {

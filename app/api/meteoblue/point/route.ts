@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 3600;
 
 /**
  * Single-location snapshot from meteoblue (same package as /api/meteoblue/forecast).

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSamuiForecastMerged } from '@/lib/spire';
 
-export const dynamic = 'force-dynamic';
+/** Edge cache: refresh at most every 6h (replaces frequent cron freshness) */
+export const revalidate = 21600;
 
 export async function GET() {
   const controller = new AbortController();

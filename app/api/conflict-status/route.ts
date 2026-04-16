@@ -4,7 +4,6 @@ import { getRadarStatus, type AirportSnapshot } from '@/lib/sammi-post-generator
 import { resolveWeatherConflict, type ConflictResult, type MeteoblueCheck } from '@/lib/weather-conflict';
 import { parseMetar, VTSM_METAR_URL, type RawMetar } from '@/lib/metar';
 
-export const dynamic = 'force-dynamic';
 export const revalidate = 300;
 
 export interface ConflictStatusResponse {

@@ -13,6 +13,8 @@ export interface AirQualityData {
   updatedAt: string;
 }
 
+export const revalidate = 3600;
+
 export async function GET() {
   const token = process.env.NEXT_PUBLIC_AQICN_TOKEN;
   console.log('[airquality] token aanwezig:', !!token);

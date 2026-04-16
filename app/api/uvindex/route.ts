@@ -15,6 +15,8 @@ export interface UVData {
   updatedAt: string;
 }
 
+export const revalidate = 3600;
+
 export async function GET() {
   const key = process.env.NEXT_PUBLIC_OPENUV_API_KEY;
   console.log('[uvindex] key aanwezig:', !!key);

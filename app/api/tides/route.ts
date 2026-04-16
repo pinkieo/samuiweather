@@ -9,6 +9,8 @@ import {
  * Tides Point API — ruwe Spire-response voor de getijden-widget.
  * GET /api/tides — optioneel ?lat=&lon= (default: Koh Samui center).
  */
+export const revalidate = 3600;
+
 export async function GET(request: Request) {
   const token = getSpireApiToken();
   if (!token) {

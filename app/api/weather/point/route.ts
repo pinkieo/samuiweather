@@ -7,7 +7,7 @@ import {
 } from '@/lib/spire';
 import type { SamuiWeatherForecastRow } from '@/lib/spire';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 21600;
 
 /**
  * SPIRE point forecast at arbitrary lat/lon (POI Intelligence Cards).

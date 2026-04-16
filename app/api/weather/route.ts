@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSamuiForecastMerged } from '@/lib/spire';
 
+export const revalidate = 3600;
+
 export async function GET() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6000);
