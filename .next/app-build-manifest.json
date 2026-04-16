@@ -1,70 +1,55 @@
 {
   "pages": {
-    "/_not-found/page": [
-      "static/chunks/webpack-6cba9194734d8b49.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-38b49df12a94ee57.js",
-      "static/chunks/main-app-cf5dfb2c17f21a31.js",
-      "static/chunks/app/_not-found/page-f7d6ede4d37d0654.js"
-    ],
-    "/api/spire-test/route": [
-      "static/chunks/webpack-6cba9194734d8b49.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-38b49df12a94ee57.js",
-      "static/chunks/main-app-cf5dfb2c17f21a31.js",
-      "static/chunks/app/api/spire-test/route-aa21e917d1fc380e.js"
-    ],
-    "/api/spire/forecast/route": [
-      "static/chunks/webpack-6cba9194734d8b49.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-38b49df12a94ee57.js",
-      "static/chunks/main-app-cf5dfb2c17f21a31.js",
-      "static/chunks/app/api/spire/forecast/route-aa21e917d1fc380e.js"
-    ],
     "/layout": [
-      "static/chunks/webpack-6cba9194734d8b49.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-38b49df12a94ee57.js",
-      "static/chunks/main-app-cf5dfb2c17f21a31.js",
-      "static/css/c71b462b4a65f5d7.css",
-      "static/chunks/app/layout-ae040c1726886896.js"
-    ],
-    "/api/spire/tides-point/route": [
-      "static/chunks/webpack-6cba9194734d8b49.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-38b49df12a94ee57.js",
-      "static/chunks/main-app-cf5dfb2c17f21a31.js",
-      "static/chunks/app/api/spire/tides-point/route-aa21e917d1fc380e.js"
-    ],
-    "/api/weather/route": [
-      "static/chunks/webpack-6cba9194734d8b49.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-38b49df12a94ee57.js",
-      "static/chunks/main-app-cf5dfb2c17f21a31.js",
-      "static/chunks/app/api/weather/route-aa21e917d1fc380e.js"
-    ],
-    "/api/spire/forecast-point/route": [
-      "static/chunks/webpack-6cba9194734d8b49.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-38b49df12a94ee57.js",
-      "static/chunks/main-app-cf5dfb2c17f21a31.js",
-      "static/chunks/app/api/spire/forecast-point/route-aa21e917d1fc380e.js"
-    ],
-    "/api/tides/route": [
-      "static/chunks/webpack-6cba9194734d8b49.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-38b49df12a94ee57.js",
-      "static/chunks/main-app-cf5dfb2c17f21a31.js",
-      "static/chunks/app/api/tides/route-aa21e917d1fc380e.js"
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/layout.css",
+      "static/chunks/app/layout.js"
     ],
     "/page": [
-      "static/chunks/webpack-6cba9194734d8b49.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-38b49df12a94ee57.js",
-      "static/chunks/main-app-cf5dfb2c17f21a31.js",
-      "static/css/4e1e82f188dc79c1.css",
-      "static/chunks/604-7e517559b142d559.js",
-      "static/chunks/app/page-75906bfe3beab39c.js"
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/page.js"
+    ],
+    "/api/conflict-status/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/conflict-status/route.js"
+    ],
+    "/api/tides/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/tides/route.js"
+    ],
+    "/api/spire/forecast/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/spire/forecast/route.js"
+    ],
+    "/api/reddit/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/reddit/route.js"
+    ],
+    "/api/radar/frames/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/radar/frames/route.js"
+    ],
+    "/api/radar/[...path]/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/radar/[...path]/route.js"
+    ],
+    "/api/weather/point/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/weather/point/route.js"
+    ],
+    "/api/meteoblue/point/route": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/api/meteoblue/point/route.js"
     ]
   }
 }

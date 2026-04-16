@@ -26,9 +26,26 @@ export function buildForecastPointUrl(
   return `${SPIRE_API_BASE}/forecast/point?${params.toString()}`;
 }
 
-export function buildTidesPointUrl(lat: number, lon: number): string {
-  const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
-  return `${SPIRE_API_BASE}/forecast/point/tides?${params.toString()}`;
+/**
+ * Spire v4 Tides Point — `/tides/point` met start + horizon (niet legacy forecast/point/tides).
+ */
+function isoUtcZNoMs(d: Date = new Date()): string {
+  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+export function buildTidesPointUrl(
+  lat: number,
+  lon: number,
+  options?: { forecastHours?: number; startDatetimeIsoUtc?: string },
+): string {
+  const start = options?.startDatetimeIsoUtc ?? isoUtcZNoMs();
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lon: String(lon),
+    start_datetime: start,
+    forecast_hours: String(options?.forecastHours ?? 24),
+  });
+  return `${SPIRE_API_BASE}/tides/point?${params.toString()}`;
 }
 
 function hintForStatus(status: number): string | undefined {
@@ -79,6 +96,7 @@ export function convertSpireValue(
 export interface SamuiWeatherForecastRow {
   time: string;
   temp: number;
+  feelsLike: number;
   windSpeed: number;
   windGust: number;
   windDir: number;
@@ -89,17 +107,19 @@ export interface SamuiWeatherForecastRow {
   pm25: number | null;
   aqi: number | null;
   aqiStatus: string | null;
+  cloudCover: number;
+  pop: number;
   /** Alleen index 0 + WAQI ok */
   station?: string | null;
 }
 
 export function getAQIDescription(aqi: number | undefined | null): string {
-  if (aqi == null || Number.isNaN(aqi)) return 'Onbekend';
-  if (aqi <= 50) return 'Goed';
-  if (aqi <= 100) return 'Matig';
-  if (aqi <= 150) return 'Ongezond (haze)';
-  if (aqi <= 200) return 'Ongezond';
-  return 'Zeer ongezond';
+  if (aqi == null || Number.isNaN(aqi)) return 'Unknown';
+  if (aqi <= 50) return 'Good';
+  if (aqi <= 100) return 'Moderate';
+  if (aqi <= 150) return 'Unhealthy for sensitive groups';
+  if (aqi <= 200) return 'Unhealthy';
+  return 'Very unhealthy';
 }
 
 function pickFirstNumber(
@@ -145,12 +165,15 @@ function mapSpirePointRow(entry: unknown): Omit<
   return {
     time: e.times?.valid_time ?? new Date().toISOString(),
     temp: convertSpireValue(Number(v.air_temperature ?? 293.15), 'temp'),
+    feelsLike: convertSpireValue(Number(v.apparent_temperature ?? v.air_temperature ?? 293.15), 'temp'),
     windSpeed: convertSpireValue(Number(v.wind_speed ?? 0), 'wind'),
     windGust: convertSpireValue(Number(v.wind_gust ?? 0), 'wind'),
     windDir: Number(v.wind_direction ?? 0),
     precip: Number(v.precipitation_amount ?? 0),
     humidity: Number(v.relative_humidity ?? 0),
     precipRate: Number(v.precipitation_rate ?? 0),
+    cloudCover: Number(v.cloud_cover ?? 0),
+    pop: Number(v.probability_of_precipitation ?? v.pop ?? 0),
     uvIndex: uv,
     pm25,
   };
@@ -172,6 +195,7 @@ type WaqiPayload = {
 export function mergeSpireWithWaqi(
   spireRows: unknown[],
   waqiData: unknown,
+  uvData?: unknown,
 ): SamuiWeatherForecastRow[] {
   const waqi = waqiData as WaqiPayload | null;
   const waqiOk =
@@ -180,29 +204,38 @@ export function mergeSpireWithWaqi(
     waqi.status === 'ok' &&
     waqi.data != null;
 
+  const uvResult = (uvData as any)?.result;
+
   return spireRows.map((row, index) => {
     const base = mapSpirePointRow(row);
     const isNow = index === 0;
 
-    if (isNow && waqiOk && waqi!.data) {
-      const d = waqi!.data;
-      const pm =
-        typeof d.iaqi?.pm25?.v === 'number' ? d.iaqi.pm25.v : base.pm25;
-      const aqiVal = typeof d.aqi === 'number' ? d.aqi : null;
+    let pm = base.pm25;
+    let aqiVal = null;
+    let aqiStatus = null;
+    let station = null;
+    let uvVal = base.uvIndex;
 
-      return {
-        ...base,
-        pm25: pm,
-        aqi: aqiVal,
-        aqiStatus: getAQIDescription(d.aqi ?? undefined),
-        station: d.city?.name ?? null,
-      };
+    if (isNow) {
+      if (waqiOk && waqi!.data) {
+        const d = waqi!.data;
+        pm = typeof d.iaqi?.pm25?.v === 'number' ? d.iaqi.pm25.v : base.pm25;
+        aqiVal = typeof d.aqi === 'number' ? d.aqi : null;
+        aqiStatus = getAQIDescription(d.aqi ?? undefined);
+        station = d.city?.name ?? null;
+      }
+      if (uvResult && typeof uvResult.uv === 'number') {
+        uvVal = Math.round(uvResult.uv * 10) / 10;
+      }
     }
 
     return {
       ...base,
-      aqi: null,
-      aqiStatus: null,
+      pm25: pm,
+      aqi: aqiVal,
+      aqiStatus,
+      station,
+      uvIndex: uvVal,
     };
   });
 }
@@ -220,7 +253,7 @@ export function mapSpireForecastPointData(raw: unknown): SamuiWeatherForecastRow
 /**
  * Parallel Spire (+ bundle-fallback) + WAQI; één array voor de frontend.
  */
-export async function getSamuiForecastMerged(): Promise<
+export async function getSamuiForecastMerged(signal?: AbortSignal): Promise<
   SamuiWeatherForecastRow[]
 > {
   const token = getSpireApiToken();
@@ -228,7 +261,8 @@ export async function getSamuiForecastMerged(): Promise<
     throw new Error('SPIRE_API_TOKEN ontbreekt');
   }
 
-  const waqiToken = process.env.WAQI_API_TOKEN?.trim();
+  const waqiToken = (process.env.WAQI_API_TOKEN || process.env.NEXT_PUBLIC_AQICN_TOKEN)?.trim();
+  const uvKey = process.env.NEXT_PUBLIC_OPENUV_API_KEY?.trim();
 
   const fetchSpire = async (): Promise<{ data?: unknown[] }> => {
     for (const bundles of [
@@ -243,6 +277,7 @@ export async function getSamuiForecastMerged(): Promise<
       );
       const r = await fetch(url, {
         headers: { 'spire-api-key': token },
+        signal,
         next: { revalidate: 900 },
       });
       if (r.ok) return (await r.json()) as { data?: unknown[] };
@@ -256,13 +291,49 @@ export async function getSamuiForecastMerged(): Promise<
   const fetchWaqi = (): Promise<unknown> => {
     if (!waqiToken) return Promise.resolve(null);
     const url = `https://api.waqi.info/feed/geo:${SAMUI_CENTER.lat};${SAMUI_CENTER.lon}/?token=${encodeURIComponent(waqiToken)}`;
-    return fetch(url, { next: { revalidate: 900 } }).then((r) =>
-      r.ok ? r.json() : null,
-    );
+    return fetch(url, { signal, next: { revalidate: 60 } })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch((e) => {
+        console.error('Spire merge fetchWaqi err:', e);
+        return null;
+      });
   };
 
-  const [spireJson, waqiJson] = await Promise.all([fetchSpire(), fetchWaqi()]);
+  const fetchUv = (): Promise<unknown> => {
+    if (!uvKey) return Promise.resolve(null);
+    const url = `https://api.openuv.io/api/v1/uv?lat=${SAMUI_CENTER.lat}&lng=${SAMUI_CENTER.lon}`;
+    return fetch(url, {
+      headers: { 'x-access-token': uvKey },
+      signal,
+      next: { revalidate: 60 },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch((e) => {
+        console.error('Spire merge fetchUv err:', e);
+        return null;
+      });
+  };
 
-  const rows = Array.isArray(spireJson?.data) ? spireJson.data : [];
-  return mergeSpireWithWaqi(rows, waqiJson);
+  const [spireJson, waqiJson, uvJson] = await Promise.all([
+    fetchSpire(),
+    fetchWaqi(),
+    fetchUv(),
+  ]);
+
+  // Debug logs
+  console.log('[mergeSpireWithWaqi] waqi ok?', !!waqiJson, '| uv ok?', !!uvJson);
+
+  let rows = Array.isArray(spireJson?.data) ? spireJson.data : [];
+  
+  // Filter historical data out, only keep from the current hour forward
+  const nowMs = Date.now();
+  const currentHourMs = nowMs - (nowMs % (60 * 60 * 1000));
+
+  rows = rows.filter((row: any) => {
+    const vt = row?.times?.valid_time;
+    if (!vt) return true;
+    return new Date(vt).getTime() >= currentHourMs;
+  });
+
+  return mergeSpireWithWaqi(rows, waqiJson, uvJson);
 }

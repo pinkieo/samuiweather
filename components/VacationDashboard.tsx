@@ -1,162 +1,204 @@
 'use client';
 
 import type { SamuiWeatherForecastRow } from '../lib/spire';
-import {
-  getBeachAdvice,
-  getPM25Badge,
-  getUVBadge,
-} from '../lib/vacation';
-import ForecastSlider from './ForecastSlider';
+import type { TideTrend } from '../lib/tides';
+import { getBeachAdvise, beachAdviseLabels, explainTideHeightMsl } from '../lib/tides';
+import { getWindInfo, getBeachGuideSentence } from '../lib/vacation';
+import { getSunInfo } from '../lib/sun';
+import HourlyForecast from './HourlyForecast';
+import DailyForecast from './DailyForecast';
 
 export type VacationDashboardProps = {
   rows: SamuiWeatherForecastRow[];
   selectedIndex: number;
   onSelectedIndexChange: (index: number) => void;
+  tideTrend: TideTrend;
+  tideHeightM: number | null;
 };
+
+// ─── Verdict logic ────────────────────────────────────────────────────────────
+
+interface Verdict {
+  label: string;
+  sub: string;
+  bg: string;
+  border: string;
+  text: string;
+  dot: string;
+}
+
+function getVerdict(row: SamuiWeatherForecastRow, sunInfo: ReturnType<typeof getSunInfo>): Verdict {
+  if (!sunInfo.isDay) {
+    return {
+      label: '🌙 Night Mode',
+      sub: `Clear night · ${row.temp}°C · Light breeze ${row.windSpeed.toFixed(0)} kts`,
+      bg: 'bg-indigo-950/60', border: 'border-indigo-500/30', text: 'text-indigo-200', dot: 'bg-indigo-400',
+    };
+  }
+  if (row.precipRate > 2) {
+    return {
+      label: '⛈️ Tropical Storm Expected',
+      sub: `${row.precipRate.toFixed(1)} mm/h · Stay indoors or seek shelter`,
+      bg: 'bg-rose-950/60', border: 'border-rose-500/40', text: 'text-rose-200', dot: 'bg-rose-400',
+    };
+  }
+  if (row.precipRate > 0.4) {
+    return {
+      label: '🌧️ Rain Likely · Bring Umbrella',
+      sub: `${row.precipRate.toFixed(1)} mm/h · ${row.temp}°C · Brief showers expected`,
+      bg: 'bg-blue-950/60', border: 'border-blue-500/30', text: 'text-blue-200', dot: 'bg-blue-400',
+    };
+  }
+  if (row.windSpeed > 18) {
+    return {
+      label: '💨 Wind Advisory · Choppy Seas',
+      sub: `${row.windSpeed.toFixed(0)} kts wind · Consider sheltered beaches`,
+      bg: 'bg-amber-950/60', border: 'border-amber-500/30', text: 'text-amber-200', dot: 'bg-amber-400',
+    };
+  }
+  if ((row.uvIndex != null && row.uvIndex > 10) || row.temp > 34) {
+    return {
+      label: '☀️ Extreme Heat · Seek Shade',
+      sub: `${row.temp}°C · UV ${row.uvIndex?.toFixed(0) ?? '—'} · Apply SPF 50+ every 2 hours`,
+      bg: 'bg-orange-950/60', border: 'border-orange-500/30', text: 'text-orange-200', dot: 'bg-orange-400',
+    };
+  }
+  if (row.uvIndex != null && row.uvIndex > 7) {
+    return {
+      label: '🏖️ Great Beach Day · High UV',
+      sub: `${row.temp}°C · UV ${row.uvIndex.toFixed(0)} · Apply SPF 50+ sunscreen`,
+      bg: 'bg-yellow-950/60', border: 'border-yellow-500/30', text: 'text-yellow-200', dot: 'bg-yellow-400',
+    };
+  }
+  return {
+    label: '🏖️ Perfect Beach Day',
+    sub: `${row.temp}°C · ${row.windSpeed.toFixed(0)} kts · Ideal conditions`,
+    bg: 'bg-emerald-950/60', border: 'border-emerald-500/30', text: 'text-emerald-200', dot: 'bg-emerald-400',
+  };
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function VacationDashboard({
   rows,
   selectedIndex,
   onSelectedIndexChange,
+  tideTrend,
+  tideHeightM,
 }: VacationDashboardProps) {
   const row = rows[selectedIndex] ?? rows[0];
   if (!row) return null;
 
-  const advice = getBeachAdvice(
+  const sunInfo = getSunInfo(new Date(row.time));
+  const verdict = getVerdict(row, sunInfo);
+
+  // Weather Now
+  const isDry = row.precipRate === 0;
+  const weatherText = isDry ? 'Clear · No Rain Expected' : 'Rain Expected · Bring Umbrella';
+
+  // Beach Guide
+  const { dir, sheltered } = getWindInfo(row.windDir);
+  const windSpeed = row.windSpeed.toFixed(1);
+  const beachStatus = getBeachAdvise(tideTrend, tideHeightM);
+  const tideShort =
+    tideHeightM != null && !Number.isNaN(tideHeightM)
+      ? explainTideHeightMsl(tideHeightM)
+      : '';
+  const beachStr = beachStatus === 'neutral' ? 'Normal' : beachAdviseLabels[beachStatus].title;
+
+  const bgClass = sunInfo.isDay ? 'bg-slate-900/80' : 'bg-slate-950/50';
+
+  const now = new Date().getTime();
+  const msToSunset = sunInfo.sunset.getTime() - now;
+  const isGoldenHour = sunInfo.isDay && msToSunset > 0 && msToSunset <= 45 * 60000;
+  const goldenHourStr = sunInfo.goldenHour.toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok',
+  });
+
+  const windCondition: 'rain' | 'choppy' | 'calm' =
+    row.precipRate > 0.4 ? 'rain' : row.windSpeed > 15 ? 'choppy' : 'calm';
+
+  const beachGuideSentence = getBeachGuideSentence(
+    row.windDir,
     row.windSpeed,
-    row.uvIndex,
-    row.precipRate,
+    sunInfo.isDay,
+    isGoldenHour,
+    windCondition,
   );
 
-  const uvBadge = getUVBadge(row.uvIndex);
-  const aqBadge = getPM25Badge(row.pm25);
-
-  const uvDisplay =
-    row.uvIndex != null ? row.uvIndex.toFixed(1) : '—';
-  const pmDisplay =
-    row.pm25 != null ? Math.round(row.pm25).toString() : '—';
-
-  const uvBarPct =
-    row.uvIndex != null
-      ? Math.min(100, Math.max(0, (row.uvIndex / 11) * 100))
-      : 0;
-
-  const aqi = row.aqi;
-  const aqiWarn = aqi != null && aqi > 100;
-  const aqiCritical = aqi != null && aqi > 150;
-
   return (
-    <div className="mt-6 border-t border-white/10 pt-6">
-      <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
-        Vakantie-check
-      </h3>
-
-      <div
-        className={`mb-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm ${advice.color}`}
-      >
-        <p className="font-black uppercase tracking-wide">{advice.label}</p>
-        <p className="mt-1 text-[11px] font-medium text-slate-300">
-          {advice.msg}
+    <div className="mb-4 flex flex-col gap-3">
+      {/* ── 1. Today · hourly (first) ─────────────────────────────────── */}
+      <div>
+        <p className="mb-2 pl-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">
+          Today · hourly
         </p>
+        <HourlyForecast rows={rows} />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-inner">
-          <div className="mb-2 flex items-start justify-between">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-              UV-index
-            </span>
-            <span className={`text-xs ${uvBadge.tone}`}>
-              {row.uvIndex != null ? `⚠ ${uvBadge.text}` : '—'}
-            </span>
-          </div>
-          <p className="font-mono text-2xl">{uvDisplay}</p>
-          <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-slate-800">
-            <div
-              className="h-full bg-gradient-to-r from-yellow-400 to-rose-600 transition-all duration-300"
-              style={{ width: `${uvBarPct}%` }}
-            />
-          </div>
-          {row.uvIndex == null && (
-            <p className="mt-2 text-[9px] text-slate-600">
-              Solar-bundel niet actief of geen UV in response
-            </p>
-          )}
-        </div>
+      {/* ── 2. Next 3 days ─────────────────────────────────────────────── */}
+      <DailyForecast rows={rows} onDayClick={onSelectedIndexChange} />
 
-        <div
-          className={`rounded-2xl border border-white/10 bg-white/5 p-4 shadow-inner transition-shadow duration-300 ${
-            aqiCritical
-              ? 'animate-pulse ring-2 ring-rose-500/70 shadow-[0_0_28px_rgba(244,63,94,0.35)]'
-              : aqiWarn
-                ? 'ring-2 ring-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.2)]'
-                : ''
-          }`}
-        >
-          <div className="mb-2 flex items-start justify-between gap-2">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-              Luchtkwaliteit
-            </span>
-            <span className={`shrink-0 text-xs ${aqBadge.tone}`}>
-              {aqBadge.text}
-            </span>
+      {/* ── 3. Verdict Hero ─────────────────────────────────────────────── */}
+      <div className={`rounded-3xl border ${verdict.border} ${verdict.bg} px-5 py-4 shadow-2xl backdrop-blur-xl`}>
+        <div className="flex items-center gap-3">
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${verdict.dot} shadow-[0_0_8px_currentColor]`} />
+          <p className={`text-base font-extrabold leading-tight ${verdict.text}`}>{verdict.label}</p>
+        </div>
+        <p className="mt-1.5 text-[11px] font-medium text-white/60 pl-[22px]">{verdict.sub}</p>
+      </div>
+
+      {/* ── 4. Weather Now + Beach Guide ────────────────────────────────── */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className={`rounded-3xl border border-white/10 p-5 shadow-2xl backdrop-blur-xl transition-colors duration-1000 ${bgClass}`}>
+          <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">Weather Now</p>
+          <p className="text-sm font-bold leading-snug text-white">{weatherText}</p>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-white">{row.temp}°C</span>
+            <span className="text-xs font-bold text-slate-400">{row.precipRate.toFixed(1)} mm/h</span>
           </div>
-          <p className="font-mono text-2xl">{pmDisplay}</p>
-          <p className="mt-1 text-[9px] uppercase text-slate-500">
-            PM2.5 (haze / smog)
+          <p className="mt-0.5 text-[11px] tracking-wider text-white/50">
+            Feels like {row.feelsLike}°C
           </p>
-          {aqi != null && (
-            <p className="mt-2 font-mono text-lg leading-tight text-slate-100">
-              AQI{' '}
-              <span
-                className={
-                  aqiCritical
-                    ? 'text-rose-400'
-                    : aqiWarn
-                      ? 'text-amber-400'
-                      : 'text-emerald-400/90'
-                }
-              >
-                {aqi}
-              </span>
+          <p className="mt-2 text-[10px] text-slate-400">
+            💧 {row.humidity}% humidity · ☁️ {row.cloudCover.toFixed(0)}% cloud cover
+          </p>
+        </div>
+
+        <div className={`rounded-3xl border border-white/10 p-5 shadow-2xl backdrop-blur-xl transition-colors duration-1000 ${bgClass}`}>
+          <div className="mb-2 flex items-center gap-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Beach Guide</p>
+            {/* Wind direction arrow */}
+            <svg className="h-3 w-3 fill-current text-emerald-400/60" viewBox="0 0 24 24"
+              style={{ transform: `rotate(${row.windDir + 180}deg)` }}>
+              <path d="M12 2L20 20L12 17L4 20L12 2Z" />
+            </svg>
+            <span className="text-[9px] font-mono text-slate-500">{windSpeed} kts</span>
+          </div>
+
+          {/* Clean human-readable sentence */}
+          <p className="text-sm font-semibold leading-snug text-white/90">
+            {beachGuideSentence}
+          </p>
+
+          {/* Compact metadata row */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
+            <span>🏖️ {beachStr}{tideShort && <span className="opacity-80"> · {tideShort}</span>}</span>
+            <span>🏝️ {sheltered.beaches}</span>
+          </div>
+
+          {isGoldenHour && (
+            <p className="mt-2 text-[10px] font-bold text-amber-400">
+              ✨ Golden Hour now! Perfect time for {sheltered.beaches} photos.
             </p>
           )}
-          {row.aqiStatus && selectedIndex === 0 && (
-            <p
-              className={`mt-1 text-[11px] font-semibold leading-snug ${
-                aqiCritical
-                  ? 'text-rose-300'
-                  : aqiWarn
-                    ? 'text-amber-200/90'
-                    : 'text-slate-400'
-              }`}
-            >
-              {row.aqiStatus}
-            </p>
-          )}
-          {row.station && selectedIndex === 0 && (
-            <p className="mt-1 truncate text-[9px] text-slate-600">
-              {row.station}
-            </p>
-          )}
-          {row.pm25 == null && selectedIndex !== 0 && (
-            <p className="mt-2 text-[9px] text-slate-600">
-              Geen PM2.5 in dit uur — schuif naar &apos;nu&apos; voor WAQI
-            </p>
-          )}
-          {row.pm25 == null && selectedIndex === 0 && !aqi && (
-            <p className="mt-2 text-[9px] text-slate-600">
-              Geen WAQI — zet WAQI_API_TOKEN
+          {sunInfo.isDay && !isGoldenHour && (
+            <p className="mt-2 text-[10px] text-slate-500">
+              🌅 Golden Hour at {goldenHourStr}
             </p>
           )}
         </div>
       </div>
-
-      <ForecastSlider
-        rows={rows}
-        value={selectedIndex}
-        onChange={onSelectedIndexChange}
-      />
     </div>
   );
 }

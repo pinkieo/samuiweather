@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getSamuiForecastMerged } from '@/lib/spire';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+
   try {
-    const rows = await getSamuiForecastMerged();
+    const rows = await getSamuiForecastMerged(controller.signal);
+    clearTimeout(timer);
     if (rows.length === 0) {
       return NextResponse.json(
         { error: 'Geen forecastdata' },
@@ -12,9 +18,13 @@ export async function GET() {
     }
     return NextResponse.json(rows);
   } catch (error) {
+    clearTimeout(timer);
     const message = error instanceof Error ? error.message : 'Onbekende fout';
     if (message.includes('SPIRE_API_TOKEN')) {
       return NextResponse.json({ error: message }, { status: 500 });
+    }
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json({ error: 'Timeout: Spire API reageert niet' }, { status: 504 });
     }
     console.error('spire/forecast:', error);
     return NextResponse.json(

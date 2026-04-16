@@ -1,10 +1,22 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import './globals.css';
+/** Global so Mapbox’s runtime check sees styles before any dynamically loaded map chunk. */
+import 'mapbox-gl/dist/mapbox-gl.css';
 
 export const metadata: Metadata = {
   title: 'Samui Pro',
   description: 'Marine intelligence — Koh Samui',
+  icons: {
+    icon: '/favicon.ico',
+  },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#020617',
 };
 
 export default function RootLayout({
@@ -13,8 +25,13 @@ export default function RootLayout({
   children: ReactNode;
 }) {
   return (
-    <html lang="nl">
-      <body className="antialiased">{children}</body>
+    <html lang="nl" className="h-full bg-[#020617]">
+      <body
+        className="min-h-[100dvh] min-h-[100svh] min-h-[100vh] overflow-hidden bg-[#020617] antialiased"
+        suppressHydrationWarning
+      >
+        {children}
+      </body>
     </html>
   );
 }
