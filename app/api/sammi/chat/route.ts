@@ -65,14 +65,14 @@ function buildSystemPrompt(weatherContext?: SammiChatRequest['weatherContext']):
 
   // ── Satellite Intelligence briefing ─────────────────────────────────────────
   const sitrep = w
-    ? `SITREP: ${typeof w.temp === 'number' ? w.temp.toFixed(1) : '?'}°C · precip ${w.precipRate?.toFixed(1) ?? '0'} mm/h · wind ${typeof w.windSpeed === 'number' ? w.windSpeed.toFixed(2) : '?'} kts`
+    ? `SITREP: ${typeof w.temp === 'number' ? w.temp.toFixed(1) : '?'}°C · precip ${w.precipRate?.toFixed(1) ?? '0'} mm/h · wind ${typeof w.windSpeed === 'number' ? w.windSpeed.toFixed(1) : '?'} m/s`
     : '';
 
   // Wind cardinal → tactical vector assessment
   const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
   const windCardinal = w?.windDir != null ? dirs[Math.round(w.windDir / 22.5) % 16] : null;
   const windVector = windCardinal
-    ? `Wind vector: ${windCardinal} at ${typeof w?.windSpeed === 'number' ? w.windSpeed.toFixed(2) : '?'} kts.${
+    ? `Wind vector: ${windCardinal} at ${typeof w?.windSpeed === 'number' ? w.windSpeed.toFixed(1) : '?'} m/s.${
         ['NE','ENE','E','ESE'].includes(windCardinal)
           ? ' NE/E vector — aircraft on finals approach low over Bang Rak beach (high tactical interest). East coast exposure elevated — redirect to west-coast assets.'
           : ['W','WNW','NW','NNW','SW','WSW'].includes(windCardinal)

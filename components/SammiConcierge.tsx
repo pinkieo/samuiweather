@@ -7,7 +7,7 @@ import {
   getTomorrowForecastRow,
   pickDailySamuiTip,
 } from '../lib/samui-concierge-intel';
-import { formatTempC, formatWindKts, type SamuiWeatherForecastRow } from '../lib/spire';
+import { formatTempC, formatWindMs, type SamuiWeatherForecastRow } from '../lib/spire';
 
 // ─── Mood palette ─────────────────────────────────────────────────────────────
 
@@ -66,38 +66,75 @@ interface DailySteer {
 
 const DIRS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
 
+const BKK_WEEKDAY_SHORT: Record<string, number> = {
+  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6,
+};
+
+/** Reliable Asia/Bangkok clock — avoid `new Date(toLocaleString())` (not parseable in all engines). */
+function bangkokHourAndWeekday(): { hour: number; day: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Bangkok',
+    hour: 'numeric',
+    hour12: false,
+    weekday: 'short',
+  }).formatToParts(new Date());
+  const hourStr = parts.find((p) => p.type === 'hour')?.value ?? '12';
+  const hour = parseInt(hourStr, 10);
+  const wd = parts.find((p) => p.type === 'weekday')?.value;
+  const day =
+    wd != null && wd in BKK_WEEKDAY_SHORT ? BKK_WEEKDAY_SHORT[wd]! : 0;
+  return {
+    hour: Number.isFinite(hour) ? hour : 12,
+    day,
+  };
+}
+
+function compass16(deg: number): string {
+  const idx =
+    ((Math.round(((deg % 360) + 360) % 360 / 22.5) % 16) + 16) % 16;
+  return DIRS[idx] ?? 'N';
+}
+
 function getDailySteer(rows: SamuiWeatherForecastRow[]): DailySteer {
+  if (rows.length === 0) {
+    return {
+      text:     'Forecast still loading — open the side panel in a moment, or ask below for island routing.',
+      category: 'clear',
+      icon:     '✅',
+    };
+  }
+
   const now  = rows[0];
   const soon = rows.slice(1, 3);
 
-  // Thailand local time
-  const ict     = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
-  const hour    = ict.getHours();
-  const day     = ict.getDay(); // 0=Sun … 6=Sat
+  const { hour, day } = bangkokHourAndWeekday();
   const eve     = hour >= 17;
   const isMarketNight = [1, 3, 5].includes(day) && eve; // Mon, Wed, Fri
   const isFriday      = day === 5 && eve;
   const dayNames      = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   // 1 — Active heavy rain
-  if (now?.precipRate > 2) return {
+  if ((now?.precipRate ?? 0) > 2) return {
     text:     'Active precipitation on radar. Redirect to covered assets: Ark Bar roof, Carnival Beach Club main shelter, or Coco Tam\'s. Check the Live Radar panel for timing.',
     category: 'weather', icon: '⛈️',
   };
 
   // 2 — Rain building within 2 hours
-  if (soon.some(r => r.precipRate > 1.5)) return {
+  if (soon.some(r => (r?.precipRate ?? 0) > 1.5)) return {
     text:     'Satellite intelligence shows precipitation building within 2 hours. Secure outdoor positions now. Covered options: Ark Bar, Carnival Beach Club, Coco Tam\'s.',
     category: 'weather', icon: '🌧️',
   };
 
-  // 3 — Wind advisory
-  if (now?.windSpeed > 18) {
-    const wc = DIRS[Math.round((now.windDir ?? 0) / 22.5) % 16];
-    if (['NE','ENE','E','ESE'].includes(wc)) return {
-      text:     `NE/E wind vector active — east coast exposure elevated. Tactical redirect: Lipa Noi or Bang Por on the west side for calm-water operations.`,
-      category: 'weather', icon: '💨',
-    };
+  // 3 — Wind advisory (NE/E onshore → east coast choppy; other directions fall through to time-of-day steer)
+  if (now != null && now.windSpeed > 9.3) {
+    const wc = compass16(now.windDir ?? 0);
+    if (['NE', 'ENE', 'E', 'ESE'].includes(wc)) {
+      return {
+        text:     'NE/E wind vector active — east coast exposure elevated. Tactical redirect: Lipa Noi or Bang Por on the west side for calm-water operations.',
+        category: 'weather', icon: '💨',
+      };
+    }
   }
 
   // 4 — Friday Walking Street
@@ -108,7 +145,7 @@ function getDailySteer(rows: SamuiWeatherForecastRow[]): DailySteer {
 
   // 5 — Mon / Wed night market
   if (isMarketNight) return {
-    text:     `Night market at Fisherman's Village tonight (${dayNames[day]}). Enter from the east end — the main gate is gridlocked. Park near The Wharf and walk in from there.`,
+    text:     `Night market at Fisherman\u2019s Village tonight (${dayNames[day]}). Enter from the east end — the main gate is gridlocked. Park near The Wharf and walk in from there.`,
     category: 'event', icon: '🏮',
   };
 
@@ -143,8 +180,8 @@ function Avatar({ sammiMood }: { sammiMood: SammiMood }) {
   const cfg = moodCfg[sammiMood];
   const [imgFailed, setImgFailed] = useState(false);
   return (
-    <div className="relative flex shrink-0 flex-col items-center gap-1">
-      <div className={`relative h-[64px] w-[64px] rounded-full ring-[3px] ${cfg.ring} ${cfg.glow} transition-all duration-700`}>
+    <div className="relative flex shrink-0 flex-col items-center gap-0.5">
+      <div className={`relative h-[52px] w-[52px] rounded-full ring-2 ${cfg.ring} ${cfg.glow} transition-all duration-700`}>
         {!imgFailed ? (
           <img src="/assets/sammi-avatar.png" alt="Sammi"
             className="h-full w-full rounded-full object-cover object-top"
@@ -161,8 +198,8 @@ function Avatar({ sammiMood }: { sammiMood: SammiMood }) {
         )}
         <span className={`absolute bottom-0.5 right-0.5 h-2.5 w-2.5 rounded-full border-2 border-slate-900 ${cfg.dot} animate-pulse`} />
       </div>
-      <p className="text-[8px] font-black uppercase tracking-widest text-white/70">SAMMI</p>
-      <p className={`text-[7px] font-bold uppercase tracking-wider ${cfg.accent}`}>Weather expert</p>
+      <p className="text-[10px] font-black uppercase tracking-widest text-white/80">SAMMI</p>
+      <p className={`text-[9px] font-bold uppercase tracking-wider ${cfg.accent}`}>Weather expert</p>
     </div>
   );
 }
@@ -234,10 +271,14 @@ export default function SammiConcierge({
   const tomorrowRow = useMemo(() => getTomorrowForecastRow(forecastRows), [forecastRows]);
   const islandTip    = useMemo(() => pickDailySamuiTip(), []);
 
+  /** Scroll to bottom only when chatting; on first load keep top visible (avatar + intel). */
   useEffect(() => {
     const el = intelScrollRef.current;
     if (!el) return;
-    requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+    const hasConversation = chatMsgs.length > 0 || chatLoading;
+    requestAnimationFrame(() => {
+      el.scrollTop = hasConversation ? el.scrollHeight : 0;
+    });
   }, [chatMsgs, chatLoading]);
 
   const sendMessage = async () => {
@@ -289,63 +330,76 @@ export default function SammiConcierge({
   /** Mood styling — community line removed; Supabase-backed chat uses its own context. */
   const sammiMood: SammiMood = 'neutral';
   const cfg       = moodCfg[sammiMood];
-  const steer     = getDailySteer(forecastRows);
+  let steer: DailySteer;
+  try {
+    steer = getDailySteer(forecastRows);
+  } catch {
+    steer = {
+      text:     'No active weather alerts. Choeng Mon and Chaweng both operational. Ask below for specific tactical advice.',
+      category: 'clear',
+      icon:     '✅',
+    };
+  }
+  const rawSteerText = typeof steer.text === 'string' ? steer.text : String(steer.text ?? '');
+  const steerText =
+    rawSteerText.trim() ||
+    'No active weather alerts. Choeng Mon and Chaweng both operational. Ask below for specific tactical advice.';
   const now       = forecastRows[0];
 
   return (
     <div className={['mb-4 flex min-h-0 w-full flex-col', className].filter(Boolean).join(' ')}>
-      <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-teal-200/15 bg-gradient-to-br from-teal-950/90 via-cyan-950/50 to-slate-900/90 backdrop-blur-xl">
+      <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-b-xl border-0 bg-slate-950 sm:rounded-b-2xl">
         <div className="pointer-events-none absolute -right-10 top-0 h-full w-24 -rotate-12 bg-white/[0.025]" />
 
         {/* Scrollable intel + chat; ask bar fixed below (always in view) */}
         <div
           ref={intelScrollRef}
-          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 [scrollbar-gutter:stable]"
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2.5 [scrollbar-gutter:stable]"
         >
           <div className="flex items-start gap-3">
             <Avatar sammiMood={sammiMood} />
             <div className="min-w-0 flex-1 space-y-2">
               {now && (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${cfg.badge}`}>
+                  <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-widest ${cfg.badge}`}>
                     <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot} animate-pulse`} />
                     Live
                   </span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[8px] font-bold text-white/50">
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60">
                     {formatTempC(now.temp)}°C
                   </span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[8px] font-bold text-white/50">
-                    {now.precipRate > 0 ? `${now.precipRate.toFixed(1)} mm/h` : 'No rain'}
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60">
+                    {(now.precipRate ?? 0) > 0 ? `${Number(now.precipRate ?? 0).toFixed(1)} mm/h` : 'No rain'}
                   </span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[8px] font-bold text-white/50">
-                    {DIRS[Math.round((now.windDir ?? 0) / 22.5) % 16]} {formatWindKts(now.windSpeed)} kts
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60">
+                    {compass16(now.windDir ?? 0)} {formatWindMs(now.windSpeed)} m/s
                   </span>
                 </div>
               )}
 
+              <div className={`min-h-[4rem] rounded-xl border px-3 py-2.5 ${cfg.bubble}`}>
+                <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  {steer.icon} Daily Steer
+                </p>
+                <p className="text-sm font-medium leading-relaxed text-white">{steerText}</p>
+              </div>
+
               {tomorrowRow && (
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-950/25 px-3 py-2">
-                  <p className="mb-0.5 text-[8px] font-black uppercase tracking-widest text-cyan-300/80">
+                  <p className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-cyan-300/90">
                     Tomorrow (ICT) · ~noon snapshot
                   </p>
-                  <p className="text-[11px] font-medium leading-snug text-white/90">
+                  <p className="text-sm font-medium leading-snug text-white/95">
                     {formatTomorrowOneLiner(tomorrowRow)}
                   </p>
                 </div>
               )}
 
               <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
-                <p className="mb-0.5 text-[8px] font-black uppercase tracking-widest text-white/35">
+                <p className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-white/50">
                   Island tip
                 </p>
-                <p className="text-[10px] leading-snug text-white/75">{islandTip}</p>
-              </div>
-
-              <div className={`rounded-xl border px-3 py-2.5 ${cfg.bubble}`}>
-                <p className="mb-1 text-[8px] font-black uppercase tracking-widest text-white/35">
-                  {steer.icon} Daily Steer
-                </p>
-                <p className="text-[11px] font-medium leading-relaxed text-white/90">{steer.text}</p>
+                <p className="text-sm leading-snug text-white/85">{islandTip}</p>
               </div>
             </div>
           </div>
@@ -356,7 +410,7 @@ export default function SammiConcierge({
                 <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div
                     className={`
-                    max-w-[92%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed
+                    max-w-[92%] rounded-2xl px-3 py-2 text-sm leading-relaxed
                     ${m.role === 'user'
                       ? 'rounded-br-sm bg-white/10 text-white/80'
                       : `rounded-bl-sm border text-white/90 ${cfg.bubble}`}
@@ -371,7 +425,7 @@ export default function SammiConcierge({
                             href={s.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-block max-w-[120px] truncate rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[8px] text-white/40 transition hover:text-white/70"
+                            className="inline-block max-w-[120px] truncate rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-white/55 transition hover:text-white/80"
                           >
                             ↗ {s.title.slice(0, 24)}…
                           </a>
@@ -383,7 +437,7 @@ export default function SammiConcierge({
               ))}
               {chatLoading && (
                 <div className="flex justify-start">
-                  <div className={`rounded-2xl rounded-bl-sm border px-4 py-2.5 text-[11px] ${cfg.bubble}`}>
+                  <div className={`rounded-2xl rounded-bl-sm border px-4 py-2.5 text-sm ${cfg.bubble}`}>
                     <span className="inline-flex gap-1">
                       <span className="animate-bounce" style={{ animationDelay: '0ms' }}>·</span>
                       <span className="animate-bounce" style={{ animationDelay: '150ms' }}>·</span>
@@ -398,7 +452,7 @@ export default function SammiConcierge({
 
         <form
           onSubmit={(e) => { e.preventDefault(); void sendMessage(); }}
-          className="flex shrink-0 items-center gap-2 border-t border-white/10 bg-teal-950/55 px-4 py-2.5 backdrop-blur-md"
+          className="flex shrink-0 items-center gap-2 border-t border-white/10 bg-slate-950 px-3 py-2.5"
           suppressHydrationWarning
         >
           <input
@@ -411,7 +465,7 @@ export default function SammiConcierge({
             suppressHydrationWarning
             className={`
               min-h-[40px] flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2
-              text-[11px] text-white placeholder-white/30
+              text-sm text-white placeholder-white/35
               outline-none ring-0 focus:ring-1 ${cfg.input}
               transition disabled:opacity-50
             `}

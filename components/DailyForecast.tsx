@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import { formatTempC, formatWindKts, type SamuiWeatherForecastRow } from '../lib/spire';
+import { formatTempC, formatWindMs, type SamuiWeatherForecastRow } from '../lib/spire';
 import { getSunInfo } from '../lib/sun';
 import { HourlyStripForCalendarDay } from './HourlyForecast';
 
@@ -152,9 +152,9 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
                 type="button"
                 onClick={() => handleDayTap(day)}
                 className={[
-                  'flex w-[5.25rem] shrink-0 snap-start flex-col items-center rounded-2xl border px-2 py-2.5 shadow-lg backdrop-blur-xl transition sm:w-[5.75rem] sm:px-2.5 sm:py-3',
-                  isToday ? 'border-cyan-500/40 bg-slate-900/90' : 'border-white/10 bg-slate-900/75',
-                  isOpen ? 'ring-1 ring-cyan-500/35' : 'hover:border-cyan-500/25 hover:bg-slate-800/85',
+                  'flex w-[5.25rem] shrink-0 snap-start flex-col items-center rounded-2xl border px-2 py-2.5 shadow-lg transition sm:w-[5.75rem] sm:px-2.5 sm:py-3',
+                  isToday ? 'border-cyan-500/40 bg-slate-900' : 'border-white/10 bg-slate-900',
+                  isOpen ? 'ring-1 ring-cyan-500/35' : 'hover:border-cyan-500/25 hover:bg-slate-800',
                 ].join(' ')}
               >
                 <span
@@ -187,7 +187,7 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
                 </div>
 
                 <div className="mt-0.5 line-clamp-1 text-[7px] text-slate-500 sm:text-[8px]">
-                  💨 {formatWindKts(day.maxWindGust)}
+                  💨 {formatWindMs(day.maxWindGust)} m/s
                 </div>
               </button>
             );
@@ -195,13 +195,13 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
         </div>
         {/* Scroll hint */}
         <div
-          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-teal-950/80 to-transparent sm:w-12"
+          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-slate-950 to-transparent sm:w-12"
           aria-hidden
         />
       </div>
 
       {expandedDayKey && expandedDay && (
-        <div className="rounded-2xl border border-cyan-500/25 bg-slate-950/70 px-3 py-3 backdrop-blur-xl">
+        <div className="rounded-2xl border border-cyan-500/25 bg-slate-950 px-3 py-3">
           <p className="mb-2 text-[9px] font-black uppercase tracking-widest text-cyan-400">
             Hourly · {expandedLabel}
           </p>

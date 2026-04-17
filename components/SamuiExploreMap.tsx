@@ -1,48 +1,36 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
-import Map, { Layer, Marker, NavigationControl, Source } from 'react-map-gl/mapbox';
-import type { MapRef } from 'react-map-gl/mapbox';
-import type { ErrorEvent, Map as MapboxMap, RasterLayerSpecification } from 'mapbox-gl';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import Map, { Layer, Marker, NavigationControl, Source } from 'react-map-gl/maplibre';
+import type { MapRef } from 'react-map-gl/maplibre';
+import type { ErrorEvent, RasterLayerSpecification, StyleSpecification } from 'maplibre-gl';
 import { ISLAND_POIS, type IslandPoi } from '../lib/island-pois';
-import { SAMUI_SATELLITE_ONLY_STYLE } from '../lib/mapbox-satellite-only-style';
-import { exploreMapTransformRequest } from '../lib/mapbox-satellite-tiles';
+import { fetchExploreBasemapStyle } from '../lib/krabi-vector-style';
+import { applyPreferredPlaceLabels } from '../lib/maplibre-place-labels';
 
-/** Cap parallel raster loads (sprites/tiles); avoids stalls when many tiles fire at once. */
-mapboxgl.maxParallelImageRequests = 16;
-
-const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-
-/** Satellite detail for Koh Samui; radar overzooms above RainViewer z7 — no need for z18+. */
+/** Satellite detail; radar overzooms above RainViewer z7 — no need for z18+. */
 const MAP_MAX_ZOOM = 16;
 
-/** ~5 km context at Koh Samui latitude — wider landing view (was ~z13, too tight). */
-const INITIAL_MAP_ZOOM = 11;
-
 /**
- * Initial center offset W + S of island centroid so NW coast (Bang Por / Maenam) sits
- * above/right of the bottom-left weather drawer instead of under it.
+ * Exacte locatie Baan Mook Taley — Long Beach, Ao Nang, Krabi (national park kust).
+ * Parent `initial*` props override when set (e.g. MapViewer region).
  */
-const INITIAL_LNG = 100.0137 - 0.034;
-const INITIAL_LAT = 9.512 - 0.02;
+const INITIAL_LNG = 98.78503;
+const INITIAL_LAT = 8.04561;
+/** Overzicht Krabi-kust (~z9); parent `initialZoom` overschrijft. */
+const INITIAL_MAP_ZOOM = 9;
 
 /**
  * RainViewer public Weather Maps API: max native zoom **7** (512 px tiles per 2025/2026 docs).
- * `maxzoom` here must be 7 so Mapbox never requests z>7 from tilecache.
+ * `maxzoom` here must be 7 so the map never requests z>7 from tilecache.
  */
 const RADAR_RASTER_MAX_ZOOM = 7;
 /** RainViewer 512 px tile grid — must match URL segment and `tileSize` on the raster source. */
 const RADAR_TILE_SIZE = 512;
-/** Above this map zoom: radar layer `visibility` → none (still mounted; saves GPU while panning zoomed in). */
-const RADAR_LAYER_HIDE_ABOVE_ZOOM = 13;
-/**
- * Keep RainViewer `Source` mounted up to the same zoom as the map (`MAP_MAX_ZOOM`).
- * Previously z>15 unmounted the source — at max zoom (16) the overlay vanished entirely.
- */
-const RADAR_REMOVE_ABOVE_ZOOM = MAP_MAX_ZOOM;
 
-function clampMapZoom(map: MapboxMap) {
+function clampMapZoom(map: maplibregl.Map) {
   map.setMaxZoom(MAP_MAX_ZOOM);
   const z = map.getZoom();
   if (z > MAP_MAX_ZOOM) {
@@ -50,14 +38,13 @@ function clampMapZoom(map: MapboxMap) {
   }
 }
 
-/** `onError` (React) + `map.on('error')` in onLoad — log only, no rethrow. */
 function handleMapError(e: ErrorEvent) {
-  const msg = e.error?.message ?? String(e.error ?? 'Mapbox error');
+  const msg = e.error?.message ?? String(e.error ?? 'MapLibre error');
   const ext = e as ErrorEvent & {
     sourceId?: string;
     tile?: { tileID?: { z: number; x: number; y: number } };
   };
-  console.warn('[Samui map]', msg, {
+  console.warn('[SamuiExploreMap]', msg, {
     sourceId: ext.sourceId,
     tile: ext.tile?.tileID ?? ext.tile,
   }, e);
@@ -73,6 +60,10 @@ export interface SamuiExploreMapProps {
   initialZoom?: number;
   /** Koh Samui POI markers (hide for Krabi test tab). Default true */
   showIslandPois?: boolean;
+  /** Villa / rain station — shown when not using island POIs (e.g. Baan Mook Taley). */
+  homeLocationPin?: { lat: number; lng: number; label: string } | null;
+  /** Shown in zoom HUD, e.g. `island` vs `coast`. */
+  mapScaleContextLabel?: string;
 }
 
 /**
@@ -90,43 +81,24 @@ function buildRadarTileUrl(framePath: string): string {
  * pick up fresh frames soon after they appear, without animating through historical frames.
  */
 export const radarDisplay = {
-  /** Mapbox raster crossfade when the tile URL changes to a new scan */
-  fadeTransitionMs: 2800,
+  /** MapLibre raster crossfade when the tile URL changes to a new scan */
+  fadeTransitionMs: 1100,
   /** Refetch `/api/radar/frames` this often (ms) — align with RainViewer ~10 min updates */
   framesPollMs: 10 * 60 * 1000,
 } as const;
 
-/**
- * RainViewer only serves native zoom 0–7 (512 px tiles). Above that, Mapbox upscales each tile —
- * that exaggerates square boundaries. We lower opacity as user zooms in so the overlay stays
- * “weather hint” not a chunky grid. Slightly lower peak opacity = calmer overlay while tuning motion.
- */
+/** RainViewer — sterke, verzadigde overlay op muted basemap (diepe blauwen, scherpe kernen). */
 const RADAR_OPACITY_PAINT: RasterLayerSpecification['paint'] = {
-  'raster-opacity': [
-    'interpolate',
-    ['linear'],
-    ['zoom'],
-    9,
-    0.48,
-    10,
-    0.42,
-    11,
-    0.36,
-    12,
-    0.32,
-    13,
-    0.28,
-  ],
+  'raster-opacity': 0.95,
   'raster-fade-duration': radarDisplay.fadeTransitionMs,
   'raster-resampling': 'linear',
-  'raster-brightness-min': 0,
+  'raster-brightness-min': 0.24,
   'raster-brightness-max': 1,
-  /** Soften hard yellow/orange boundaries between RainViewer cells */
-  'raster-contrast': -0.12,
-  'raster-saturation': -0.1,
+  'raster-saturation': 0.6,
+  'raster-contrast': 0.32,
 };
 
-const MAP_MIN_ZOOM = 9;
+const MAP_MIN_ZOOM = 8;
 
 /** Web Mercator: meters per pixel at latitude & zoom */
 function metersPerPixel(lat: number, zoom: number): number {
@@ -153,7 +125,7 @@ function scaleBarDimensions(lat: number, zoom: number): { label: string; widthPx
   return { label, widthPx };
 }
 
-/** Koh Samui — Mapbox Satellite + RainViewer latest-scan radar overlay. */
+/** Tropical OSM basemap + RainViewer radar; Koh Samui POIs or `homeLocationPin` (Krabi). */
 export default function SamuiExploreMap({
   flyToRequest = null,
   onPoiSelect,
@@ -161,19 +133,35 @@ export default function SamuiExploreMap({
   initialLatitude,
   initialZoom,
   showIslandPois = true,
+  homeLocationPin = null,
+  mapScaleContextLabel = 'island',
 }: SamuiExploreMapProps) {
   const mapRef = useRef<MapRef | null>(null);
   const startLng = initialLongitude ?? INITIAL_LNG;
   const startLat = initialLatitude ?? INITIAL_LAT;
   const startZoom = initialZoom ?? INITIAL_MAP_ZOOM;
-  /** Frame list from `/api/radar/frames` (~last hour) or `public/radar-practice.json` in practice mode. */
+  /** Live: `/api/radar/frames`. Practice: `public/radar-practice.json` (local) or `radar-practice.fixture.json` (repo). */
   const [radarFrames, setRadarFrames] = useState<{ path: string; time: number }[]>([]);
-  /** Wait for basemap + Mercator to settle before attaching RainViewer (avoids globe/tile glitches with overlays). */
+  /** Wait for basemap + Mercator to settle before attaching RainViewer (avoids tile glitches with overlays). */
   const [baseMapReady, setBaseMapReady] = useState(false);
-  /** Tracks map zoom for radar visibility + conditional source mount (matches initialViewState.zoom). */
+  /** Map zoom for UI (scale bar, zoom readout). */
   const [viewZoom, setViewZoom] = useState(startZoom);
   /** Center latitude for scale bar (Mercator m/px depends on lat). */
   const [centerLat, setCenterLat] = useState(startLat);
+  /** MapTiler streets (EN) when key set; else muted OSM raster — shared Krabi + Samui dashboard tabs. */
+  const [mapStyle, setMapStyle] = useState<StyleSpecification | null>(null);
+  /** Sammi chat panel — toggle keeps same width as Zoom / Scale / Radar (11.5rem). */
+  const [sammiPanelOpen, setSammiPanelOpen] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchExploreBasemapStyle().then(style => {
+      if (!cancelled) setMapStyle(style);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!flyToRequest) return;
@@ -189,28 +177,9 @@ export default function SamuiExploreMap({
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
-      const useFixture = process.env.NEXT_PUBLIC_RADAR_PRACTICE === '1';
-      if (useFixture) {
-        try {
-          const r = await fetch('/radar-practice.json', { cache: 'no-store' });
-          if (r.ok) {
-            const data: { frames?: { path: string; time: number }[] } = await r.json();
-            const frames = data.frames ?? [];
-            if (frames.length > 0) {
-              if (!cancelled) setRadarFrames(frames);
-              return;
-            }
-          }
-        } catch {
-          /* fall through to live API */
-        }
-        if (!cancelled) {
-          console.warn(
-            '[radar] NEXT_PUBLIC_RADAR_PRACTICE=1 but radar-practice.json missing or empty — using /api/radar/frames',
-          );
-        }
-      }
+    let pollId: number | undefined;
+
+    async function loadLiveFrames() {
       try {
         const r = await fetch('/api/radar/frames');
         const data: { frames?: { path: string; time: number }[] } = r.ok
@@ -220,16 +189,52 @@ export default function SamuiExploreMap({
       } catch {
         if (!cancelled) setRadarFrames([]);
       }
-    };
-    void load();
-    const poll = window.setInterval(() => void load(), radarDisplay.framesPollMs);
+    }
+
+    async function tryLoadPracticeSnapshot(): Promise<boolean> {
+      for (const url of ['/radar-practice.json', '/radar-practice.fixture.json'] as const) {
+        try {
+          const r = await fetch(url, { cache: 'no-store' });
+          if (!r.ok) continue;
+          const data: { frames?: { path: string; time: number }[] } = await r.json();
+          const frames = data.frames ?? [];
+          if (frames.length > 0) {
+            if (!cancelled) setRadarFrames(frames);
+            return true;
+          }
+        } catch {
+          /* try next url */
+        }
+      }
+      return false;
+    }
+
+    void (async () => {
+      const practice = process.env.NEXT_PUBLIC_RADAR_PRACTICE === '1';
+      if (practice) {
+        const ok = await tryLoadPracticeSnapshot();
+        if (ok) {
+          /* Frozen ~1.5 h snapshot — do not poll live API (would replace with “maybe no rain”). */
+          return;
+        }
+        if (!cancelled) {
+          console.warn(
+            '[radar] NEXT_PUBLIC_RADAR_PRACTICE=1 but no radar-practice.json / radar-practice.fixture.json — using live /api/radar/frames',
+          );
+        }
+      }
+      await loadLiveFrames();
+      if (cancelled) return;
+      pollId = window.setInterval(() => void loadLiveFrames(), radarDisplay.framesPollMs);
+    })();
+
     return () => {
       cancelled = true;
-      window.clearInterval(poll);
+      if (pollId !== undefined) window.clearInterval(pollId);
     };
   }, []);
 
-  /** When zoom > 14, sync `viewZoom` so radar unmount/hide tracks Mapbox even if `move` events lag (pinch / controls). */
+  /** When zoom > 14, sync `viewZoom` if `move` lags (pinch / controls). */
   useEffect(() => {
     if (!baseMapReady) return;
     const map = mapRef.current?.getMap();
@@ -272,44 +277,47 @@ export default function SamuiExploreMap({
     [activeRadarPath],
   );
 
-  /** Remount Source when the active scan path changes — keeps react-map-gl and Mapbox in sync. */
+  /** Remount Source when the active scan path changes — keeps react-map-gl and MapLibre in sync. */
   const radarSourceIdentity = activeRadarPath ?? 'empty';
 
   /**
-   * react-map-gl `Source` only applies `setTiles` when **tiles** is the sole changed prop.
-   * A new `<Layer>` element every render counts as a second change → update skipped → radar stuck/blank.
-   * Keep one stable Layer element unless zoom visibility actually changes.
+   * Stable `<Layer>` — react-map-gl skips `setTiles` when multiple Source props change at once.
    */
   const radarRasterLayer = useMemo(
     () => (
-      <Layer
-        id="rainviewer-radar-layer"
-        type="raster"
-        layout={{
-          visibility:
-            viewZoom > RADAR_LAYER_HIDE_ABOVE_ZOOM ? 'none' : 'visible',
-        }}
-        paint={RADAR_OPACITY_PAINT}
-      />
+      <Layer id="rainviewer-radar-layer" type="raster" paint={RADAR_OPACITY_PAINT} />
     ),
-    [viewZoom],
+    [],
   );
 
   /**
-   * Imperative tile URL updates — reliable even when Source+Layer both re-render (see note above).
+   * Imperative `setTiles` + double rAF so updates apply right after the source is created.
    */
   useEffect(() => {
     if (!baseMapReady || radarTiles.length === 0) return;
-    const map = mapRef.current?.getMap();
-    if (!map?.isStyleLoaded()) return;
-    try {
-      const src = map.getSource('rainviewer-radar') as
-        | { setTiles?: (tiles: string[]) => void }
-        | undefined;
-      src?.setTiles?.(radarTiles);
-    } catch {
-      /* source not mounted yet */
-    }
+    let cancelled = false;
+    const apply = () => {
+      if (cancelled) return;
+      const map = mapRef.current?.getMap();
+      if (!map?.isStyleLoaded()) return;
+      try {
+        const src = map.getSource('rainviewer-radar') as
+          | { setTiles?: (tiles: string[]) => void }
+          | undefined;
+        src?.setTiles?.(radarTiles);
+      } catch {
+        /* source not mounted yet */
+      }
+    };
+    apply();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) apply();
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [baseMapReady, radarTiles]);
 
   const scaleBar = useMemo(
@@ -317,26 +325,19 @@ export default function SamuiExploreMap({
     [centerLat, viewZoom],
   );
 
-  if (!MAPBOX_TOKEN) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-[#020617] px-4 text-center text-xs text-slate-400">
-        Set <code className="text-cyan-400">NEXT_PUBLIC_MAPBOX_TOKEN</code> in{' '}
-        <code className="text-cyan-400">.env.local</code> for explore mode.
-      </div>
-    );
+  if (!mapStyle) {
+    return <div className="relative h-full w-full min-h-[200px] bg-[#d4d2ce]" aria-hidden />;
   }
 
   return (
-    <div className="relative h-full w-full bg-[#020617]">
-      {/* Raster-only basemap (same as Mapbox-only tab) — hosted satellite-v9/globe can throw “zoom not supported” with overlays. */}
+    <div className="relative h-full w-full bg-[#d4d2ce]">
       <Map
         ref={mapRef}
-        mapboxAccessToken={MAPBOX_TOKEN}
-        mapStyle={SAMUI_SATELLITE_ONLY_STYLE}
-        transformRequest={exploreMapTransformRequest}
+        mapLib={maplibregl}
+        mapStyle={mapStyle}
+        key={mapStyle.name ?? 'explore-basemap'}
         projection="mercator"
-        antialias={false}
-        preserveDrawingBuffer={false}
+        maxParallelImageRequests={16}
         initialViewState={{
           longitude: startLng,
           latitude: startLat,
@@ -344,18 +345,17 @@ export default function SamuiExploreMap({
           bearing: 0,
           pitch: 0,
         }}
-        minZoom={9}
+        minZoom={MAP_MIN_ZOOM}
         maxZoom={MAP_MAX_ZOOM}
         renderWorldCopies={false}
         reuseMaps={false}
         style={{ width: '100%', height: '100%' }}
-        attributionControl
+        attributionControl={{}}
         scrollZoom
         boxZoom
         dragRotate={false}
         touchPitch={false}
         onClick={() => onPoiSelect?.(null)}
-        onError={handleMapError}
         onMove={evt => {
           setViewZoom(evt.viewState.zoom);
           setCenterLat(evt.viewState.latitude);
@@ -364,7 +364,6 @@ export default function SamuiExploreMap({
           const map = mapRef.current?.getMap();
           if (!map) return;
           map.on('error', handleMapError);
-          map.setProjection('mercator');
           clampMapZoom(map);
           setViewZoom(map.getZoom());
           setCenterLat(map.getCenter().lat);
@@ -375,7 +374,6 @@ export default function SamuiExploreMap({
           requestAnimationFrame(bumpResize);
           window.setTimeout(bumpResize, 120);
           window.setTimeout(bumpResize, 500);
-          // Re-sync viewport / zoom after style + tiles settle (helps overlay coordinate match vs satellite 256).
           window.setTimeout(() => {
             bumpResize();
             setViewZoom(map.getZoom());
@@ -390,6 +388,7 @@ export default function SamuiExploreMap({
           const t = window.setTimeout(finish, fallbackMs);
           map.once('idle', () => {
             window.clearTimeout(t);
+            applyPreferredPlaceLabels(map);
             bumpResize();
             finish();
           });
@@ -401,9 +400,7 @@ export default function SamuiExploreMap({
           }
         }}
       >
-        {baseMapReady &&
-          radarTiles.length > 0 &&
-          viewZoom <= RADAR_REMOVE_ABOVE_ZOOM && (
+        {baseMapReady && radarTiles.length > 0 && (
           <Source
             key={radarSourceIdentity}
             id="rainviewer-radar"
@@ -413,7 +410,6 @@ export default function SamuiExploreMap({
             minzoom={0}
             maxzoom={RADAR_RASTER_MAX_ZOOM}
             scheme="xyz"
-            crossOrigin="anonymous"
           >
             {radarRasterLayer}
           </Source>
@@ -447,12 +443,37 @@ export default function SamuiExploreMap({
           </Marker>
         ))}
 
+        {homeLocationPin && (
+          <Marker
+            longitude={homeLocationPin.lng}
+            latitude={homeLocationPin.lat}
+            anchor="bottom"
+            onClick={e => {
+              e.originalEvent?.stopPropagation();
+            }}
+          >
+            <div className="flex -translate-y-1 flex-col items-center gap-0.5">
+              <button
+                type="button"
+                className="flex h-9 w-9 cursor-default items-center justify-center rounded-full border-2 border-violet-400/90 bg-violet-600/35 text-base shadow-lg ring-2 ring-violet-300/30"
+                title={homeLocationPin.label}
+                aria-label={homeLocationPin.label}
+              >
+                📍
+              </button>
+              <span className="max-w-[8rem] truncate rounded-md border border-white/15 bg-slate-950/90 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-violet-200 shadow-md">
+                {homeLocationPin.label}
+              </span>
+            </div>
+          </Marker>
+        )}
+
         <NavigationControl position="top-right" />
       </Map>
 
-      {/* Right column: zoom + scale + radar legend, then Sammi (portal target from MapViewer) */}
-      <div className="pointer-events-none absolute right-3 top-[4.25rem] z-[15] flex w-[min(21rem,calc(100%-1rem))] max-w-[21rem] flex-col items-stretch gap-2 sm:top-[4.5rem]">
-        <div className="ml-auto flex w-[11.5rem] flex-col gap-2">
+      {/* Right column: HUD 11.5rem; Sammi wider (up to 22rem) — both flush right so edges align */}
+      <div className="pointer-events-none absolute right-3 top-[4.25rem] z-[15] flex w-[min(22rem,calc(100%-1rem))] max-w-[22rem] flex-col items-end gap-1.5 sm:top-[4.5rem]">
+        <div className="flex w-[11.5rem] flex-col gap-2">
         <div className="pointer-events-none rounded-xl border border-white/15 bg-slate-950/90 px-3 py-2.5 shadow-xl backdrop-blur-md">
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Zoom</p>
           <p className="mt-0.5 font-mono text-sm font-bold tabular-nums text-white">
@@ -478,7 +499,7 @@ export default function SamuiExploreMap({
             />
           </div>
           <p className="mt-1 text-[8px] text-slate-500">
-            {MAP_MIN_ZOOM} island · {MAP_MAX_ZOOM} detail
+            {MAP_MIN_ZOOM} {mapScaleContextLabel} · {MAP_MAX_ZOOM} detail
           </p>
         </div>
 
@@ -499,7 +520,7 @@ export default function SamuiExploreMap({
         <div className="pointer-events-none rounded-xl border border-white/15 bg-slate-950/90 px-3 py-2.5 shadow-xl backdrop-blur-md">
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Radar</p>
           <p className="mt-0.5 text-[8px] leading-snug text-slate-500">
-            RainViewer reflectivity (proxy) · opacity eases when zoomed in (native z≤7)
+            Softer blend · linear · native z≤7
           </p>
           <div
             className="mt-2 h-3 w-full rounded-md shadow-inner"
@@ -516,11 +537,61 @@ export default function SamuiExploreMap({
         </div>
         </div>
 
-        <div
-          id="sammi-chat-anchor"
-          className="pointer-events-auto mt-1 flex h-[min(62vh,34rem)] min-h-[20rem] w-full max-h-[calc(100dvh-8rem)] flex-col overflow-hidden overscroll-contain [scrollbar-gutter:stable]"
-          aria-label="Sammi concierge chat"
-        />
+        <div className="pointer-events-auto relative z-20 w-full min-w-0 max-w-[22rem] flex flex-col gap-0">
+          <button
+            type="button"
+            onClick={e => {
+              e.preventDefault();
+              e.stopPropagation();
+              setSammiPanelOpen(o => !o);
+            }}
+            onPointerDown={e => e.stopPropagation()}
+            aria-expanded={sammiPanelOpen}
+            title={sammiPanelOpen ? 'Sammi chat inklappen' : 'Sammi chat uitklappen'}
+            className={[
+              'touch-manipulation select-none flex w-full items-center justify-between gap-2 border border-white/15 bg-slate-950/90 px-2.5 text-left shadow-xl backdrop-blur-md transition-colors',
+              sammiPanelOpen ? 'rounded-t-xl border-b-0 py-2' : 'rounded-xl py-2.5',
+            ].join(' ')}
+          >
+            {sammiPanelOpen ? (
+              <>
+                <div className="min-w-0">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-cyan-400">Sammi</p>
+                  <p className="text-[8px] font-semibold leading-tight text-slate-500">Concierge</p>
+                </div>
+                <span className="shrink-0 text-base leading-none text-slate-300" aria-hidden>
+                  ▼
+                </span>
+              </>
+            ) : (
+              <>
+                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <img
+                    src="/assets/sammi-avatar.png"
+                    alt=""
+                    width={36}
+                    height={36}
+                    className="h-9 w-9 shrink-0 rounded-full object-cover object-top ring-2 ring-cyan-500/35"
+                  />
+                  <span className="truncate text-sm font-semibold tracking-tight text-white">Ask Sammi</span>
+                </div>
+                <span className="shrink-0 text-base leading-none text-slate-300" aria-hidden>
+                  ▶
+                </span>
+              </>
+            )}
+          </button>
+          <div
+            id="sammi-chat-anchor"
+            className={
+              sammiPanelOpen
+                ? 'pointer-events-auto flex h-[min(58vh,32rem)] min-h-[16rem] w-full max-h-[calc(100dvh-7rem)] flex-col overflow-hidden overscroll-contain rounded-b-xl border border-t-0 border-white/15 bg-slate-950/90 shadow-xl [scrollbar-gutter:stable]'
+                : 'pointer-events-none max-h-0 min-h-0 w-full overflow-hidden border-0 p-0 opacity-0 shadow-none'
+            }
+            aria-hidden={!sammiPanelOpen}
+            aria-label="Sammi concierge chat"
+          />
+        </div>
       </div>
 
       {/* RainViewer — bottom-left */}
@@ -534,7 +605,7 @@ export default function SamuiExploreMap({
             {Math.round(radarDisplay.framesPollMs / 60000)}m · fade {radarDisplay.fadeTransitionMs}ms
           </div>
           <p className="rounded-lg border border-white/10 bg-slate-950/85 px-2 py-1 text-[8px] leading-snug text-slate-500 backdrop-blur-sm">
-            {`RainViewer ${RADAR_TILE_SIZE}px · z≤${RADAR_RASTER_MAX_ZOOM} native; one static picture, updates when polling finds a newer frame. Layer hidden above z${RADAR_LAYER_HIDE_ABOVE_ZOOM}. Spire + meteoblue in the panel.`}
+            {`RainViewer ${RADAR_TILE_SIZE}px · z≤${RADAR_RASTER_MAX_ZOOM} native; latest scan only. Spire + meteoblue in the panel.`}
           </p>
         </div>
       </div>

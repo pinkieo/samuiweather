@@ -1,4 +1,4 @@
-/** Vakantie-/strandlogica: advies op basis van Spire-waarden (kts, UV, mm/h). */
+/** Vakantie-/strandlogica: advies op basis van Spire-waarden (wind m/s, UV, mm/h). */
 
 export type BeachAdvice = {
   label: string;
@@ -93,10 +93,11 @@ function shelteredForDir(dir: DirAbbr) {
   };
 }
 
-function windStrengthLabel(kts: number): string {
-  if (kts < 5)  return 'light';
-  if (kts < 12) return 'moderate';
-  if (kts < 20) return 'fresh';
+/** Spire wind in m/s; thresholds ≈ 5 / 12 / 20 kts. */
+function windStrengthLabel(ms: number): string {
+  if (ms < 2.6) return 'light';
+  if (ms < 6.2) return 'moderate';
+  if (ms < 10.3) return 'fresh';
   return 'strong';
 }
 
@@ -111,13 +112,13 @@ export function getWindInfo(degrees: number) {
  */
 export function getBeachGuideSentence(
   degrees: number,
-  windKts: number,
+  windMs: number,
   isDay: boolean,
   isGoldenHour: boolean,
   condition: 'rain' | 'choppy' | 'calm',
 ): string {
   const { dirName, sheltered } = getWindInfo(degrees);
-  const strength = windStrengthLabel(windKts);
+  const strength = windStrengthLabel(windMs);
 
   if (!isDay) {
     const occasion = isGoldenHour ? 'sunset dinner' : 'evening dinner';

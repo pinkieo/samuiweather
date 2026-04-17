@@ -6,7 +6,6 @@ import { createPortal } from 'react-dom';
 import type { SamuiWeatherForecastRow } from '../lib/spire';
 import type { TideTrend } from '../lib/tides';
 import { getFirstTideHeightM, getNextTideExtremum, getTideTrend } from '../lib/tides';
-import { getSunInfoAt } from '../lib/sun';
 import TideCard from './TideCard';
 import AirQualityCard from './AirQualityCard';
 import UVIndexCard from './UVIndexCard';
@@ -28,7 +27,7 @@ import {
 const SamuiExploreMap = dynamic(() => import('./SamuiExploreMap'), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full w-full items-center justify-center bg-[#020617] text-[10px] text-slate-500">
+    <div className="flex h-full w-full items-center justify-center bg-[#d4d2ce] text-[10px] text-slate-500">
       Loading map…
     </div>
   ),
@@ -41,30 +40,52 @@ function SammiChatPortal({
   forecastRows,
   onMapFlyTo,
   samuiIntel,
+  mapRegionKey,
 }: {
   forecastRows: SamuiWeatherForecastRow[];
   onMapFlyTo?: (locationId: string) => void;
   samuiIntel: boolean;
+  /** SamuiExploreMap remounts per region — re-attach portal to the new `#sammi-chat-anchor`. */
+  mapRegionKey: string;
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
 
+  /**
+   * Poll until `#sammi-chat-anchor` exists (map style loads async). Re-attach only when the map
+   * remounts (`mapRegionKey`). Do **not** depend on `forecastRows` — every Spire refresh would
+   * `setHost(null)`, remount the portal, and break clicks / inklap state.
+   */
   useEffect(() => {
-    let n = 0;
-    const tick = () => {
+    setHost(null);
+    let cancelled = false;
+    const tryAttach = (): boolean => {
       const el = document.getElementById('sammi-chat-anchor');
       if (el) {
         setHost(el);
-        return;
+        return true;
       }
-      if (++n < 120) requestAnimationFrame(tick);
+      return false;
     };
-    tick();
-  }, []);
+    if (tryAttach()) return;
+    const id = window.setInterval(() => {
+      if (cancelled) return;
+      if (tryAttach()) window.clearInterval(id);
+    }, 50);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [mapRegionKey]);
 
   if (!host) return null;
   return createPortal(
-    <div className="flex h-full min-h-[18rem] flex-col">
-      <SammiConcierge className="!mb-0 h-full min-h-0" forecastRows={forecastRows} onMapFlyTo={onMapFlyTo} />
+    <div className="pointer-events-auto flex h-full min-h-[18rem] flex-col">
+      <SammiConcierge
+        className="!mb-0 h-full min-h-0"
+        forecastRows={forecastRows}
+        onMapFlyTo={onMapFlyTo}
+        samuiIntel={samuiIntel}
+      />
     </div>,
     host,
   );
@@ -107,21 +128,21 @@ function MeteoblueModelStrip({ lat, lon }: { lat: number; lon: number }) {
           return;
         }
         const s = d.snapshot;
-        const kts =
-          s.windSpeedMs != null ? (s.windSpeedMs * 1.94384).toFixed(2) : '—';
+        const wMs =
+          s.windSpeedMs != null ? s.windSpeedMs.toFixed(1) : '—';
         const t = s.tempC != null ? `${s.tempC}°C` : '—';
         const wd =
           s.windDirDeg != null
             ? DIRS[Math.round(s.windDirDeg / 22.5) % 16]
             : '—';
-        setLabel(`meteoblue · ${t} · ${wd} ${kts} kts`);
+        setLabel(`meteoblue · ${t} · ${wd} ${wMs} m/s`);
       })
       .catch(() => setLabel('meteoblue: offline'));
     return () => c.abort();
   }, [lat, lon]);
 
   return (
-    <div className="pointer-events-none absolute left-3 top-[5.75rem] z-[8] max-w-[min(100%-1.5rem,22rem)] rounded-full border border-teal-200/20 bg-teal-950/90 px-3 py-1.5 text-[9px] font-semibold text-slate-300 shadow-xl backdrop-blur-md sm:left-[calc(1rem+28rem+0.75rem)] sm:top-4">
+    <div className="pointer-events-none absolute left-3 top-[5.75rem] z-[8] max-w-[min(100%-1.5rem,22rem)] rounded-full border border-white/10 bg-slate-950 px-3 py-1.5 text-[9px] font-semibold text-slate-300 shadow-xl sm:left-[calc(1rem+28rem+0.75rem)] sm:top-4">
       {label}
     </div>
   );
@@ -235,9 +256,6 @@ export default function MapViewer() {
   };
 
   const weather = forecastRows[selectedIndex] ?? null;
-  const isNight = weather
-    ? !getSunInfoAt(region.lat, region.lon, new Date(weather.time)).isDay
-    : false;
 
   useEffect(() => {
     setSelectedMapPoi(null);
@@ -382,6 +400,16 @@ export default function MapViewer() {
           initialLatitude={region.lat + region.latOffset}
           initialZoom={region.mapZoom}
           showIslandPois={region.isSamuiProduct}
+          homeLocationPin={
+            region.homePin
+              ? {
+                  lat: region.homePin.lat,
+                  lng: region.homePin.lon,
+                  label: region.homePin.label,
+                }
+              : null
+          }
+          mapScaleContextLabel={region.isSamuiProduct ? 'island' : 'coast'}
         />
       </div>
 
@@ -400,11 +428,11 @@ export default function MapViewer() {
         </div>
       )}
 
-      {/* ── Weather drawer — compact, top-left (not full-width) ─ */}
-      <div className="absolute left-0 top-0 z-10 w-full max-w-md px-3 pt-3 sm:left-4 sm:top-4 sm:px-0 sm:pt-0">
+      {/* ── Weather drawer — above map layer (z-0); Sammi HUD is inside map but drawer must stay clickable ─ */}
+      <div className="absolute left-0 top-0 z-30 w-full max-w-md px-3 pt-3 sm:left-4 sm:top-4 sm:px-0 sm:pt-0">
 
         {/* Region tabs — Samui vs Krabi test */}
-        <div className="mb-2 flex rounded-2xl border border-teal-200/20 bg-slate-950/85 p-1 shadow-lg backdrop-blur-md">
+        <div className="mb-2 flex rounded-2xl border border-white/10 bg-slate-950 p-1 shadow-lg">
           {DASHBOARD_REGION_TAB_ORDER.map((id) => {
             const r = getDashboardRegion(id);
             const active = dashboardRegionId === id;
@@ -434,12 +462,12 @@ export default function MapViewer() {
           aria-expanded={isDashboardOpen}
           className={[
             'flex w-full items-center justify-between gap-3 px-5 py-3 text-white',
-            'shadow-2xl backdrop-blur-md transition-all duration-300',
-            'border border-teal-200/20',
+            'shadow-2xl transition-all duration-300',
+            'border border-white/10',
             isDashboardOpen
               ? 'rounded-t-3xl border-b-0'
-              : 'rounded-3xl border-b border-teal-200/20',
-            isNight ? 'bg-teal-950/92' : 'bg-teal-900/88',
+              : 'rounded-3xl border-b border-white/10',
+            'bg-slate-950',
           ].join(' ')}
         >
           <div className="flex min-w-0 items-center gap-3">
@@ -482,7 +510,7 @@ export default function MapViewer() {
         <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isDashboardOpen ? 'max-h-[82vh]' : 'max-h-0'}`}>
           <div
             ref={drawerBodyScrollRef}
-            className={`max-h-[78vh] overflow-y-auto rounded-b-3xl border border-t-0 border-teal-200/15 p-5 text-white shadow-2xl backdrop-blur-md transition-colors duration-700 ${isNight ? 'bg-gradient-to-b from-teal-950/92 via-cyan-950/35 to-slate-950/90' : 'bg-gradient-to-b from-teal-900/88 via-cyan-950/25 to-slate-900/85'}`}
+            className={`max-h-[78vh] overflow-y-auto rounded-b-3xl border border-t-0 border-white/10 bg-slate-950 p-5 text-white shadow-2xl transition-colors duration-700`}
           >
 
             {/* Scroll anchor for storm banner */}
@@ -618,6 +646,7 @@ export default function MapViewer() {
           forecastRows={forecastRows}
           onMapFlyTo={region.isSamuiProduct ? handleMapFlyTo : undefined}
           samuiIntel={region.isSamuiProduct}
+          mapRegionKey={dashboardRegionId}
         />
       )}
     </div>

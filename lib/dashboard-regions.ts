@@ -19,6 +19,11 @@ export interface DashboardRegion {
   latOffset: number;
   /** Show Koh Samui POI markers + Sammi airport intel */
   isSamuiProduct: boolean;
+  /**
+   * Villa / station pin at true WGS84 (camera uses lat/lon + offsets).
+   * Krabi: Baan Mook Taley — rain gauge & map QA focus before Samui parity.
+   */
+  homePin?: { lat: number; lon: number; label: string };
 }
 
 /**
@@ -29,14 +34,11 @@ export const BAAN_MOOK_TALEY_AIRBNB_URL =
   'https://abnb.me/K6ysWW5z4U' as const;
 
 /**
- * WGS84 for Spire/tides/AQ/UV on the Krabi tab.
- * Uses OpenStreetMap centroid for **Klong Muang beach** (หาดคลองม่วง), i.e. the same
- * beach strip as Baan Mook Taley (166 Moo 4, Soi Klong Sai Keaw 3, Ban Nateen). For
- * sub‑100 m precision, replace with a pin from Google Maps at the pool/deck.
+ * Baan Mook Taley — Long Beach, Ao Nang, Krabi (national park kust); pin + Spire/tides.
  */
-const KRABI_BAAN_MOOK_TALEY = {
-  lat: 8.0496559,
-  lon: 98.7574128,
+export const BAAN_MOOK_TALEY_WGS84 = {
+  lat: 8.04561,
+  lon: 98.78503,
 } as const;
 
 export const DASHBOARD_REGIONS: Record<DashboardRegionId, DashboardRegion> = {
@@ -55,22 +57,29 @@ export const DASHBOARD_REGIONS: Record<DashboardRegionId, DashboardRegion> = {
     id: 'krabi_baan_mook_taley',
     shortLabel: 'Krabi',
     title: 'Krabi · Baan Mook Taley · Live radar',
-    subtitle: 'Baan Mook Taley · Klong Muang (listing: abnb.me/K6ysWW5z4U)',
-    lat: KRABI_BAAN_MOOK_TALEY.lat,
-    lon: KRABI_BAAN_MOOK_TALEY.lon,
-    mapZoom: 11,
-    lngOffset: -0.022,
-    latOffset: -0.014,
+    subtitle: 'Long Beach Ao Nang · 166 Moo 4 Soi Khlong Saikhao 3',
+    lat: BAAN_MOOK_TALEY_WGS84.lat,
+    lon: BAAN_MOOK_TALEY_WGS84.lon,
+    mapZoom: 9,
+    /** Center on property / beach (no drawer nudge — zoom shows strand). */
+    lngOffset: 0,
+    latOffset: 0,
     isSamuiProduct: false,
+    homePin: {
+      lat: BAAN_MOOK_TALEY_WGS84.lat,
+      lon: BAAN_MOOK_TALEY_WGS84.lon,
+      label: 'Baan Mook Taley',
+    },
   },
 };
 
-export const DEFAULT_DASHBOARD_REGION_ID: DashboardRegionId = 'samui';
+/** Primary QA tab while Krabi rain + map UX are validated; switch to `samui` when parity is ready. */
+export const DEFAULT_DASHBOARD_REGION_ID: DashboardRegionId = 'krabi_baan_mook_taley';
 
-/** Tab order in the UI */
+/** Tab order in the UI — Krabi first during rain-data focus. */
 export const DASHBOARD_REGION_TAB_ORDER: DashboardRegionId[] = [
-  'samui',
   'krabi_baan_mook_taley',
+  'samui',
 ];
 
 export function getDashboardRegion(id: DashboardRegionId): DashboardRegion {

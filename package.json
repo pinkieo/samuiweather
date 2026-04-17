@@ -9,13 +9,15 @@
     "lint": "next lint",
     "embed": "npx tsx scripts/embed-reddit.ts",
     "generate-post": "npx tsx scripts/generate-post.ts",
-    "radar:snapshot": "npx tsx scripts/snapshot-radar-frames.ts"
+    "radar:snapshot": "npx tsx scripts/snapshot-radar-frames.ts",
+    "radar:fixture": "npx tsx scripts/snapshot-radar-frames.ts && node -e \"require('fs').copyFileSync('public/radar-practice.json','public/radar-practice.fixture.json')\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.103.0",
     "mapbox-gl": "^3.21.0",
+    "maplibre-gl": "^5.23.0",
     "next": "^15.1.0",
     "openai": "^6.34.0",
     "react": "^19.0.0",

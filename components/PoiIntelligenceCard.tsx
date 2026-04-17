@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import type { IslandPoi } from '../lib/island-pois';
-import { formatTempC, formatWindKts, type SamuiWeatherForecastRow } from '../lib/spire';
+import { formatTempC, formatWindMs, type SamuiWeatherForecastRow } from '../lib/spire';
 
 const DIRS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 
@@ -125,7 +125,7 @@ export default function PoiIntelligenceCard({
                     {spire.precipRate > 0
                       ? `${spire.precipRate.toFixed(1)} mm/h`
                       : 'dry'}{' '}
-                    · {spDir} {formatWindKts(spire.windSpeed)} kts
+                    · {spDir} {formatWindMs(spire.windSpeed)} m/s
                   </p>
                 ) : (
                   <p className="text-slate-500">No Spire data</p>
@@ -149,7 +149,7 @@ export default function PoiIntelligenceCard({
                       : 'dry'}{' '}
                     ·{' '}
                     {modelCross.windSpeedMs != null
-                      ? `${mbDir} ${(modelCross.windSpeedMs * 1.94384).toFixed(2)} kts`
+                      ? `${mbDir} ${modelCross.windSpeedMs.toFixed(1)} m/s`
                       : '—'}
                   </p>
                 )}

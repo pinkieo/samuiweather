@@ -2,8 +2,11 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-/** If nothing falls in the last-hour window, use the last N scans (RainViewer ~10 min cadence). */
+/** If nothing falls in the last 90 min window, use the last N scans (RainViewer ~10 min cadence). */
 const FALLBACK_TAIL = 18;
+
+/** Same window as `scripts/snapshot-radar-frames.ts` (1.5 h). */
+const WINDOW_SECONDS = 90 * 60;
 
 export async function GET() {
   try {
@@ -26,14 +29,14 @@ export async function GET() {
         : [];
     const list = Array.isArray(past) ? past : [];
     const now = Math.floor(Date.now() / 1000);
-    const hourAgo = now - 3600;
-    const inHour = list
-      .filter((f: { time: number }) => f.time >= hourAgo)
+    const since = now - WINDOW_SECONDS;
+    const inWindow = list
+      .filter((f: { time: number }) => f.time >= since)
       .sort((a: { time: number }, b: { time: number }) => a.time - b.time);
     const fallback = list
       .slice(-FALLBACK_TAIL)
       .sort((a: { time: number }, b: { time: number }) => a.time - b.time);
-    const picked = inHour.length > 0 ? inHour : fallback;
+    const picked = inWindow.length > 0 ? inWindow : fallback;
     return NextResponse.json({
       frames: picked.map((f: { path: string; time: number }) => ({
         path: f.path,

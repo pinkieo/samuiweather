@@ -1,5 +1,5 @@
 import type { SamuiWeatherForecastRow } from './spire';
-import { formatTempC, formatWindKts } from './spire';
+import { formatTempC, formatWindMs } from './spire';
 
 const DIRS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 
@@ -62,7 +62,7 @@ export function formatTomorrowOneLiner(row: SamuiWeatherForecastRow): string {
     row.precipRate > 0.05
       ? `rain to ${row.precipRate.toFixed(1)} mm/h`
       : 'dry window likely';
-  return `${formatTempC(row.temp)}°C · ${wd} ${formatWindKts(row.windSpeed)} kts · ${rain}`;
+  return `${formatTempC(row.temp)}°C · ${wd} ${formatWindMs(row.windSpeed)} m/s · ${rain}`;
 }
 
 /** One tip per calendar day (stable for the day, varied across the month). */

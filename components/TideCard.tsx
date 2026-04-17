@@ -96,8 +96,8 @@ export default function TideCard({ trend, heightM, nextExtremum }: TideCardProps
     <div
       className="
         relative w-full overflow-hidden rounded-3xl border border-cyan-500/25
-        bg-gradient-to-br from-slate-900/90 via-slate-900/80 to-cyan-950/40
-        shadow-[0_4px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl
+        bg-slate-900
+        shadow-[0_4px_32px_rgba(0,0,0,0.45)]
       "
     >
       <div className="pointer-events-none absolute -left-10 top-0 h-full w-24 rotate-12 bg-white/[0.025]" />

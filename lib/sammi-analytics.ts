@@ -111,7 +111,7 @@ function summariseLogs(logs: WeatherLogRow[]): string {
   return `
 ACTUAL CONDITIONS (${logs.length} hourly readings):
 - Temperature range: ${Math.min(...temps).toFixed(1)}–${Math.max(...temps).toFixed(1)}°C (avg ${avgTemp.toFixed(1)}°C)
-- Wind: avg ${(winds.reduce((a,b)=>a+b,0)/winds.length).toFixed(2)} kts · peak ${maxWind.toFixed(2)} kts from ${windDirToCompass(logs[winds.indexOf(maxWind)]?.wind_dir ?? 0)}
+- Wind: avg ${(winds.reduce((a,b)=>a+b,0)/winds.length).toFixed(1)} m/s · peak ${maxWind.toFixed(1)} m/s from ${windDirToCompass(logs[winds.indexOf(maxWind)]?.wind_dir ?? 0)}
 - Precipitation: peak ${maxPrecip.toFixed(2)} mm/h · rain hours: ${rainHours}/24${stormHours > 0 ? ` · storm hours: ${stormHours}` : ''}
 - Dominant radar status: ${dominantStatus}
 ${rainWindows.length > 0 ? `- Rain windows (ICT): ${rainWindows.slice(0, 5).join(', ')}${rainWindows.length > 5 ? ` (+${rainWindows.length - 5} more)` : ''}` : '- No measurable rain recorded'}
@@ -223,7 +223,7 @@ export async function analyzeYesterday(): Promise<RealityCheckResult> {
   const predictedContext = `
 YESTERDAY'S PREDICTION (from Sammi's morning post — "${post.title}"):
 - Temp: ${predTemp}°C (feels like ${predFeels}°C)
-- Wind: ${typeof snap.windSpeed === 'number' ? snap.windSpeed.toFixed(2) : snap.windSpeed} kts · gusts ${typeof snap.windGust === 'number' ? snap.windGust.toFixed(2) : snap.windGust} kts
+- Wind: ${typeof snap.windSpeed === 'number' ? snap.windSpeed.toFixed(1) : snap.windSpeed} m/s · gusts ${typeof snap.windGust === 'number' ? snap.windGust.toFixed(1) : snap.windGust} m/s
 - Precip rate: ${snap.precipRate} mm/h · Rain probability: ${snap.pop}%
 - Humidity: ${snap.humidity}% · Cloud cover: ${snap.cloudCover}%
 - Radar status at prediction time: ${post.radar_status}

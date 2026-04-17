@@ -89,21 +89,25 @@ export function convertSpireValue(
     return Math.round(c * 10) / 10;
   }
   if (type === 'wind') {
-    return parseFloat((value * 1.94384).toFixed(2));
+    const ms = Number(value);
+    if (Number.isNaN(ms)) return 0;
+    return Math.round(ms * 100) / 100;
   }
   return value;
 }
 
 /** Display helper for Spire-derived °C values */
-export function formatTempC(n: number): string {
-  if (Number.isNaN(n)) return '—';
-  return n.toFixed(1);
+export function formatTempC(n: number | null | undefined): string {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '—';
+  return x.toFixed(1);
 }
 
-/** Display helper for Spire-derived wind (kts) */
-export function formatWindKts(n: number): string {
-  if (Number.isNaN(n)) return '—';
-  return n.toFixed(2);
+/** Display helper for Spire-derived wind (m/s — Spire `wind_speed` is SI). */
+export function formatWindMs(n: number | null | undefined): string {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '—';
+  return x.toFixed(1);
 }
 
 /** Eén uniforme rij voor MapViewer: Spire + live WAQI alleen op index 0. */
@@ -111,7 +115,9 @@ export interface SamuiWeatherForecastRow {
   time: string;
   temp: number;
   feelsLike: number;
+  /** m/s (Spire surface wind) */
   windSpeed: number;
+  /** m/s */
   windGust: number;
   windDir: number;
   precip: number;

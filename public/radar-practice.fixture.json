@@ -1,0 +1,47 @@
+{
+  "savedAt": "2026-04-16T17:18:35.504Z",
+  "windowMinutes": 90,
+  "windowSeconds": 5400,
+  "note": "RainViewer past frames in ~1.5 h window. Commit copy: npm run radar:fixture → public/radar-practice.fixture.json",
+  "source": "https://api.rainviewer.com/public/weather-maps.json",
+  "radarPastCount": 13,
+  "framesInWindow": 9,
+  "frames": [
+    {
+      "path": "/v2/radar/5d5b79a54889",
+      "time": 1776354600
+    },
+    {
+      "path": "/v2/radar/144a213a472e",
+      "time": 1776355200
+    },
+    {
+      "path": "/v2/radar/12b81f74d87b",
+      "time": 1776355800
+    },
+    {
+      "path": "/v2/radar/a16bc6d3e8a6",
+      "time": 1776356400
+    },
+    {
+      "path": "/v2/radar/5c3e3439f0fd",
+      "time": 1776357000
+    },
+    {
+      "path": "/v2/radar/95425a4dcc3e",
+      "time": 1776357600
+    },
+    {
+      "path": "/v2/radar/96d1218e0a9f",
+      "time": 1776358200
+    },
+    {
+      "path": "/v2/radar/7d59077e4b93",
+      "time": 1776358800
+    },
+    {
+      "path": "/v2/radar/db76ea7ccab0",
+      "time": 1776359400
+    }
+  ]
+}

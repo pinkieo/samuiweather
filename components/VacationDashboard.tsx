@@ -1,6 +1,6 @@
 'use client';
 
-import { formatTempC, formatWindKts, SAMUI_CENTER, type SamuiWeatherForecastRow } from '../lib/spire';
+import { formatTempC, formatWindMs, SAMUI_CENTER, type SamuiWeatherForecastRow } from '../lib/spire';
 import type { TideTrend } from '../lib/tides';
 import { getBeachAdvise, beachAdviseLabels, explainTideHeightMsl } from '../lib/tides';
 import { getWindInfo, getBeachGuideSentence } from '../lib/vacation';
@@ -37,7 +37,7 @@ function getVerdict(
   if (!sunInfo.isDay) {
     return {
       label: '🌙 Night Mode',
-      sub: `Clear night · ${formatTempC(row.temp)}°C · Light breeze ${formatWindKts(row.windSpeed)} kts`,
+      sub: `Clear night · ${formatTempC(row.temp)}°C · Light breeze ${formatWindMs(row.windSpeed)} m/s`,
       bg: 'bg-indigo-950/60', border: 'border-indigo-500/30', text: 'text-indigo-200', dot: 'bg-indigo-400',
     };
   }
@@ -55,10 +55,10 @@ function getVerdict(
       bg: 'bg-blue-950/60', border: 'border-blue-500/30', text: 'text-blue-200', dot: 'bg-blue-400',
     };
   }
-  if (row.windSpeed > 18) {
+  if (row.windSpeed > 9.3) {
     return {
       label: '💨 Wind Advisory · Choppy Seas',
-      sub: `${formatWindKts(row.windSpeed)} kts wind · Consider sheltered beaches`,
+      sub: `${formatWindMs(row.windSpeed)} m/s wind · Consider sheltered beaches`,
       bg: 'bg-amber-950/60', border: 'border-amber-500/30', text: 'text-amber-200', dot: 'bg-amber-400',
     };
   }
@@ -78,7 +78,7 @@ function getVerdict(
   }
   return {
     label: '🏖️ Perfect Beach Day',
-    sub: `${formatTempC(row.temp)}°C · ${formatWindKts(row.windSpeed)} kts · Ideal conditions`,
+    sub: `${formatTempC(row.temp)}°C · ${formatWindMs(row.windSpeed)} m/s · Ideal conditions`,
     bg: 'bg-emerald-950/60', border: 'border-emerald-500/30', text: 'text-emerald-200', dot: 'bg-emerald-400',
   };
 }
@@ -106,7 +106,7 @@ export default function VacationDashboard({
 
   // Beach Guide
   const { dir, sheltered } = getWindInfo(row.windDir);
-  const windSpeed = formatWindKts(row.windSpeed);
+  const windSpeed = formatWindMs(row.windSpeed);
   const beachStatus = getBeachAdvise(tideTrend, tideHeightM);
   const tideShort =
     tideHeightM != null && !Number.isNaN(tideHeightM)
@@ -114,7 +114,7 @@ export default function VacationDashboard({
       : '';
   const beachStr = beachStatus === 'neutral' ? 'Normal' : beachAdviseLabels[beachStatus].title;
 
-  const bgClass = sunInfo.isDay ? 'bg-slate-900/80' : 'bg-slate-950/50';
+  const bgClass = sunInfo.isDay ? 'bg-slate-900' : 'bg-slate-950';
 
   const now = new Date().getTime();
   const msToSunset = sunInfo.sunset.getTime() - now;
@@ -124,7 +124,7 @@ export default function VacationDashboard({
   });
 
   const windCondition: 'rain' | 'choppy' | 'calm' =
-    row.precipRate > 0.4 ? 'rain' : row.windSpeed > 15 ? 'choppy' : 'calm';
+    row.precipRate > 0.4 ? 'rain' : row.windSpeed > 7.7 ? 'choppy' : 'calm';
 
   const beachGuideSentence = getBeachGuideSentence(
     row.windDir,
@@ -148,7 +148,7 @@ export default function VacationDashboard({
       <DailyForecast rows={rows} onDayClick={onSelectedIndexChange} />
 
       {/* ── 3. Verdict Hero ─────────────────────────────────────────────── */}
-      <div className={`rounded-3xl border ${verdict.border} ${verdict.bg} px-5 py-4 shadow-2xl backdrop-blur-xl`}>
+      <div className={`rounded-3xl border ${verdict.border} ${verdict.bg} px-5 py-4 shadow-2xl`}>
         <div className="flex items-center gap-3">
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${verdict.dot} shadow-[0_0_8px_currentColor]`} />
           <p className={`text-base font-extrabold leading-tight ${verdict.text}`}>{verdict.label}</p>
@@ -158,7 +158,7 @@ export default function VacationDashboard({
 
       {/* ── 4. Weather Now + Beach Guide ────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className={`rounded-3xl border border-white/10 p-5 shadow-2xl backdrop-blur-xl transition-colors duration-1000 ${bgClass}`}>
+        <div className={`rounded-3xl border border-white/10 p-5 shadow-2xl transition-colors duration-1000 ${bgClass}`}>
           <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">Weather Now</p>
           <p className="text-sm font-bold leading-snug text-white">{weatherText}</p>
           <div className="mt-3 flex items-baseline gap-2">
@@ -173,7 +173,7 @@ export default function VacationDashboard({
           </p>
         </div>
 
-        <div className={`rounded-3xl border border-white/10 p-5 shadow-2xl backdrop-blur-xl transition-colors duration-1000 ${bgClass}`}>
+        <div className={`rounded-3xl border border-white/10 p-5 shadow-2xl transition-colors duration-1000 ${bgClass}`}>
           <div className="mb-2 flex items-center gap-1.5">
             <p className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Beach Guide</p>
             {/* Wind direction arrow */}
@@ -181,7 +181,7 @@ export default function VacationDashboard({
               style={{ transform: `rotate(${row.windDir + 180}deg)` }}>
               <path d="M12 2L20 20L12 17L4 20L12 2Z" />
             </svg>
-            <span className="text-[9px] font-mono text-slate-500">{windSpeed} kts</span>
+            <span className="text-[9px] font-mono text-slate-500">{windSpeed} m/s</span>
           </div>
 
           {/* Clean human-readable sentence */}

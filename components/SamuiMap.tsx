@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { formatTempC, formatWindKts } from '../lib/spire';
+import { formatTempC, formatWindMs } from '../lib/spire';
 import Map, { Source, Layer, NavigationControl } from 'react-map-gl/mapbox';
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -185,8 +185,8 @@ export default function SamuiMap() {
                 <p className="font-mono text-xl tracking-tighter">
                   {weather ? (
                     <>
-                      {formatWindKts(weather.windSpeed)}
-                      <span className="ml-1 text-xs opacity-50">kts</span>
+                      {formatWindMs(weather.windSpeed)}
+                      <span className="ml-1 text-xs opacity-50">m/s</span>
                     </>
                   ) : (
                     <span className="text-slate-500">—</span>
