@@ -2,6 +2,16 @@ import { SAMUI_CENTER } from './spire';
 
 export type DashboardRegionId = 'samui' | 'krabi_baan_mook_taley';
 
+/** WGS84 pins on the explore map (villa + optional Ecowitt / station). */
+export interface HomeMapPin {
+  lat: number;
+  lon: number;
+  label: string;
+  area?: string;
+  /** Small heading above the name, e.g. Ecowitt “Local Precision”. */
+  badge?: string;
+}
+
 export interface DashboardRegion {
   id: DashboardRegionId;
   /** Tab label */
@@ -20,10 +30,10 @@ export interface DashboardRegion {
   /** Show Koh Samui POI markers + Sammi airport intel */
   isSamuiProduct: boolean;
   /**
-   * Villa / station pin at true WGS84 (camera uses lat/lon + offsets).
-   * Krabi: Baan Mook Taley — rain gauge & map QA focus before Samui parity.
+   * Home / station pin(s) at true WGS84 (map `initial*` still uses lat/lon + offsets).
+   * Samui: Villa Mayula + Baan Ton Kluay (Ecowitt); Krabi: single Baan Mook Taley.
    */
-  homePin?: { lat: number; lon: number; label: string };
+  homePins?: HomeMapPin[];
 }
 
 /**
@@ -41,6 +51,24 @@ export const BAAN_MOOK_TALEY_WGS84 = {
   lon: 98.78503,
 } as const;
 
+/**
+ * Villa Mayula — WGS84 (8/205 Plai Laem Soi 7, Bo Phut, Ko Samui 84320).
+ * Google Maps centre: 9.589479, 100.065801.
+ */
+export const VILLA_MAYULA_WGS84 = {
+  lat: 9.589479,
+  lon: 100.065801,
+} as const;
+
+/**
+ * Baan Ton Kluay — Ecowitt station; WGS84 from Google Maps dropped pin.
+ * Address: 130 Thanon Bo Phut, Tambon Bo Phut, Ko Samui 84320.
+ */
+export const BAAN_TON_KLUAY_WGS84 = {
+  lat: 9.548641,
+  lon: 100.032242,
+} as const;
+
 export const DASHBOARD_REGIONS: Record<DashboardRegionId, DashboardRegion> = {
   samui: {
     id: 'samui',
@@ -52,6 +80,21 @@ export const DASHBOARD_REGIONS: Record<DashboardRegionId, DashboardRegion> = {
     lngOffset: -0.034,
     latOffset: -0.02,
     isSamuiProduct: true,
+    homePins: [
+      {
+        lat: VILLA_MAYULA_WGS84.lat,
+        lon: VILLA_MAYULA_WGS84.lon,
+        label: 'Villa Mayula',
+        area: 'Plai Laem Soi 7 · Bo Phut',
+      },
+      {
+        lat: BAAN_TON_KLUAY_WGS84.lat,
+        lon: BAAN_TON_KLUAY_WGS84.lon,
+        badge: 'Local Precision',
+        label: 'Baan Ton Kluay',
+        area: 'Koh Samui',
+      },
+    ],
   },
   krabi_baan_mook_taley: {
     id: 'krabi_baan_mook_taley',
@@ -65,11 +108,13 @@ export const DASHBOARD_REGIONS: Record<DashboardRegionId, DashboardRegion> = {
     lngOffset: 0,
     latOffset: 0,
     isSamuiProduct: false,
-    homePin: {
-      lat: BAAN_MOOK_TALEY_WGS84.lat,
-      lon: BAAN_MOOK_TALEY_WGS84.lon,
-      label: 'Baan Mook Taley',
-    },
+    homePins: [
+      {
+        lat: BAAN_MOOK_TALEY_WGS84.lat,
+        lon: BAAN_MOOK_TALEY_WGS84.lon,
+        label: 'Baan Mook Taley',
+      },
+    ],
   },
 };
 

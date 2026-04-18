@@ -28,7 +28,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Ongeldige lat/lon' }, { status: 400 });
   }
 
-  const url = buildTidesPointUrl(lat, lon);
+  /** Langere horizon = meer uurpunten voor trend (Long Beach / andere regio's). */
+  const url = buildTidesPointUrl(lat, lon, { forecastHours: 120 });
 
   try {
     const response = await fetch(url, {

@@ -18,7 +18,10 @@ function tidePhase(trend: TideTrend): { title: string; sub: string } {
   if (trend === 'steady') {
     return { title: 'Slack tide', sub: 'Around high or low water — turning.' };
   }
-  return { title: 'Tide trend unknown', sub: 'Not enough data to infer direction.' };
+  return {
+    title: 'Tide trend unknown',
+    sub: 'Could not read enough hourly tide samples from Spire for this location.',
+  };
 }
 
 /** Time until next high/low — whole hours + minutes (no decimal hours). */

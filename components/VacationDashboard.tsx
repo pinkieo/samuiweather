@@ -8,6 +8,78 @@ import { getSunInfoAt } from '../lib/sun';
 import HourlyForecast from './HourlyForecast';
 import DailyForecast from './DailyForecast';
 
+const TZ_ICT = 'Asia/Bangkok';
+
+function bangkokDateKey(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      timeZone: TZ_ICT,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+/** Uur 0–23 in ICT voor dit forecast-moment (strand-venster / avond). */
+function bangkokHourFromIso(iso: string): number {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 12;
+  const hourStr = d.toLocaleTimeString('en-US', {
+    timeZone: TZ_ICT,
+    hour: '2-digit',
+    hour12: false,
+    hourCycle: 'h23',
+  });
+  return parseInt(hourStr, 10) || 0;
+}
+
+function bangkokTimeShort(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', {
+      timeZone: TZ_ICT,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return '—';
+  }
+}
+
+/** "Today" / "Tomorrow" / korte datum — zodat helder is welk moment het oordeel beschrijft. */
+function forecastDayContextLabel(iso: string): string {
+  const rowKey = bangkokDateKey(iso);
+  const todayKey = new Date().toLocaleDateString('en-US', {
+    timeZone: TZ_ICT,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  if (rowKey === todayKey) return 'Today';
+  const tmr = new Date();
+  tmr.setDate(tmr.getDate() + 1);
+  const tomorrowKey = tmr.toLocaleDateString('en-US', {
+    timeZone: TZ_ICT,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  if (rowKey === tomorrowKey) return 'Tomorrow';
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      timeZone: TZ_ICT,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return 'Forecast';
+  }
+}
+
 export type VacationDashboardProps = {
   rows: SamuiWeatherForecastRow[];
   selectedIndex: number;
@@ -33,52 +105,59 @@ interface Verdict {
 function getVerdict(
   row: SamuiWeatherForecastRow,
   sunInfo: ReturnType<typeof getSunInfoAt>,
+  bkHour: number,
 ): Verdict {
-  if (!sunInfo.isDay) {
-    return {
-      label: '🌙 Night Mode',
-      sub: `Clear night · ${formatTempC(row.temp)}°C · Light breeze ${formatWindMs(row.windSpeed)} m/s`,
-      bg: 'bg-indigo-950/60', border: 'border-indigo-500/30', text: 'text-indigo-200', dot: 'bg-indigo-400',
-    };
-  }
+  const slot = `${forecastDayContextLabel(row.time)} · ${bangkokTimeShort(row.time)} ICT`;
+
   if (row.precipRate > 2) {
     return {
       label: '⛈️ Tropical Storm Expected',
-      sub: `${row.precipRate.toFixed(1)} mm/h · Stay indoors or seek shelter`,
+      sub: `${slot} · ${row.precipRate.toFixed(1)} mm/h · Stay indoors or seek shelter`,
       bg: 'bg-rose-950/60', border: 'border-rose-500/40', text: 'text-rose-200', dot: 'bg-rose-400',
     };
   }
   if (row.precipRate > 0.4) {
     return {
       label: '🌧️ Rain Likely · Bring Umbrella',
-      sub: `${row.precipRate.toFixed(1)} mm/h · ${formatTempC(row.temp)}°C · Brief showers expected`,
+      sub: `${slot} · ${row.precipRate.toFixed(1)} mm/h · ${formatTempC(row.temp)}°C · Brief showers expected`,
       bg: 'bg-blue-950/60', border: 'border-blue-500/30', text: 'text-blue-200', dot: 'bg-blue-400',
     };
   }
   if (row.windSpeed > 9.3) {
     return {
       label: '💨 Wind Advisory · Choppy Seas',
-      sub: `${formatWindMs(row.windSpeed)} m/s wind · Consider sheltered beaches`,
+      sub: `${slot} · ${formatWindMs(row.windSpeed)} m/s wind · Consider sheltered beaches`,
       bg: 'bg-amber-950/60', border: 'border-amber-500/30', text: 'text-amber-200', dot: 'bg-amber-400',
     };
   }
+
+  if (!sunInfo.isDay || bkHour >= 19 || bkHour < 5) {
+    const lateEvening = bkHour >= 19 && bkHour < 22;
+    return {
+      label: lateEvening ? '🌅 Evening · coast quiet' : '🌙 Night · coastal conditions',
+      sub: `${slot} · ${formatTempC(row.temp)}°C · ${formatWindMs(row.windSpeed)} m/s — outside main daylight beach window`,
+      bg: 'bg-indigo-950/60', border: 'border-indigo-500/30', text: 'text-indigo-200', dot: 'bg-indigo-400',
+    };
+  }
+
+  /** Ochtend (na zonsopgang, vóór 08:00 ICT): zelfde ladder als overdag — gebruikers checken bij opstaan. */
   if ((row.uvIndex != null && row.uvIndex > 10) || row.temp > 34) {
     return {
       label: '☀️ Extreme Heat · Seek Shade',
-      sub: `${formatTempC(row.temp)}°C · UV ${row.uvIndex?.toFixed(0) ?? '—'} · Apply SPF 50+ every 2 hours`,
+      sub: `${slot} · ${formatTempC(row.temp)}°C · UV ${row.uvIndex?.toFixed(0) ?? '—'} · Apply SPF 50+ every 2 hours`,
       bg: 'bg-orange-950/60', border: 'border-orange-500/30', text: 'text-orange-200', dot: 'bg-orange-400',
     };
   }
   if (row.uvIndex != null && row.uvIndex > 7) {
     return {
       label: '🏖️ Great Beach Day · High UV',
-      sub: `${formatTempC(row.temp)}°C · UV ${row.uvIndex.toFixed(0)} · Apply SPF 50+ sunscreen`,
+      sub: `${slot} · ${formatTempC(row.temp)}°C · UV ${row.uvIndex.toFixed(0)} · Apply SPF 50+ sunscreen`,
       bg: 'bg-yellow-950/60', border: 'border-yellow-500/30', text: 'text-yellow-200', dot: 'bg-yellow-400',
     };
   }
   return {
     label: '🏖️ Perfect Beach Day',
-    sub: `${formatTempC(row.temp)}°C · ${formatWindMs(row.windSpeed)} m/s · Ideal conditions`,
+    sub: `${slot} · ${formatTempC(row.temp)}°C · ${formatWindMs(row.windSpeed)} m/s · Ideal daytime conditions`,
     bg: 'bg-emerald-950/60', border: 'border-emerald-500/30', text: 'text-emerald-200', dot: 'bg-emerald-400',
   };
 }
@@ -97,8 +176,9 @@ export default function VacationDashboard({
   const row = rows[selectedIndex] ?? rows[0];
   if (!row) return null;
 
+  const bkHour = bangkokHourFromIso(row.time);
   const sunInfo = getSunInfoAt(sunLatitude, sunLongitude, new Date(row.time));
-  const verdict = getVerdict(row, sunInfo);
+  const verdict = getVerdict(row, sunInfo, bkHour);
 
   // Weather Now
   const isDry = row.precipRate === 0;
@@ -116,8 +196,8 @@ export default function VacationDashboard({
 
   const bgClass = sunInfo.isDay ? 'bg-slate-900' : 'bg-slate-950';
 
-  const now = new Date().getTime();
-  const msToSunset = sunInfo.sunset.getTime() - now;
+  const rowTimeMs = new Date(row.time).getTime();
+  const msToSunset = sunInfo.sunset.getTime() - rowTimeMs;
   const isGoldenHour = sunInfo.isDay && msToSunset > 0 && msToSunset <= 45 * 60000;
   const goldenHourStr = sunInfo.goldenHour.toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok',
@@ -141,7 +221,7 @@ export default function VacationDashboard({
         <p className="mb-2 pl-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">
           Today · hourly
         </p>
-        <HourlyForecast rows={rows} />
+        <HourlyForecast rows={rows} selectedIndex={selectedIndex} onHourSelect={onSelectedIndexChange} />
       </div>
 
       {/* ── 2. Daily outlook (scrollable, up to 30 days) ──────────────── */}
@@ -159,7 +239,10 @@ export default function VacationDashboard({
       {/* ── 4. Weather Now + Beach Guide ────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className={`rounded-3xl border border-white/10 p-5 shadow-2xl transition-colors duration-1000 ${bgClass}`}>
-          <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">Weather Now</p>
+          <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">Weather snapshot</p>
+          <p className="mb-2 text-[10px] text-slate-500">
+            {forecastDayContextLabel(row.time)} · {bangkokTimeShort(row.time)} ICT
+          </p>
           <p className="text-sm font-bold leading-snug text-white">{weatherText}</p>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-white">{formatTempC(row.temp)}°C</span>

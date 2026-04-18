@@ -251,7 +251,7 @@ export default function MapViewer() {
       key: Date.now(),
       lng: p.lon,
       lat: p.lat,
-      zoom: 16.2,
+      zoom: 18.2,
     });
   };
 
@@ -400,14 +400,14 @@ export default function MapViewer() {
           initialLatitude={region.lat + region.latOffset}
           initialZoom={region.mapZoom}
           showIslandPois={region.isSamuiProduct}
-          homeLocationPin={
-            region.homePin
-              ? {
-                  lat: region.homePin.lat,
-                  lng: region.homePin.lon,
-                  label: region.homePin.label,
-                }
-              : null
+          homeLocationPins={
+            region.homePins?.map(p => ({
+              lat: p.lat,
+              lng: p.lon,
+              label: p.label,
+              area: p.area,
+              badge: p.badge,
+            })) ?? null
           }
           mapScaleContextLabel={region.isSamuiProduct ? 'island' : 'coast'}
         />
@@ -595,9 +595,14 @@ export default function MapViewer() {
                     <span className="text-[10px] text-slate-500">{showAirUV ? '▲' : '▼'}</span>
                   </button>
                   {showAirUV && (
-                    <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="mt-2 flex flex-col gap-3">
+                      <UVIndexCard
+                        latitude={region.lat}
+                        longitude={region.lon}
+                        windSpeedMs={weather.windSpeed}
+                        windDirDeg={weather.windDir}
+                      />
                       <AirQualityCard latitude={region.lat} longitude={region.lon} />
-                      <UVIndexCard latitude={region.lat} longitude={region.lon} />
                     </div>
                   )}
                 </div>

@@ -20,6 +20,8 @@ interface DailyData {
   maxTemp: number;
   maxPop: number;
   maxPrecipRate: number;
+  /** Strongest hourly sustained wind (m/s) — matches hourly strip / Sammi wording. */
+  maxWindSpeed: number;
   maxWindGust: number;
   avgCloudCover: number;
   hoursCount: number;
@@ -65,6 +67,7 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
         maxTemp: row.temp,
         maxPop: pop,
         maxPrecipRate: row.precipRate,
+        maxWindSpeed: row.windSpeed,
         maxWindGust: row.windGust,
         avgCloudCover: row.cloudCover,
         hoursCount: 1,
@@ -76,6 +79,7 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
       data.maxTemp = Math.max(data.maxTemp, row.temp);
       data.maxPop = Math.max(data.maxPop, pop);
       data.maxPrecipRate = Math.max(data.maxPrecipRate, row.precipRate);
+      data.maxWindSpeed = Math.max(data.maxWindSpeed, row.windSpeed);
       data.maxWindGust = Math.max(data.maxWindGust, row.windGust);
       data.avgCloudCover += row.cloudCover;
       data.hoursCount += 1;
@@ -186,8 +190,16 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
                   <span className="text-slate-400">{formatTempC(day.minTemp)}°</span>
                 </div>
 
-                <div className="mt-0.5 line-clamp-1 text-[7px] text-slate-500 sm:text-[8px]">
-                  💨 {formatWindMs(day.maxWindGust)} m/s
+                <div
+                  className="mt-0.5 line-clamp-2 text-[7px] text-slate-500 sm:text-[8px]"
+                  title="Peak sustained wind that day (hourly Spire steps). Gust can be higher — see hourly tile for one hour."
+                >
+                  💨 {formatWindMs(day.maxWindSpeed)} m/s peak
+                  {day.maxWindGust > day.maxWindSpeed + 0.05 ? (
+                    <span className="block text-[6px] text-slate-600 sm:text-[7px]">
+                      gust {formatWindMs(day.maxWindGust)} m/s
+                    </span>
+                  ) : null}
                 </div>
               </button>
             );

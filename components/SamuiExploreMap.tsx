@@ -10,8 +10,8 @@ import { ISLAND_POIS, type IslandPoi } from '../lib/island-pois';
 import { fetchExploreBasemapStyle } from '../lib/krabi-vector-style';
 import { applyPreferredPlaceLabels } from '../lib/maplibre-place-labels';
 
-/** Satellite detail; radar overzooms above RainViewer z7 — no need for z18+. */
-const MAP_MAX_ZOOM = 16;
+/** Streets/POI detail (restaurants, etc.); RainViewer raster stays native z≤7 and overzooms above that. */
+const MAP_MAX_ZOOM = 20;
 
 /**
  * Exacte locatie Baan Mook Taley — Long Beach, Ao Nang, Krabi (national park kust).
@@ -29,6 +29,16 @@ const INITIAL_MAP_ZOOM = 9;
 const RADAR_RASTER_MAX_ZOOM = 7;
 /** RainViewer 512 px tile grid — must match URL segment and `tileSize` on the raster source. */
 const RADAR_TILE_SIZE = 512;
+
+/**
+ * Koh Samui product tab only (`showIslandPois`): pan cannot move the viewport off the island/Gulf framing.
+ * Krabi tab does not set `maxBounds` — unchanged.
+ * SW / NE corners [lng, lat].
+ */
+const SAMUI_MAX_BOUNDS: [[number, number], [number, number]] = [
+  [99.74, 9.32],
+  [100.3, 9.74],
+];
 
 function clampMapZoom(map: maplibregl.Map) {
   map.setMaxZoom(MAP_MAX_ZOOM);
@@ -60,8 +70,10 @@ export interface SamuiExploreMapProps {
   initialZoom?: number;
   /** Koh Samui POI markers (hide for Krabi test tab). Default true */
   showIslandPois?: boolean;
-  /** Villa / rain station — shown when not using island POIs (e.g. Baan Mook Taley). */
-  homeLocationPin?: { lat: number; lng: number; label: string } | null;
+  /** Villa / station pin(s) — e.g. Samui (Mayula + Ecowitt) or Krabi single home. */
+  homeLocationPins?:
+    | { lat: number; lng: number; label: string; area?: string; badge?: string }[]
+    | null;
   /** Shown in zoom HUD, e.g. `island` vs `coast`. */
   mapScaleContextLabel?: string;
 }
@@ -105,6 +117,31 @@ function metersPerPixel(lat: number, zoom: number): number {
   return (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
 }
 
+/**
+ * Finer than classic 1–2–5–10 so zooming doesn’t jump e.g. 10 → 5 → 2 km with nothing between.
+ * Mantissas are chosen so labels stay readable (Mapbox-style density).
+ */
+const SCALE_NICE_MANTISSAS = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 8, 10] as const;
+
+/** Smallest “nice” distance ≥ distM at this decade (meters). */
+function ceilNiceMeters(distM: number): number {
+  const exp = Math.floor(Math.log10(distM));
+  const pow10 = 10 ** exp;
+  const mantissa = distM / pow10; // [1, 10)
+  const pick =
+    SCALE_NICE_MANTISSAS.find((m) => m >= mantissa - 1e-9) ?? 10;
+  return pick * pow10;
+}
+
+function formatScaleBarLabel(niceM: number): string {
+  if (niceM >= 1000) {
+    const km = niceM / 1000;
+    if (Math.abs(km - Math.round(km)) < 1e-4) return `${Math.round(km)} km`;
+    return `${km.toFixed(1)} km`;
+  }
+  return `${Math.round(niceM)} m`;
+}
+
 /** Nice round distance (m) and bar width (px) for a ~72px target bar */
 function scaleBarDimensions(lat: number, zoom: number): { label: string; widthPx: number } {
   const mpp = metersPerPixel(lat, zoom);
@@ -113,19 +150,12 @@ function scaleBarDimensions(lat: number, zoom: number): { label: string; widthPx
   if (!Number.isFinite(distM) || distM <= 0 || !Number.isFinite(mpp)) {
     return { label: '—', widthPx: 0 };
   }
-  const pow10 = 10 ** Math.floor(Math.log10(distM));
-  const n = distM / pow10;
-  const mult = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
-  const niceM = mult * pow10;
+  const niceM = ceilNiceMeters(distM);
   const widthPx = Math.min(120, Math.max(24, niceM / mpp));
-  const label =
-    niceM >= 1000
-      ? `${niceM % 1000 === 0 ? niceM / 1000 : (niceM / 1000).toFixed(1)} km`
-      : `${Math.round(niceM)} m`;
-  return { label, widthPx };
+  return { label: formatScaleBarLabel(niceM), widthPx };
 }
 
-/** Tropical OSM basemap + RainViewer radar; Koh Samui POIs or `homeLocationPin` (Krabi). */
+/** Tropical OSM basemap + RainViewer radar; Koh Samui POIs or `homeLocationPins` (villa + station). */
 export default function SamuiExploreMap({
   flyToRequest = null,
   onPoiSelect,
@@ -133,7 +163,7 @@ export default function SamuiExploreMap({
   initialLatitude,
   initialZoom,
   showIslandPois = true,
-  homeLocationPin = null,
+  homeLocationPins = null,
   mapScaleContextLabel = 'island',
 }: SamuiExploreMapProps) {
   const mapRef = useRef<MapRef | null>(null);
@@ -169,7 +199,7 @@ export default function SamuiExploreMap({
     if (!m) return;
     m.flyTo({
       center: [flyToRequest.lng, flyToRequest.lat],
-      zoom: Math.min(flyToRequest.zoom ?? 16, MAP_MAX_ZOOM),
+      zoom: Math.min(flyToRequest.zoom ?? 17.5, MAP_MAX_ZOOM),
       duration: 2200,
       essential: true,
     });
@@ -351,7 +381,9 @@ export default function SamuiExploreMap({
         reuseMaps={false}
         style={{ width: '100%', height: '100%' }}
         attributionControl={{}}
-        scrollZoom
+        maxBounds={showIslandPois ? SAMUI_MAX_BOUNDS : undefined}
+        scrollZoom={showIslandPois ? { around: 'center' } : true}
+        touchZoomRotate={showIslandPois ? { around: 'center' } : true}
         boxZoom
         dragRotate={false}
         touchPitch={false}
@@ -365,6 +397,11 @@ export default function SamuiExploreMap({
           if (!map) return;
           map.on('error', handleMapError);
           clampMapZoom(map);
+          if (showIslandPois) {
+            map.setMaxBounds(SAMUI_MAX_BOUNDS);
+            map.scrollZoom.enable({ around: 'center' });
+            map.touchZoomRotate.enable({ around: 'center' });
+          }
           setViewZoom(map.getZoom());
           setCenterLat(map.getCenter().lat);
           const bumpResize = () => {
@@ -443,30 +480,47 @@ export default function SamuiExploreMap({
           </Marker>
         ))}
 
-        {homeLocationPin && (
-          <Marker
-            longitude={homeLocationPin.lng}
-            latitude={homeLocationPin.lat}
-            anchor="bottom"
-            onClick={e => {
-              e.originalEvent?.stopPropagation();
-            }}
-          >
-            <div className="flex -translate-y-1 flex-col items-center gap-0.5">
-              <button
-                type="button"
-                className="flex h-9 w-9 cursor-default items-center justify-center rounded-full border-2 border-violet-400/90 bg-violet-600/35 text-base shadow-lg ring-2 ring-violet-300/30"
-                title={homeLocationPin.label}
-                aria-label={homeLocationPin.label}
+        {homeLocationPins?.map(pin => {
+          const tip = [pin.badge, pin.label, pin.area].filter(Boolean).join(' · ');
+          return (
+            <Marker
+              key={`${pin.label}-${pin.lat}-${pin.lng}`}
+              longitude={pin.lng}
+              latitude={pin.lat}
+              anchor="bottom"
+              onClick={e => {
+                e.originalEvent?.stopPropagation();
+              }}
+            >
+              <div
+                className="group relative flex cursor-default flex-col items-center pointer-events-auto"
+                role="group"
+                aria-label={tip}
               >
-                📍
-              </button>
-              <span className="max-w-[8rem] truncate rounded-md border border-white/15 bg-slate-950/90 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-violet-200 shadow-md">
-                {homeLocationPin.label}
-              </span>
-            </div>
-          </Marker>
-        )}
+                <div
+                  className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 max-w-[11rem] -translate-x-1/2 rounded-md border border-white/20 bg-slate-950/95 px-2 py-1 text-center opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100"
+                  aria-hidden
+                >
+                  {pin.badge ? (
+                    <p className="mb-0.5 text-[7px] font-bold uppercase tracking-widest text-emerald-300/95">
+                      {pin.badge}
+                    </p>
+                  ) : null}
+                  <p className="text-[9px] font-semibold leading-snug text-white">{pin.label}</p>
+                  {pin.area ? (
+                    <p className="mt-0.5 text-[8px] leading-snug text-violet-200/90">{pin.area}</p>
+                  ) : null}
+                </div>
+                <span
+                  className="pointer-events-none select-none text-[1.65rem] leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.9),0_0_4px_rgba(0,0,0,0.5)]"
+                  aria-hidden
+                >
+                  📍
+                </span>
+              </div>
+            </Marker>
+          );
+        })}
 
         <NavigationControl position="top-right" />
       </Map>
@@ -534,6 +588,46 @@ export default function SamuiExploreMap({
             <span>Light</span>
             <span>Heavy</span>
           </div>
+        </div>
+
+        <div className="pointer-events-none rounded-xl border border-white/15 bg-slate-950/90 px-3 py-2.5 shadow-xl backdrop-blur-md">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Legend</p>
+          <ul className="mt-1.5 space-y-1.5 text-[8px] leading-snug text-slate-400">
+            <li>
+              <span className="font-semibold text-slate-300">Basemap</span>
+              {' — '}
+              MapTiler Streets&nbsp;v2 · roads, coast, place labels (OSM).
+            </li>
+            <li>
+              <span className="font-semibold text-slate-300">Radar</span>
+              {' — '}
+              Latest Surat Thani scan · green → red = rain intensity (overlay).
+            </li>
+            {showIslandPois && (
+              <li>
+                <span className="font-semibold text-slate-300">Curated pins</span>
+                {' — '}
+                <span title="Sammi picks">🍽</span> dining · <span title="Beach club">🏖</span> beach club (tap for intel).
+              </li>
+            )}
+            {homeLocationPins?.map(pin => (
+              <li key={`leg-${pin.label}-${pin.lat}`}>
+                {pin.badge ? (
+                  <>
+                    <span className="font-semibold text-emerald-300/90">{pin.badge}</span>
+                    {' — '}
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold text-slate-300">Home</span>
+                    {' — '}
+                  </>
+                )}
+                📍 {pin.label}
+                {pin.area ? ` · ${pin.area}` : ''}.
+              </li>
+            ))}
+          </ul>
         </div>
         </div>
 

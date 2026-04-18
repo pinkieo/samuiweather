@@ -2,7 +2,15 @@
 
 type TidePoint = { t: number; h: number };
 
-/** Spire v4: zoek in `values[]` het object met name === 'tide_height'. */
+function numberFromRecord(o: Record<string, unknown>): number | undefined {
+  if (typeof o.value === 'number') return o.value;
+  if (typeof o.data === 'number') return o.data;
+  if (typeof o.tide_height === 'number') return o.tide_height;
+  if (typeof o.height === 'number') return o.height;
+  return undefined;
+}
+
+/** Spire v4: `values[]` met `{ name, value }` of varianten per regio/bundel. */
 export function tideHeightFromValuesV4(values: unknown): number | undefined {
   if (values == null) return undefined;
 
@@ -11,9 +19,25 @@ export function tideHeightFromValuesV4(values: unknown): number | undefined {
       if (!item || typeof item !== 'object') continue;
       const o = item as Record<string, unknown>;
       if (o.name === 'tide_height') {
-        if (typeof o.value === 'number') return o.value;
-        if (typeof o.data === 'number') return o.data;
-        if (typeof o.tide_height === 'number') return o.tide_height;
+        const n = numberFromRecord(o);
+        if (n !== undefined) return n;
+      }
+    }
+    for (const item of values) {
+      if (!item || typeof item !== 'object') continue;
+      const o = item as Record<string, unknown>;
+      const nm = String(o.name ?? '').toLowerCase();
+      if (
+        nm.includes('tide_height') ||
+        nm.includes('sea_surface_height') ||
+        nm.includes('sea level') ||
+        nm.includes('sea_level') ||
+        nm.includes('water_level') ||
+        nm.includes('ssh') ||
+        nm.includes('sea surface')
+      ) {
+        const n = numberFromRecord(o);
+        if (n !== undefined) return n;
       }
     }
     for (const item of values) {
@@ -32,8 +56,46 @@ export function tideHeightFromValuesV4(values: unknown): number | undefined {
     if (typeof v.sea_surface_height_above_mean_sea_level === 'number') {
       return v.sea_surface_height_above_mean_sea_level;
     }
+    if (typeof v.sea_surface_height === 'number') return v.sea_surface_height;
+    if (typeof v.water_level === 'number') return v.water_level;
   }
   return undefined;
+}
+
+function validTimeMsFromRow(row: Record<string, unknown>): number {
+  const times = row.times;
+  if (times && typeof times === 'object') {
+    const o = times as Record<string, unknown>;
+    for (const k of ['valid_time', 'valid', 'time', 'forecast_time']) {
+      const v = o[k];
+      if (typeof v === 'string') {
+        const ms = Date.parse(v);
+        if (Number.isFinite(ms)) return ms;
+      }
+    }
+  }
+  for (const k of ['valid_time', 'time', 'forecast_time']) {
+    const v = row[k];
+    if (typeof v === 'string') {
+      const ms = Date.parse(v);
+      if (Number.isFinite(ms)) return ms;
+    }
+  }
+  return NaN;
+}
+
+function dedupeTidePointsByTime(pts: TidePoint[]): TidePoint[] {
+  if (pts.length < 2) return pts;
+  const sorted = [...pts].sort((a, b) => a.t - b.t);
+  const out: TidePoint[] = [];
+  for (const p of sorted) {
+    if (out.length && out[out.length - 1].t === p.t) {
+      out[out.length - 1] = p;
+    } else {
+      out.push(p);
+    }
+  }
+  return out;
 }
 
 function extractTidePoints(raw: unknown): TidePoint[] {
@@ -44,17 +106,14 @@ function extractTidePoints(raw: unknown): TidePoint[] {
   const out: TidePoint[] = [];
   for (const row of data) {
     if (row === null || typeof row !== 'object') continue;
-    const r = row as {
-      times?: { valid_time?: string };
-      values?: unknown;
-    };
-    const t = r.times?.valid_time ? Date.parse(r.times.valid_time) : NaN;
+    const r = row as Record<string, unknown>;
+    const t = validTimeMsFromRow(r);
     const h = tideHeightFromValuesV4(r.values);
     if (Number.isFinite(t) && h !== undefined) {
       out.push({ t, h });
     }
   }
-  return out.sort((a, b) => a.t - b.t);
+  return dedupeTidePointsByTime(out);
 }
 
 export type TideTrend = 'rising' | 'falling' | 'steady' | 'unknown';
@@ -65,14 +124,22 @@ export function getTideTrend(raw: unknown): TideTrend {
 
   const now = Date.now();
 
+  /**
+   * Halfopen intervallen [a,b) behalve het laatste segment [a,b]:
+   * zo valt `now` exact op een uur-grid na een hoogwater in het segment *na* de piek
+   * (dalend), niet in het segment ernaartoe (stijgend).
+   */
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i];
     const b = pts[i + 1];
-    if (a.t <= now && now <= b.t) {
-      const slope = (b.h - a.h) / (b.t - a.t);
-      if (Math.abs(slope) < 1e-12) return 'steady';
-      return slope > 0 ? 'rising' : 'falling';
-    }
+    const isLastSeg = i === pts.length - 2;
+    const inSeg = isLastSeg
+      ? a.t <= now && now <= b.t
+      : a.t <= now && now < b.t;
+    if (!inSeg) continue;
+    const slope = (b.h - a.h) / (b.t - a.t);
+    if (Math.abs(slope) < 1e-12) return 'steady';
+    return slope > 0 ? 'rising' : 'falling';
   }
 
   if (now < pts[0].t) {
@@ -81,11 +148,15 @@ export function getTideTrend(raw: unknown): TideTrend {
     return slope > 0 ? 'rising' : 'falling';
   }
 
-  const a = pts[pts.length - 2];
-  const b = pts[pts.length - 1];
-  const slope = (b.h - a.h) / (b.t - a.t);
-  if (Math.abs(slope) < 1e-12) return 'steady';
-  return slope > 0 ? 'rising' : 'falling';
+  if (now > pts[pts.length - 1].t) {
+    const a = pts[pts.length - 2];
+    const b = pts[pts.length - 1];
+    const slope = (b.h - a.h) / (b.t - a.t);
+    if (Math.abs(slope) < 1e-12) return 'steady';
+    return slope > 0 ? 'rising' : 'falling';
+  }
+
+  return 'unknown';
 }
 
 /** Eerste uur in `data`: hoogte voor de Tide-widget (m t.o.v. MSL). */

@@ -17,13 +17,55 @@ export function buildForecastPointUrl(
   lat: number,
   lon: number,
   bundles: string = 'basic',
+  options?: { timeBundle?: string; forecastHours?: number },
 ): string {
   const params = new URLSearchParams({
     lat: String(lat),
     lon: String(lon),
     bundles,
   });
+  /** ~2 days hourly steps (Spire) — needed so “tomorrow” has a full 24h strip. */
+  if (options?.timeBundle) {
+    params.set('time_bundle', options.timeBundle);
+  }
+  /** Some Spire deployments extend horizon when set (ignored safely if unsupported). */
+  if (options?.forecastHours != null && Number.isFinite(options.forecastHours)) {
+    params.set('forecast_hours', String(Math.round(options.forecastHours)));
+  }
   return `${SPIRE_API_BASE}/forecast/point?${params.toString()}`;
+}
+
+/**
+ * Spire Optimized Point — airport / WMO / UN/LOCODE (e.g. `VTSM` for Samui).
+ * Same `time_bundle` / `forecast_hours` knobs as `/forecast/point` when your token has access.
+ * @see https://developers.wx.spire.com — `SPIRE_OPTIMIZED_POINT_LOCATION` env to enable.
+ */
+export function buildForecastOptimizedPointUrl(
+  location: string,
+  bundles: string = 'basic',
+  options?: { timeBundle?: string; forecastHours?: number },
+): string {
+  const params = new URLSearchParams({
+    location: location.trim(),
+    bundles,
+  });
+  if (options?.timeBundle) {
+    params.set('time_bundle', options.timeBundle);
+  }
+  if (options?.forecastHours != null && Number.isFinite(options.forecastHours)) {
+    params.set('forecast_hours', String(Math.round(options.forecastHours)));
+  }
+  return `${SPIRE_API_BASE}/forecast/point/optimized?${params.toString()}`;
+}
+
+/**
+ * When set (e.g. `VTSM`), {@link getForecastMergedAt} tries optimized point first for richer hourly depth.
+ */
+export function getSpireOptimizedPointLocationFromEnv(): string | null {
+  const v =
+    process.env.SPIRE_OPTIMIZED_POINT_LOCATION?.trim() ||
+    process.env.SPIRE_OPTIMIZED_LOCATION?.trim();
+  return v || null;
 }
 
 /**
@@ -182,6 +224,13 @@ function mapSpirePointRow(entry: unknown): Omit<
       'particulate_matter_2_5',
     ]) ?? null;
 
+  const popRaw =
+    pickFirstNumber(vr, [
+      'probability_of_precipitation',
+      'pop',
+      'probability_of_precipitation_1hr',
+    ]) ?? 0;
+
   return {
     time: e.times?.valid_time ?? new Date().toISOString(),
     temp: convertSpireValue(Number(v.air_temperature ?? 293.15), 'temp'),
@@ -189,11 +238,17 @@ function mapSpirePointRow(entry: unknown): Omit<
     windSpeed: convertSpireValue(Number(v.wind_speed ?? 0), 'wind'),
     windGust: convertSpireValue(Number(v.wind_gust ?? 0), 'wind'),
     windDir: Number(v.wind_direction ?? 0),
-    precip: Number(v.precipitation_amount ?? 0),
+    precip: Number(
+      pickFirstNumber(vr, ['precipitation_amount', 'precipitation_amount_1hr']) ?? 0,
+    ),
     humidity: Number(v.relative_humidity ?? 0),
-    precipRate: Number(v.precipitation_rate ?? 0),
-    cloudCover: Number(v.cloud_cover ?? 0),
-    pop: Number(v.probability_of_precipitation ?? v.pop ?? 0),
+    precipRate: Number(
+      pickFirstNumber(vr, ['precipitation_rate', 'precipitation_amount_1hr']) ?? 0,
+    ),
+    cloudCover: Number(
+      pickFirstNumber(vr, ['cloud_cover', 'total_cloud_cover']) ?? 0,
+    ),
+    pop: popRaw <= 1 && popRaw > 0 ? Math.round(popRaw * 100) : Number(popRaw),
     uvIndex: uv,
     pm25,
   };
@@ -208,14 +263,84 @@ type WaqiPayload = {
   };
 };
 
+/** OpenUV `/forecast` — geneste arrays met `{ uv, uv_time }`. */
+function collectOpenUvForecastRows(
+  node: unknown,
+  out: { uv: number; uv_time: string }[],
+): void {
+  if (node == null) return;
+  if (Array.isArray(node)) {
+    for (const x of node) collectOpenUvForecastRows(x, out);
+    return;
+  }
+  if (typeof node === 'object') {
+    const o = node as Record<string, unknown>;
+    const uvTime =
+      typeof o.uv_time === 'string'
+        ? o.uv_time
+        : typeof o.time === 'string'
+          ? o.time
+          : null;
+    if (typeof o.uv === 'number' && uvTime) {
+      out.push({ uv: o.uv, uv_time: uvTime });
+      return;
+    }
+    for (const v of Object.values(o)) {
+      if (Array.isArray(v) || (typeof v === 'object' && v !== null)) {
+        collectOpenUvForecastRows(v, out);
+      }
+    }
+  }
+}
+
+/** UTC-uur-bucket (ms sinds epoch) → lookup key voor Spire `valid_time` vs OpenUV `uv_time`. */
+function utcHourBucketMs(iso: string): number {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return NaN;
+  return Math.floor(t / 3600000) * 3600000;
+}
+
+function buildOpenUvForecastHourMap(uvForecastData: unknown): Map<number, number> {
+  const map = new Map<number, number>();
+  const rows: { uv: number; uv_time: string }[] = [];
+  collectOpenUvForecastRows(uvForecastData, rows);
+  for (const { uv, uv_time } of rows) {
+    const ms = utcHourBucketMs(uv_time);
+    if (Number.isNaN(ms)) continue;
+    map.set(ms, Math.round(uv * 10) / 10);
+  }
+  return map;
+}
+
+function lookupOpenUvForecastForValidTime(
+  hourMap: Map<number, number>,
+  validTimeIso: string,
+): number | null {
+  const t = new Date(validTimeIso).getTime();
+  if (Number.isNaN(t)) return null;
+  const bucket = Math.floor(t / 3600000) * 3600000;
+  if (hourMap.has(bucket)) return hourMap.get(bucket)!;
+  for (const delta of [0, -3600000, 3600000, -7200000, 7200000]) {
+    const b = Math.floor((t + delta) / 3600000) * 3600000;
+    const v = hourMap.get(b);
+    if (v != null) return v;
+  }
+  return null;
+}
+
 /**
  * Ruwe Spire `data[]` + WAQI JSON. Index 0 krijgt live smog (AQI/PM2.5);
  * andere uren: Spire-waarden, `aqi`/`aqiStatus` null.
+ *
+ * UV: OpenUV **hourly forecast** (`/forecast`) wordt per `valid_time` gematcht; zo heeft elk uur
+ * een index (niet alleen `/uv` op index 0). Daarna: Spire `uv_index` als die er is; anders
+ * alleen op index 0 nog `/uv` (huidige waarde).
  */
 export function mergeSpireWithWaqi(
   spireRows: unknown[],
   waqiData: unknown,
   uvData?: unknown,
+  uvForecastData?: unknown,
 ): SamuiWeatherForecastRow[] {
   const waqi = waqiData as WaqiPayload | null;
   const waqiOk =
@@ -224,7 +349,8 @@ export function mergeSpireWithWaqi(
     waqi.status === 'ok' &&
     waqi.data != null;
 
-  const uvResult = (uvData as any)?.result;
+  const uvResult = (uvData as { result?: { uv?: number } } | null)?.result;
+  const uvHourMap = buildOpenUvForecastHourMap(uvForecastData);
 
   return spireRows.map((row, index) => {
     const base = mapSpirePointRow(row);
@@ -234,7 +360,14 @@ export function mergeSpireWithWaqi(
     let aqiVal = null;
     let aqiStatus = null;
     let station = null;
+
     let uvVal = base.uvIndex;
+    const fromForecast = lookupOpenUvForecastForValidTime(uvHourMap, base.time);
+    if (fromForecast != null) {
+      uvVal = fromForecast;
+    } else if (isNow && uvResult && typeof uvResult.uv === 'number') {
+      uvVal = Math.round(uvResult.uv * 10) / 10;
+    }
 
     if (isNow) {
       if (waqiOk && waqi!.data) {
@@ -243,9 +376,6 @@ export function mergeSpireWithWaqi(
         aqiVal = typeof d.aqi === 'number' ? d.aqi : null;
         aqiStatus = getAQIDescription(d.aqi ?? undefined);
         station = d.city?.name ?? null;
-      }
-      if (uvResult && typeof uvResult.uv === 'number') {
-        uvVal = Math.round(uvResult.uv * 10) / 10;
       }
     }
 
@@ -286,22 +416,106 @@ export async function getForecastMergedAt(
   const waqiToken = (process.env.WAQI_API_TOKEN || process.env.NEXT_PUBLIC_AQICN_TOKEN)?.trim();
   const uvKey = process.env.NEXT_PUBLIC_OPENUV_API_KEY?.trim();
 
+  /**
+   * Need >24 lead hours so “tomorrow” in Asia/Bangkok still reaches 23:00 (24h-only data
+   * ends tomorrow at the same clock time as now → e.g. 19:00).
+   */
+  const MIN_HOURS_FOR_FULL_NEXT_DAY = 48;
+
   const fetchSpire = async (): Promise<{ data?: unknown[] }> => {
-    for (const bundles of [
+    type Att = { timeBundle?: string; forecastHours?: number };
+    const attempts: Att[] = [
+      { timeBundle: 'hourly', forecastHours: 72 },
+      { timeBundle: 'hourly', forecastHours: 48 },
+      { timeBundle: 'hourly' },
+      { timeBundle: 'hourly_6day' },
+      {},
+    ];
+
+    let best: { data?: unknown[] } | null = null;
+    let bestLen = 0;
+
+    const consider = (json: { data?: unknown[] }) => {
+      const len = Array.isArray(json.data) ? json.data.length : 0;
+      if (len > bestLen) {
+        best = json;
+        bestLen = len;
+      }
+    };
+
+    const bundleList = [
       FORECAST_BUNDLES_VACATION,
       'basic,maritime_atmos',
       'basic',
-    ] as const) {
-      const url = buildForecastPointUrl(lat, lon, bundles);
-      const r = await fetch(url, {
-        headers: { 'spire-api-key': token },
-        signal,
-        next: { revalidate: 900 },
-      });
-      if (r.ok) return (await r.json()) as { data?: unknown[] };
-      if (r.status !== 403) {
-        throw new Error(`Spire HTTP ${r.status}`);
+    ] as const;
+
+    const runSeries = async (
+      source: 'optimized' | 'point',
+      makeUrl: (bundles: string, att: Att) => string,
+    ): Promise<{ data?: unknown[] } | null> => {
+      for (const bundles of bundleList) {
+        attemptLoop: for (const att of attempts) {
+          const url = makeUrl(bundles, att);
+          const r = await fetch(url, {
+            headers: { 'spire-api-key': token },
+            signal,
+            next: { revalidate: 900 },
+          });
+          if (r.ok) {
+            const json = (await r.json()) as { data?: unknown[] };
+            const len = Array.isArray(json.data) ? json.data.length : 0;
+            if (len >= MIN_HOURS_FOR_FULL_NEXT_DAY) {
+              if (source === 'optimized') {
+                const loc = getSpireOptimizedPointLocationFromEnv();
+                if (loc) {
+                  console.log(
+                    '[Spire] Optimized point forecast (≥48h hourly steps):',
+                    loc,
+                  );
+                }
+              }
+              return json;
+            }
+            consider(json);
+            continue;
+          }
+          if (r.status === 403) {
+            break attemptLoop;
+          }
+          if (r.status === 400 || r.status === 404 || r.status === 422) {
+            continue;
+          }
+          throw new Error(`Spire HTTP ${r.status}`);
+        }
       }
+      return null;
+    };
+
+    const optLoc = getSpireOptimizedPointLocationFromEnv();
+    if (optLoc) {
+      const fromOpt = await runSeries('optimized', (bundles, att) =>
+        buildForecastOptimizedPointUrl(optLoc, bundles, {
+          timeBundle: att.timeBundle,
+          forecastHours: att.forecastHours,
+        }),
+      );
+      if (fromOpt) {
+        return fromOpt;
+      }
+    }
+
+    const fromPoint = await runSeries('point', (bundles, att) =>
+      buildForecastPointUrl(lat, lon, bundles, {
+        timeBundle: att.timeBundle,
+        forecastHours: att.forecastHours,
+      }),
+    );
+    if (fromPoint) {
+      return fromPoint;
+    }
+
+    if (best && bestLen > 0) {
+      return best;
     }
     throw new Error('Spire 403');
   };
@@ -332,14 +546,38 @@ export async function getForecastMergedAt(
       });
   };
 
-  const [spireJson, waqiJson, uvJson] = await Promise.all([
+  /** Hourly UV per `uv_time` — nodig omdat Spire vaak geen `uv_index` per uur levert. */
+  const fetchUvForecast = (): Promise<unknown> => {
+    if (!uvKey) return Promise.resolve(null);
+    const url = `https://api.openuv.io/api/v1/forecast?lat=${lat}&lng=${lon}&alt=0`;
+    return fetch(url, {
+      headers: { 'x-access-token': uvKey },
+      signal,
+      next: { revalidate: 60 },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch((e) => {
+        console.error('Spire merge fetchUvForecast err:', e);
+        return null;
+      });
+  };
+
+  const [spireJson, waqiJson, uvJson, uvForecastJson] = await Promise.all([
     fetchSpire(),
     fetchWaqi(),
     fetchUv(),
+    fetchUvForecast(),
   ]);
 
   // Debug logs
-  console.log('[mergeSpireWithWaqi] waqi ok?', !!waqiJson, '| uv ok?', !!uvJson);
+  console.log(
+    '[mergeSpireWithWaqi] waqi ok?',
+    !!waqiJson,
+    '| uv ok?',
+    !!uvJson,
+    '| uv forecast ok?',
+    !!uvForecastJson,
+  );
 
   let rows = Array.isArray(spireJson?.data) ? spireJson.data : [];
   
@@ -353,7 +591,7 @@ export async function getForecastMergedAt(
     return new Date(vt).getTime() >= currentHourMs;
   });
 
-  return mergeSpireWithWaqi(rows, waqiJson, uvJson);
+  return mergeSpireWithWaqi(rows, waqiJson, uvJson, uvForecastJson);
 }
 
 /** Koh Samui dashboard default. */
