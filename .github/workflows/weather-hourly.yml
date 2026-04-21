@@ -1,9 +1,11 @@
 # Koh Samui — hybrid Spire ingest elk uur (OPF + clouds/thunderstorm → Supabase).
-# Vereiste repository secrets:
-#   SPIRE_API_TOKEN
+# Vereiste repository secrets (Settings -> Secrets and variables -> Actions):
+#   SPIRE_API_TOKEN  (of SPIRE_API_KEY als fallback)
 #   SUPABASE_URL
-#   SUPABASE_SERVICE_ROLE_KEY
-# Optioneel in workflow env (of laat Python-defaults): WEATHER_LOCATION_ID, FORECAST_HOURS
+#   SUPABASE_SERVICE_ROLE_KEY  (of SUPABASE_KEY als fallback)
+# Optioneel: WEATHER_LOCATION_ID, FORECAST_HOURS, SAMUI_LAT, SAMUI_LON
+#
+# Handmatig testen: Actions -> Weather hourly ingest -> Run workflow
 
 name: Weather hourly ingest
 
@@ -38,7 +40,9 @@ jobs:
 
       - name: Run weather engine
         env:
-          SPIRE_API_TOKEN: ${{ secrets.SPIRE_API_TOKEN }}
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: utf-8
+          SPIRE_API_TOKEN: ${{ secrets.SPIRE_API_TOKEN || secrets.SPIRE_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_KEY }}
         run: python weather_engine_hourly.py

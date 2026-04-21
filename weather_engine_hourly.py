@@ -563,10 +563,10 @@ def run() -> int:
     radar_status, radar_rain = echo_sample_to_radar_fields(echo)
     if Image is None:
         print(
-            "[WARN] Pillow not installed — radar_status=unknown, no radar penalty.",
+            "[WARN] Pillow not installed - radar_status=unknown, no radar penalty.",
             file=sys.stderr,
         )
-    print(f"RainViewer sample: {echo} → radar_status={radar_status}")
+    print(f"RainViewer sample: {echo} -> radar_status={radar_status}")
 
     merged = merge_forecasts(opf or {"data": []}, std or {"data": []})
     if not merged:
@@ -581,7 +581,7 @@ def run() -> int:
     print(f"Merged {len(rows_out)} hourly rows (forecast_hours={hours}).")
     if dry:
         print(json.dumps(rows_out[:3], indent=2, default=str))
-        print("… DRY_RUN: skip Supabase upsert.")
+        print("... DRY_RUN: skip Supabase upsert.")
         return 0
 
     assert sb is not None
