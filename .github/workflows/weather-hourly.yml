@@ -38,6 +38,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-weather-engine.txt
 
+      # Entrypoint is weather_engine_hourly.py (full Spire + RainViewer + Supabase).
+      # Do not swap in weather_clock.py here — that file is a stub and not the hourly ingest.
       - name: Run weather engine
         env:
           PYTHONUTF8: "1"
@@ -45,4 +47,11 @@ jobs:
           SPIRE_API_TOKEN: ${{ secrets.SPIRE_API_TOKEN || secrets.SPIRE_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_KEY }}
-        run: python weather_engine_hourly.py
+        run: |
+          set -euo pipefail
+          if [ ! -f weather_engine_hourly.py ]; then
+            echo "::error::weather_engine_hourly.py not in repo root — push the latest workflow and script from main."
+            ls -la
+            exit 1
+          fi
+          python weather_engine_hourly.py
