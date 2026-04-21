@@ -20,10 +20,29 @@ Optional:
 
 from __future__ import annotations
 
-import json
-import math
 import os
 import sys
+
+
+def _maybe_reexec_windows_venv() -> None:
+    """If .venv exists, re-run this script with that interpreter so `py` matches deps."""
+    if os.name != "nt" or __name__ != "__main__":
+        return
+    root = os.path.dirname(os.path.abspath(__file__))
+    venv_py = os.path.join(root, ".venv", "Scripts", "python.exe")
+    if not os.path.isfile(venv_py):
+        return
+    cur = os.path.normcase(os.path.abspath(sys.executable))
+    venv_abs = os.path.normcase(os.path.abspath(venv_py))
+    if cur == venv_abs:
+        return
+    os.execv(venv_py, [venv_py] + sys.argv)
+
+
+_maybe_reexec_windows_venv()
+
+import json
+import math
 import traceback
 from datetime import datetime, timezone
 from io import BytesIO
@@ -34,10 +53,11 @@ try:
     import requests
 except ImportError:
     print(
-        "Missing deps. Options (from this repo root):\n"
-        "  1) Double-click or run:  weather-hourly.cmd   (uses .venv; recommended on Windows)\n"
-        "  2)  py -m pip install -r requirements-weather-engine.txt\n"
-        "     py -c \"import sys; print(sys.executable)\"   (must match the Python that runs this script)\n",
+        "Missing deps. From repo root:\n"
+        "  Windows: run  weather-hourly.cmd   once (creates .venv + installs packages).\n"
+        "  Then  py weather_engine_hourly.py  will auto-use .venv if present.\n"
+        "  Or:  py -m pip install -r requirements-weather-engine.txt\n"
+        "       (must be the same Python as  py -c \"import sys; print(sys.executable)\" )\n",
         file=sys.stderr,
     )
     raise
