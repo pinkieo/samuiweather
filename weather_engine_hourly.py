@@ -183,12 +183,17 @@ def latest_radar_frame_path(payload: Dict[str, Any]) -> Optional[str]:
     return str(p).lstrip("/") if p else None
 
 
+def _rainviewer_log(msg: str) -> None:
+    print(f"[RainViewer] {msg}", file=sys.stderr)
+
+
 def fetch_rainviewer_echo_sample(lat: float, lon: float) -> RainEchoSample:
     """
     Sample z7 / 512px tile at lat/lon (RainViewer scheme 2, 1_1.png).
     Returns precip | none | unknown.
     """
     if Image is None:
+        _rainviewer_log("Pillow not installed; cannot decode radar tiles.")
         return "unknown"
     try:
         r = requests.get(
@@ -199,9 +204,11 @@ def fetch_rainviewer_echo_sample(lat: float, lon: float) -> RainEchoSample:
         r.raise_for_status()
         j = r.json()
         if not isinstance(j, dict):
+            _rainviewer_log("weather-maps.json top-level is not a JSON object.")
             return "unknown"
         path = latest_radar_frame_path(j)
         if not path:
+            _rainviewer_log("No usable radar.past frame path in weather-maps.json.")
             return "unknown"
         x_tile, y_tile, fx, fy = lat_lon_to_tile_fraction(lat, lon, RADAR_TILE_Z)
         url = (
@@ -210,6 +217,10 @@ def fetch_rainviewer_echo_sample(lat: float, lon: float) -> RainEchoSample:
         )
         tr = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
         if not tr.ok:
+            _rainviewer_log(
+                f"Tile request failed: HTTP {tr.status_code} "
+                f"(z={RADAR_TILE_Z} tile=({x_tile},{y_tile}) lat={lat:.4f} lon={lon:.4f})."
+            )
             return "unknown"
         im = Image.open(BytesIO(tr.content)).convert("RGBA")
         px = im.load()
@@ -222,9 +233,21 @@ def fetch_rainviewer_echo_sample(lat: float, lon: float) -> RainEchoSample:
                     continue
                 pr, pg, pb, pa = px[ix, iy]
                 if pixel_looks_like_echo(pr, pg, pb, pa):
+                    _rainviewer_log(
+                        f"Echo at pin (z={RADAR_TILE_Z} tile=({x_tile},{y_tile}) "
+                        f"sample px=({ix},{iy}))."
+                    )
                     return "precip"
+        _rainviewer_log(
+            f"No echo in 7x7 sample around pin "
+            f"(z={RADAR_TILE_Z} tile=({x_tile},{y_tile}) fx={fx:.1f} fy={fy:.1f}) -> clear."
+        )
         return "none"
-    except Exception:
+    except requests.RequestException as e:
+        _rainviewer_log(f"HTTP error: {e!r}")
+        return "unknown"
+    except Exception as e:
+        _rainviewer_log(f"{type(e).__name__}: {e}")
         return "unknown"
 
 
@@ -601,11 +624,6 @@ def run() -> int:
 
     echo = fetch_rainviewer_echo_sample(lat, lon)
     radar_status, radar_rain = echo_sample_to_radar_fields(echo)
-    if Image is None:
-        print(
-            "[WARN] Pillow not installed - radar_status=unknown, no radar penalty.",
-            file=sys.stderr,
-        )
     print(f"RainViewer sample: {echo} -> radar_status={radar_status}")
 
     merged = merge_forecasts(opf or {"data": []}, std or {"data": []})
