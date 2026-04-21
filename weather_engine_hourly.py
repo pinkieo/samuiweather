@@ -33,7 +33,13 @@ from zoneinfo import ZoneInfo
 try:
     import requests
 except ImportError:
-    print("pip install requests python-dotenv supabase", file=sys.stderr)
+    print(
+        "Missing deps. Options (from this repo root):\n"
+        "  1) Double-click or run:  weather-hourly.cmd   (uses .venv; recommended on Windows)\n"
+        "  2)  py -m pip install -r requirements-weather-engine.txt\n"
+        "     py -c \"import sys; print(sys.executable)\"   (must match the Python that runs this script)\n",
+        file=sys.stderr,
+    )
     raise
 
 try:
@@ -447,6 +453,20 @@ def flatten_for_db(
     }
 
 
+def coerce_whole_floats_for_postgres(row: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Supabase/Postgres integer columns reject JSON floats like 5.0; convert
+    whole-number floats to int for top-level fields (not values_json).
+    """
+    out = dict(row)
+    for key, v in list(out.items()):
+        if key == "values_json":
+            continue
+        if isinstance(v, float) and v.is_integer():
+            out[key] = int(v)
+    return out
+
+
 def fetch_opf(token: str, hours: int) -> Dict[str, Any]:
     params = {
         "location": OPF_LOCATION,
@@ -589,7 +609,7 @@ def run() -> int:
     now_iso = datetime.now(timezone.utc).isoformat()
     payload = []
     for r in rows_out:
-        row = dict(r)
+        row = coerce_whole_floats_for_postgres(dict(r))
         row["updated_at"] = now_iso
         payload.append(row)
 
