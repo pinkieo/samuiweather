@@ -28,6 +28,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # If this step is missing in the Actions log, you are not running this workflow file from GitHub.
+      - name: Entrypoint check (must NOT use weather_clock.py)
+        run: |
+          echo "Samui hourly ingest - ENTRYPOINT=weather_engine_hourly.py REV=2026-04-19"
+          test -f weather_engine_hourly.py
+          echo "OK: weather_engine_hourly.py is in the repo checkout."
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
