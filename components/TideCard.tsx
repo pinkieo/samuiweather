@@ -1,14 +1,22 @@
 'use client';
 
 import React from 'react';
-import type { BeachAdviseStatus, NextTideExtremum, TideTrend } from '../lib/tides';
+import type {
+  BeachAdviseStatus,
+  NextTideExtremum,
+  TideDataSource,
+  TideTrend,
+} from '../lib/tides';
 import {
   beachAdviseLabels,
   explainTideHeightMsl,
   getBeachAdvise,
 } from '../lib/tides';
 
-function tidePhase(trend: TideTrend): { title: string; sub: string } {
+function tidePhase(
+  trend: TideTrend,
+  tideSource: TideDataSource,
+): { title: string; sub: string } {
   if (trend === 'rising') {
     return { title: 'Flood tide — water rising', sub: 'The sea is coming in.' };
   }
@@ -18,9 +26,15 @@ function tidePhase(trend: TideTrend): { title: string; sub: string } {
   if (trend === 'steady') {
     return { title: 'Slack tide', sub: 'Around high or low water — turning.' };
   }
+  const who =
+    tideSource === 'open-meteo-marine'
+      ? 'the tide feed'
+      : tideSource === 'spire'
+        ? 'Spire'
+        : 'the tide feed';
   return {
     title: 'Tide trend unknown',
-    sub: 'Could not read enough hourly tide samples from Spire for this location.',
+    sub: `Could not read enough hourly samples from ${who} for this location.`,
   };
 }
 
@@ -71,10 +85,16 @@ interface TideCardProps {
   trend: TideTrend;
   heightM: number | null;
   nextExtremum?: NextTideExtremum | null;
+  tideDataSource?: TideDataSource;
 }
 
-export default function TideCard({ trend, heightM, nextExtremum }: TideCardProps) {
-  const phase = tidePhase(trend);
+export default function TideCard({
+  trend,
+  heightM,
+  nextExtremum,
+  tideDataSource = 'unknown',
+}: TideCardProps) {
+  const phase = tidePhase(trend, tideDataSource);
   const beachStatus = getBeachAdvise(trend, heightM);
   const beach = beachStatusConfig[beachStatus];
   const beachLabel = beachStatusLabel(beachStatus);
@@ -130,7 +150,9 @@ export default function TideCard({ trend, heightM, nextExtremum }: TideCardProps
 
         <div className="mt-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
           <p className="text-[9px] font-black uppercase tracking-widest text-white/35">
-            Water level (Spire vs mean sea level)
+            {tideDataSource === 'open-meteo-marine'
+              ? 'Water level (marine model vs mean sea level)'
+              : 'Water level (Spire vs mean sea level)'}
           </p>
           {rawStr && (
             <p className="mt-1 font-mono text-sm font-bold text-white">{rawStr}</p>
@@ -141,11 +163,32 @@ export default function TideCard({ trend, heightM, nextExtremum }: TideCardProps
           {!heightM && !heightExplain && (
             <p className="mt-1 text-[11px] text-slate-500">No height data</p>
           )}
+          {tideDataSource === 'open-meteo-marine' && (heightM != null || heightExplain) && (
+            <p className="mt-2 text-[9px] leading-snug text-slate-500">
+              Global model (Open-Meteo marine). Official Thai port tide tables:{' '}
+              <a
+                href="https://www.tmd.go.th/en/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-cyan-400/90 underline decoration-cyan-500/40 underline-offset-2 hover:text-cyan-300"
+              >
+                Thai Meteorological Department
+              </a>{' '}
+              — not for navigation.
+            </p>
+          )}
         </div>
 
         {nextExtremum && (
           <p className="mt-3 text-[11px] font-semibold leading-snug text-amber-200/90">
             → Next: {nextEventLabel(nextExtremum)}
+          </p>
+        )}
+
+        {trend === 'falling' && heightM != null && heightM >= 0.64 && (
+          <p className="mt-2 text-[10px] leading-snug text-cyan-200/75">
+            Water is receding, but the sea is still high — sand may stay tight until closer to low
+            water.
           </p>
         )}
 

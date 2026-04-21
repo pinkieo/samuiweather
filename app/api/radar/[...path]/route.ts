@@ -31,6 +31,22 @@ function transparentResponse() {
   });
 }
 
+/** Reject corrupt / HTML error bodies that break MapLibre `createImageBitmap` (InvalidStateError). */
+function isValidPngBuffer(buf: ArrayBuffer): boolean {
+  if (buf.byteLength < 8) return false;
+  const u8 = new Uint8Array(buf);
+  return (
+    u8[0] === 0x89 &&
+    u8[1] === 0x50 &&
+    u8[2] === 0x4e &&
+    u8[3] === 0x47 &&
+    u8[4] === 0x0d &&
+    u8[5] === 0x0a &&
+    u8[6] === 0x1a &&
+    u8[7] === 0x0a
+  );
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
@@ -76,10 +92,16 @@ export async function GET(
     }
 
     const body = await upstream.arrayBuffer();
+    if (!isValidPngBuffer(body)) {
+      console.warn(
+        `[Radar Proxy] Upstream returned non-PNG or truncated body len=${body.byteLength} url=${upstreamUrl}`,
+      );
+      return transparentResponse();
+    }
     return new NextResponse(body, {
       status: 200,
       headers: {
-        'Content-Type': upstream.headers.get('Content-Type') ?? 'image/png',
+        'Content-Type': 'image/png',
         'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
         'Access-Control-Allow-Origin': '*',
       },

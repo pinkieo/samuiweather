@@ -8,8 +8,15 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
-import type { SamuiWeatherForecastRow } from './spire';
-import { VTSM_METAR_URL, parseMetar, type RawMetar } from './metar';
+import { KRABI_FORECAST_POINT, type SamuiWeatherForecastRow } from './spire';
+import {
+  TH_SOUTH_AIRPORT_VOICE,
+  TH_SOUTH_METAR_URL,
+  metarWxIndicatesPrecipitation,
+  parseMetar,
+  pickRawMetarForIcao,
+  type RawMetar,
+} from './metar';
 import { buildTripleFreshness, formatFreshnessContext } from './data-freshness';
 import { resolveWeatherConflict, formatConflictContext } from './weather-conflict';
 
@@ -158,38 +165,58 @@ export interface AirportSnapshot {
   wxString: string | null;
 }
 
+/** Build one airport snapshot from an already-fetched METAR JSON array (shared with `/api/conflict-status`). */
+export function airportSnapshotFromIcao(rows: RawMetar[], icao: keyof typeof TH_SOUTH_AIRPORT_VOICE): AirportSnapshot | null {
+  const row = pickRawMetarForIcao(rows, icao);
+  if (!row) return null;
+  const m = parseMetar(row, { airportLabel: TH_SOUTH_AIRPORT_VOICE[icao] });
+  const baseFt = m.clouds[0]?.base ?? null;
+  return {
+    raw:            m.raw,
+    tempC:          m.temp,
+    windKts:        m.wspd,
+    windDir:        m.wdir,
+    gustKts:        m.wgst,
+    visib:          m.visib,
+    cloudCoverCode: m.clouds[0]?.cover ?? null,
+    cloudBaseFt:    baseFt,
+    cloudBaseM:     baseFt ? Math.round(baseFt * 0.3048 / 50) * 50 : null,
+    fltCat:         m.fltCat,
+    wxString:       m.wxString,
+  };
+}
+
 async function fetchAirportSnapshot(): Promise<AirportSnapshot | null> {
   try {
-    const res = await fetch(VTSM_METAR_URL, { next: { revalidate: 300 } });
+    const res = await fetch(TH_SOUTH_METAR_URL, { next: { revalidate: 300 } });
     if (!res.ok) return null;
     const raw: RawMetar[] = await res.json();
-    if (!raw.length) return null;
-    const m = parseMetar(raw[0]);
-    const baseFt = m.clouds[0]?.base ?? null;
-    return {
-      raw:           m.raw,
-      tempC:         m.temp,
-      windKts:       m.wspd,
-      windDir:       m.wdir,
-      gustKts:       m.wgst,
-      visib:         m.visib,
-      cloudCoverCode: m.clouds[0]?.cover ?? m.clouds[0]?.cover ?? null,
-      cloudBaseFt:   baseFt,
-      cloudBaseM:    baseFt ? Math.round(baseFt * 0.3048 / 50) * 50 : null,
-      fltCat:        m.fltCat,
-      wxString:      m.wxString,
-    };
+    return airportSnapshotFromIcao(raw, 'VTSM');
   } catch {
     return null;
   }
 }
 
-async function fetchMeteoblueCheck(): Promise<import('./weather-conflict').MeteoblueCheck | null> {
+async function fetchKrabiDualAirportSnapshots(): Promise<{ krabi: AirportSnapshot | null; phuket: AirportSnapshot | null }> {
+  try {
+    const res = await fetch(TH_SOUTH_METAR_URL, { next: { revalidate: 300 } });
+    if (!res.ok) return { krabi: null, phuket: null };
+    const raw: RawMetar[] = await res.json();
+    return {
+      krabi:  airportSnapshotFromIcao(raw, 'VTSG'),
+      phuket: airportSnapshotFromIcao(raw, 'VTSP'),
+    };
+  } catch {
+    return { krabi: null, phuket: null };
+  }
+}
+
+async function fetchMeteoblueCheck(at?: { lat: number; lon: number }): Promise<import('./weather-conflict').MeteoblueCheck | null> {
   try {
     const apiKey = process.env.METEOBLUE_API_KEY;
     if (!apiKey) return null;
-    const lat = process.env.METEOBLUE_LAT ?? '9.5120';
-    const lon = process.env.METEOBLUE_LON ?? '100.0137';
+    const lat = at != null ? String(at.lat) : (process.env.METEOBLUE_LAT ?? '9.5120');
+    const lon = at != null ? String(at.lon) : (process.env.METEOBLUE_LON ?? '100.0137');
     const asl = process.env.METEOBLUE_ASL ?? '5';
     const url = `https://my.meteoblue.com/packages/basic-1h?apikey=${apiKey}&lat=${lat}&lon=${lon}&asl=${asl}&format=json`;
     const res = await fetch(url, { next: { revalidate: 3600 } });
@@ -207,18 +234,27 @@ async function fetchMeteoblueCheck(): Promise<import('./weather-conflict').Meteo
   }
 }
 
-function formatAirportContext(snap: AirportSnapshot | null): string {
-  if (!snap) return 'AIRPORT SENSORS (VTSM): Unavailable — using satellite data only.\n';
+const AIRPORT_CLOUD_COPY: Record<string, string> = {
+  SKC: 'not a single cloud — perfectly empty sky',
+  CLR: 'perfectly clear sky',
+  FEW: 'light wispy clouds',
+  SCT: 'friendly cumulus clouds',
+  BKN: 'a broken layer of cloud',
+  OVC: 'a full overcast blanket',
+};
 
-  const cloudMap: Record<string, string> = {
-    SKC: 'not a single cloud — perfectly empty sky',
-    CLR: 'perfectly clear sky',
-    FEW: 'light wispy clouds',
-    SCT: 'friendly cumulus clouds',
-    BKN: 'a broken layer of cloud',
-    OVC: 'a full overcast blanket',
-  };
-  const cloudDesc = snap.cloudCoverCode ? (cloudMap[snap.cloudCoverCode] ?? snap.cloudCoverCode) : 'no cloud data';
+const FLIGHT_CAT_COPY: Record<string, string> = {
+  VFR:  'perfect flying weather — sky completely open',
+  MVFR: 'borderline — flyable but moody',
+  IFR:  'low cloud / poor visibility — instrument conditions',
+  LIFR: 'at minimums — serious conditions',
+};
+
+/** Bullet lines for one METAR snapshot (used for Samui single-strip and Krabi dual-strip). */
+function formatAirportDetailBody(snap: AirportSnapshot | null): string {
+  if (!snap) return 'Unavailable — using satellite data only.';
+
+  const cloudDesc = snap.cloudCoverCode ? (AIRPORT_CLOUD_COPY[snap.cloudCoverCode] ?? snap.cloudCoverCode) : 'no cloud data';
   const altStr = snap.cloudBaseM && snap.cloudBaseFt
     ? `at ${snap.cloudBaseM.toLocaleString()} metres (${snap.cloudBaseFt.toLocaleString()}ft)`
     : '';
@@ -228,20 +264,41 @@ function formatAirportContext(snap: AirportSnapshot | null): string {
   const windStr = snap.windKts
     ? `${snap.windKts} kts${snap.gustKts ? ` gusting ${snap.gustKts} kts` : ''}`
     : 'calm';
-  const fltCatHuman: Record<string, string> = {
-    VFR:  'perfect flying weather — sky completely open',
-    MVFR: 'borderline — flyable but moody',
-    IFR:  'low cloud / poor visibility — instrument conditions',
-    LIFR: 'at minimums — serious conditions',
-  };
 
+  return [
+    `- Sky: ${cloudDesc} ${altStr}`,
+    `- Visibility: ${visStr}`,
+    `- Wind at airstrip: ${windStr}`,
+    `- Conditions: ${FLIGHT_CAT_COPY[snap.fltCat] ?? snap.fltCat}`,
+    ...(snap.wxString ? [`- Active weather: ${snap.wxString}`] : []),
+  ].join('\n');
+}
+
+function formatAirportContext(snap: AirportSnapshot | null): string {
   return `
 PHASE 3 — TACTICAL PRECISION (Radar at Samui Airport):
-- Sky: ${cloudDesc} ${altStr}
-- Visibility: ${visStr}
-- Wind at airstrip: ${windStr}
-- Conditions: ${fltCatHuman[snap.fltCat] ?? snap.fltCat}
-${snap.wxString ? `- Active weather: ${snap.wxString}` : ''}
+${formatAirportDetailBody(snap)}
+`.trim();
+}
+
+/** Krabi product: VTSG + VTSP; when Phuket shows precip first, call out upstream ~200 km Andaman lead. */
+function formatKrabiDualAirportContext(krabi: AirportSnapshot | null, phuket: AirportSnapshot | null): string {
+  const phuketFirst =
+    phuket &&
+    metarWxIndicatesPrecipitation(phuket.wxString) &&
+    (!krabi || !metarWxIndicatesPrecipitation(krabi.wxString));
+
+  const upstream = phuketFirst
+    ? `UPSTREAM — Phuket airport METAR (~200 km southwest along the Andaman) is flagging precipitation while Krabi METAR is still quiet. Moisture often tracks northeast; treat Phuket as an early signal for the Krabi / Ao Nang coast.\n`
+    : '';
+
+  return `
+PHASE 3 — TACTICAL PRECISION (Krabi + Phuket METAR):
+${upstream}Krabi airport (VTSG):
+${formatAirportDetailBody(krabi)}
+
+Phuket airport (VTSP):
+${formatAirportDetailBody(phuket)}
 `.trim();
 }
 
@@ -377,8 +434,10 @@ Make it genuinely fun to read. The arrogance should make people laugh AND trust 
 
 export async function generateSammiRedditPost(
   forecastRows: SamuiWeatherForecastRow[],
+  options?: { region?: 'samui' | 'krabi' },
 ): Promise<GeneratedPost> {
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const region    = options?.region ?? 'samui';
 
   const now   = forecastRows[0];
   const soon  = forecastRows.slice(1, 7); // next 6 hours
@@ -399,11 +458,11 @@ export async function generateSammiRedditPost(
 
   const radar = getRadarStatus(now.precipRate);
 
-  // Fetch all sources in parallel (SPIRE already fetched above)
-  const [webcams, airportSnap, meteoblueSnap] = await Promise.all([
+  const [webcams, airportSnap, meteoblueSnap, dualKrabi] = await Promise.all([
     fetchWebcams(),
-    fetchAirportSnapshot(),
-    fetchMeteoblueCheck(),
+    region === 'samui' ? fetchAirportSnapshot() : Promise.resolve(null as AirportSnapshot | null),
+    fetchMeteoblueCheck(region === 'krabi' ? { lat: KRABI_FORECAST_POINT.lat, lon: KRABI_FORECAST_POINT.lon } : undefined),
+    region === 'krabi' ? fetchKrabiDualAirportSnapshots() : Promise.resolve({ krabi: null as AirportSnapshot | null, phuket: null as AirportSnapshot | null }),
   ]);
 
   // Look ahead for the day's dominant condition
@@ -420,27 +479,35 @@ export async function generateSammiRedditPost(
 `.trim();
 
   const webcamContext  = formatWebcamContext(webcams);
-  const airportContext = formatAirportContext(airportSnap);
+  const airportContext = region === 'krabi'
+    ? formatKrabiDualAirportContext(dualKrabi.krabi, dualKrabi.phuket)
+    : formatAirportContext(airportSnap);
 
   // Resolve conflicts across all sources → opening hook + scenario
   const conflict = resolveWeatherConflict(
     { precipRate: snapshot.precipRate, pop: snapshot.pop, cloudCover: snapshot.cloudCover, temp: snapshot.temp, windSpeed: snapshot.windSpeed },
     radar,
-    airportSnap,
+    region === 'krabi' ? dualKrabi.krabi : airportSnap,
     meteoblueSnap,
+    region === 'krabi' ? { krabiDualAirport: { krabi: dualKrabi.krabi, phuket: dualKrabi.phuket } } : undefined,
   );
   const conflictContext = formatConflictContext(conflict);
+
+  const metarRawForFreshness =
+    region === 'krabi'
+      ? (dualKrabi.krabi?.raw ?? dualKrabi.phuket?.raw)
+      : airportSnap?.raw;
 
   // Build triple freshness — tells Claude how fresh each source is
   const freshness = buildTripleFreshness(
     snapshot.validTime,
-    airportSnap?.raw
+    metarRawForFreshness
       // extract obsTime from raw by re-fetching or approximating:
       // airport snap was just fetched, so we calculate from the raw METAR time string
       ? (() => {
           // Parse time from raw: "METAR VTSM DDHHMM Z ..." → obsTime approximation
           // We use the current time minus age since we just fetched it
-          const match = airportSnap.raw.match(/\d{6}Z/);
+          const match = metarRawForFreshness!.match(/\d{6}Z/);
           if (!match) return Math.floor(Date.now() / 1000) - 15 * 60; // fallback: 15m ago
           const raw = match[0]; // e.g. "140700Z" = day 14, 07:00 UTC
           const now = new Date();

@@ -1,10 +1,22 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import type { MetarApiResponse } from '../app/api/metar/route';
+import type { MetarApiResponse, MetarStationKey } from '../app/api/metar/route';
 import type { ParsedMetar, ParsedTaf, ParsedTafPeriod } from '../lib/metar';
 import DataFreshnessBadge from './DataFreshnessBadge';
 import type { SourceFreshness } from '../lib/data-freshness';
+
+const STATIONS: { icao: MetarStationKey; iata: string; short: string }[] = [
+  { icao: 'VTSM', iata: 'USM', short: 'Samui' },
+  { icao: 'VTSG', iata: 'KBV', short: 'Krabi' },
+  { icao: 'VTSP', iata: 'HKT', short: 'Phuket' },
+];
+
+const STATION_TITLE: Record<MetarStationKey, string> = {
+  VTSM: 'Samui International Airport Sensors',
+  VTSG: 'Krabi International Airport Sensors',
+  VTSP: 'Phuket International Airport Sensors',
+};
 
 // ── Flight category badge ──────────────────────────────────────────────────────
 
@@ -28,17 +40,16 @@ function FltCatBadge({ color, label }: { color: keyof typeof fltCatCfg; label?: 
 // ── Raw METAR display ──────────────────────────────────────────────────────────
 
 function RawMetarLine({ raw }: { raw: string }) {
-  // Tokenise and colour-code the raw string
   const tokens = raw.split(' ').map((token, i) => {
     let color = 'text-slate-400';
-    if (i === 0) color = 'text-slate-600';                              // METAR/SPECI
-    else if (/^[A-Z]{4}$/.test(token)) color = 'text-cyan-300 font-bold'; // ICAO
-    else if (/^\d{6}Z$/.test(token)) color = 'text-purple-300';           // time
-    else if (/^\d{5}(G\d{2})?KT$/.test(token)) color = 'text-blue-300';  // wind
-    else if (/^\d{4}$/.test(token) || token === '9999') color = 'text-emerald-300'; // vis
-    else if (/^(FEW|SCT|BKN|OVC|SKC|CLR)\d*$/.test(token)) color = 'text-amber-300'; // clouds
-    else if (/^\d{2}\/\d{2}$/.test(token)) color = 'text-orange-300';    // temp/dew
-    else if (/^Q\d{4}$/.test(token)) color = 'text-rose-300';            // QNH
+    if (i === 0) color = 'text-slate-600';
+    else if (/^[A-Z]{4}$/.test(token)) color = 'text-cyan-300 font-bold';
+    else if (/^\d{6}Z$/.test(token)) color = 'text-purple-300';
+    else if (/^\d{5}(G\d{2})?KT$/.test(token)) color = 'text-blue-300';
+    else if (/^\d{4}$/.test(token) || token === '9999') color = 'text-emerald-300';
+    else if (/^(FEW|SCT|BKN|OVC|SKC|CLR)\d*$/.test(token)) color = 'text-amber-300';
+    else if (/^\d{2}\/\d{2}$/.test(token)) color = 'text-orange-300';
+    else if (/^Q\d{4}$/.test(token)) color = 'text-rose-300';
     else if (token === 'NOSIG') color = 'text-emerald-400 font-bold';
     return <span key={i} className={color}>{token} </span>;
   });
@@ -50,8 +61,6 @@ function RawMetarLine({ raw }: { raw: string }) {
   );
 }
 
-// ── METAR data row ─────────────────────────────────────────────────────────────
-
 function DataRow({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
     <div className="flex items-start gap-2">
@@ -61,8 +70,6 @@ function DataRow({ icon, label, value }: { icon: string; label: string; value: s
     </div>
   );
 }
-
-// ── TAF period row ────────────────────────────────────────────────────────────
 
 function TafRow({ period }: { period: ParsedTafPeriod }) {
   const hasStorm = period.wx?.toLowerCase().includes('thunder');
@@ -94,9 +101,15 @@ function TafRow({ period }: { period: ParsedTafPeriod }) {
   );
 }
 
-// ── Main MetarCard ────────────────────────────────────────────────────────────
-
-function MetarSection({ metar, freshness }: { metar: ParsedMetar; freshness: SourceFreshness | null }) {
+function MetarSection({
+  metar,
+  freshness,
+  title,
+}: {
+  metar: ParsedMetar;
+  freshness: SourceFreshness | null;
+  title: string;
+}) {
   const obsDate = new Date(metar.obsTime * 1000).toLocaleString('en-US', {
     weekday: 'short', hour: '2-digit', minute: '2-digit',
     timeZone: 'Asia/Bangkok', hour12: false,
@@ -116,11 +129,10 @@ function MetarSection({ metar, freshness }: { metar: ParsedMetar; freshness: Sou
 
   return (
     <div>
-      {/* Header */}
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
           <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
-            Samui International Airport Sensors
+            {title}
           </p>
           <p className="mt-0.5 text-[9px] text-slate-600">Observed {obsDate} ICT</p>
         </div>
@@ -137,7 +149,6 @@ function MetarSection({ metar, freshness }: { metar: ParsedMetar; freshness: Sou
         </div>
       </div>
 
-      {/* Stale data warning */}
       {freshness?.isStale && freshness.sammiNote && (
         <div className="mb-3 rounded-xl border border-amber-500/25 bg-amber-500/8 px-3 py-2">
           <p className="text-[10px] italic text-amber-200">
@@ -146,15 +157,13 @@ function MetarSection({ metar, freshness }: { metar: ParsedMetar; freshness: Sou
         </div>
       )}
 
-      {/* Raw METAR — labelled as sensor feed, not "METAR" in public-facing copy */}
       <div className="mb-3">
         <p className="mb-1 text-[9px] font-bold uppercase tracking-wider text-slate-600">
-          Raw Airport Sensor Feed <span className="text-slate-700 normal-case font-normal">(Sammi reads this so you don't have to)</span>
+          Raw Airport Sensor Feed <span className="text-slate-700 normal-case font-normal">(Sammi reads this so you don&apos;t have to)</span>
         </p>
         <RawMetarLine raw={metar.raw} />
       </div>
 
-      {/* Parsed data rows */}
       <div className="mb-3 space-y-1.5 rounded-xl border border-white/8 bg-white/3 px-3 py-3">
         <DataRow icon="💨" label="Wind"    value={windStr} />
         <DataRow icon="👁️" label="Vis"     value={visStr} />
@@ -164,7 +173,6 @@ function MetarSection({ metar, freshness }: { metar: ParsedMetar; freshness: Sou
         {metar.wxString && <DataRow icon="⚡" label="Wx" value={metar.wxString} />}
       </div>
 
-      {/* Sammi's interpretation */}
       <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-3">
         <p className="text-[9px] font-black uppercase tracking-wider text-slate-500">
           ✨ Sammi Reads the METAR
@@ -196,14 +204,12 @@ function TafSection({ taf }: { taf: ParsedTaf }) {
         <p className="text-[9px] text-slate-600">Valid until {validStr} ICT</p>
       </div>
 
-      {/* Raw TAF */}
       <div className="mb-3">
         <div className="overflow-x-auto rounded-xl border border-white/8 bg-slate-950/50 px-3 py-2">
           <code className="whitespace-nowrap font-mono text-[10px] text-slate-500">{taf.raw}</code>
         </div>
       </div>
 
-      {/* Period breakdown */}
       <div className="space-y-2">
         {taf.periods.map((p, i) => <TafRow key={i} period={p} />)}
       </div>
@@ -211,14 +217,22 @@ function TafSection({ taf }: { taf: ParsedTaf }) {
   );
 }
 
-export default function MetarCard() {
+export default function MetarCard({ defaultIcao }: { defaultIcao: MetarStationKey }) {
   const [data, setData] = useState<MetarApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<MetarStationKey>(defaultIcao);
+
+  useEffect(() => {
+    setSelected(defaultIcao);
+  }, [defaultIcao]);
 
   useEffect(() => {
     fetch('/api/metar')
       .then(r => r.json())
-      .then((d: MetarApiResponse) => { setData(d); setLoading(false); })
+      .then((d: MetarApiResponse) => {
+        setData(d);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, []);
 
@@ -226,23 +240,69 @@ export default function MetarCard() {
     return (
       <div className="flex items-center gap-2 rounded-2xl border border-white/8 bg-white/5 px-4 py-5 text-xs text-slate-400">
         <span className="h-3 w-3 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
-        Fetching VTSM sensor data…
+        Fetching airport METAR / TAF (USM · KBV · HKT)…
       </div>
     );
   }
 
-  if (!data || (!data.metar && !data.taf)) {
+  if (!data?.stations) {
     return (
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-[11px] text-amber-300">
         METAR unavailable — aviationweather.gov not responding.
+        {data?.error ? ` (${data.error})` : ''}
+      </div>
+    );
+  }
+
+  const bundle = data.stations[selected];
+  const hasAny = STATIONS.some(
+    s => data.stations[s.icao].metar || data.stations[s.icao].taf,
+  );
+
+  if (!hasAny) {
+    return (
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-[11px] text-amber-300">
+        No METAR/TAF data in response — try again shortly.
       </div>
     );
   }
 
   return (
     <div>
-      {data.metar && <MetarSection metar={data.metar} freshness={data.freshness} />}
-      {data.taf   && <TafSection   taf={data.taf} />}
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {STATIONS.map(
+          ({ icao, iata, short }) => (
+            <button
+              key={icao}
+              type="button"
+              onClick={() => setSelected(icao)}
+              className={[
+                'rounded-lg border px-2.5 py-1 text-[9px] font-black uppercase tracking-wide transition',
+                selected === icao
+                  ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-100'
+                  : 'border-white/10 bg-white/5 text-slate-500 hover:border-white/20 hover:text-slate-300',
+              ].join(' ')}
+            >
+              {iata} · {short}
+            </button>
+          ),
+        )}
+      </div>
+
+      {!bundle.metar && !bundle.taf && (
+        <div className="mb-3 rounded-xl border border-amber-500/15 bg-amber-500/5 px-3 py-2 text-[10px] text-amber-200">
+          No observation for this station yet — pick another airport above.
+        </div>
+      )}
+
+      {bundle.metar && (
+        <MetarSection
+          metar={bundle.metar}
+          freshness={bundle.freshness}
+          title={STATION_TITLE[selected]}
+        />
+      )}
+      {bundle.taf && <TafSection taf={bundle.taf} />}
     </div>
   );
 }

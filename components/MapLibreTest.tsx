@@ -4,7 +4,7 @@
  * Sandbox-only MapLibre map + RainViewer radar from `public/radar-practice.fixture.json`.
  * Basemap + radar paint match `SamuiExploreMap` (Krabi + Samui dashboard).
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import Map, { Layer, NavigationControl, Source } from 'react-map-gl/maplibre';
@@ -12,6 +12,7 @@ import type { MapRef } from 'react-map-gl/maplibre';
 import type { RasterLayerSpecification, RequestParameters, ResourceType, StyleSpecification } from 'maplibre-gl';
 import { fetchExploreBasemapStyle } from '@/lib/krabi-vector-style';
 import { applyPreferredPlaceLabels } from '@/lib/maplibre-place-labels';
+import { useHudThrottleMove } from '@/lib/map-move-hud';
 
 const MAP_MAX_ZOOM = 16;
 const INITIAL_MAP_ZOOM = 11;
@@ -67,6 +68,12 @@ export default function MapLibreTest() {
   const [baseMapReady, setBaseMapReady] = useState(false);
   const [viewZoom, setViewZoom] = useState(INITIAL_MAP_ZOOM);
   const [fixtureMeta, setFixtureMeta] = useState<string | null>(null);
+
+  const applyMoveHud = useCallback((zoom: number, _lat: number) => {
+    setViewZoom(zoom);
+  }, []);
+
+  const onMoveHud = useHudThrottleMove(applyMoveHud);
 
   useEffect(() => {
     let cancelled = false;
@@ -195,9 +202,7 @@ export default function MapLibreTest() {
         boxZoom
         dragRotate={false}
         touchPitch={false}
-        onMove={evt => {
-          setViewZoom(evt.viewState.zoom);
-        }}
+        onMove={onMoveHud}
         onLoad={() => {
           const map = mapRef.current?.getMap();
           if (!map) return;
@@ -226,7 +231,9 @@ export default function MapLibreTest() {
         }}
         onMoveEnd={() => {
           const map = mapRef.current?.getMap();
-          if (map && map.getZoom() > MAP_MAX_ZOOM) map.setZoom(MAP_MAX_ZOOM);
+          if (!map) return;
+          if (map.getZoom() > MAP_MAX_ZOOM) map.setZoom(MAP_MAX_ZOOM);
+          setViewZoom(map.getZoom());
         }}
       >
         {baseMapReady && radarTiles.length > 0 && (

@@ -37,6 +37,12 @@ export interface SammiChatRequest {
     satelliteDisagree?: boolean;
     spireRain?: boolean;
     meteoblueRain?: boolean;
+    /** Beach Sun Score v2 (0–100) — cite when giving beach timing advice */
+    beachSunScore?: number;
+    beachSunLabel?: string;
+    beachSunAdvice?: string;
+    /** e.g. Chaweng (Samui) or Ao Nang (Krabi) for score copy */
+    beachRegionLabel?: string;
   };
 }
 
@@ -64,6 +70,13 @@ function buildSystemPrompt(weatherContext?: SammiChatRequest['weatherContext']):
   const w = weatherContext;
 
   // ── Satellite Intelligence briefing ─────────────────────────────────────────
+  const beachScoreLine =
+    w &&
+    typeof w.beachSunScore === 'number' &&
+    !Number.isNaN(w.beachSunScore)
+      ? `BEACH SUN SCORE: ${w.beachSunScore}/100 (${w.beachSunLabel ?? 'n/a'})${w.beachSunAdvice ? ` — ${w.beachSunAdvice}` : ''}. Region label for copy: ${w.beachRegionLabel ?? 'the beach strip'}. When the user asks about beach conditions, timing, or swimming, mention this score naturally in one tight line (e.g. "Today an 88 on ${w.beachRegionLabel ?? 'Chaweng'} — solid. After 16:00 it may slide toward 40s if an afternoon storm fires."). Do not recite raw CAPE/PWAT unless asked.`
+      : '';
+
   const sitrep = w
     ? `SITREP: ${typeof w.temp === 'number' ? w.temp.toFixed(1) : '?'}°C · precip ${w.precipRate?.toFixed(1) ?? '0'} mm/h · wind ${typeof w.windSpeed === 'number' ? w.windSpeed.toFixed(1) : '?'} m/s`
     : '';
@@ -111,6 +124,7 @@ TONE STANDARD: Intelligence briefing style. Direct. Evidence-based. Dry humour p
 RESPONSE LIMIT: 3 sentences maximum unless tactical depth is specifically required.
 
 ${sitrep}
+${beachScoreLine}
 ${windVector}
 ${divergenceBlock}
 ${dashboardRef}

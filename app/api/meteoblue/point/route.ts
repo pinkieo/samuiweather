@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
-export const revalidate = 3600;
+/** Frisse snapshot voor “nu”-weer in het dashboard (Krabi/Samui). */
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 /**
  * Single-location snapshot from meteoblue (same package as /api/meteoblue/forecast).
@@ -33,7 +35,7 @@ export async function GET(request: Request) {
   const url = `https://my.meteoblue.com/packages/basic-1h_clouds-1h_sunmoon?apikey=${apiKey}&lat=${lat}&lon=${lon}&asl=${aslStr}&format=json&tz=Asia%2FBangkok`;
 
   try {
-    const res = await fetch(url, { next: { revalidate: 600 } });
+    const res = await fetch(url, { cache: 'no-store' });
     const raw: unknown = await res.json().catch(() => ({}));
 
     if (!res.ok) {

@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
+import { getRainViewerIngestProof } from '@/lib/rainviewer-ingest-proof';
 
 export const runtime = 'edge';
+/** Voorkom Data Cache van half/stale responses tijdens dev — altijd verse `weather-maps.json`. */
+export const dynamic = 'force-dynamic';
 
 /** If nothing falls in the last 90 min window, use the last N scans (RainViewer ~10 min cadence). */
 const FALLBACK_TAIL = 18;
@@ -12,10 +15,22 @@ export async function GET() {
   try {
     const res = await fetch('https://api.rainviewer.com/public/weather-maps.json', {
       headers: { 'User-Agent': 'SamuiWeatherDashboard/1.0' },
-      next: { revalidate: 120 },
+      ...(process.env.NODE_ENV === 'development'
+        ? ({ cache: 'no-store' } as const)
+        : { next: { revalidate: 120 } }),
     });
     if (!res.ok) {
-      return NextResponse.json({ frames: [] }, { status: 502 });
+      return NextResponse.json(
+        {
+          frames: [],
+          nowcastFrames: [],
+          nowFrame: null,
+          upstream: null,
+          error: 'upstream_not_ok',
+          ingest: getRainViewerIngestProof(),
+        },
+        { status: 502 },
+      );
     }
     const data: unknown = await res.json();
     const past =
@@ -37,13 +52,49 @@ export async function GET() {
       .slice(-FALLBACK_TAIL)
       .sort((a: { time: number }, b: { time: number }) => a.time - b.time);
     const picked = inWindow.length > 0 ? inWindow : fallback;
+    const frames = picked.map((f: { path: string; time: number }) => ({
+      path: f.path,
+      time: f.time,
+    }));
+    const nowFrame = frames.length > 0 ? frames[frames.length - 1]! : null;
+
+    const nowcastRaw =
+      typeof data === 'object' &&
+      data !== null &&
+      'radar' in data &&
+      typeof (data as { radar?: { nowcast?: unknown } }).radar === 'object' &&
+      (data as { radar?: { nowcast?: unknown } }).radar !== null
+        ? (data as { radar: { nowcast?: { path: string; time: number }[] } }).radar.nowcast
+        : [];
+    const nowcastList = Array.isArray(nowcastRaw) ? nowcastRaw : [];
+    const nowcastFrames = nowcastList
+      .filter(
+        (f: { path?: string; time?: number }) =>
+          typeof f?.path === 'string' && typeof f?.time === 'number',
+      )
+      .sort((a: { time: number }, b: { time: number }) => a.time - b.time)
+      .slice(0, 24)
+      .map((f: { path: string; time: number }) => ({ path: f.path, time: f.time }));
+
+    /** Full `weather-maps.json` — station IDs (PHU, SRT, SKA, …) are not inside this JSON; see `ingest`. */
     return NextResponse.json({
-      frames: picked.map((f: { path: string; time: number }) => ({
-        path: f.path,
-        time: f.time,
-      })),
+      frames,
+      nowcastFrames,
+      nowFrame,
+      upstream: data,
+      ingest: getRainViewerIngestProof(),
     });
   } catch {
-    return NextResponse.json({ frames: [] }, { status: 500 });
+    return NextResponse.json(
+      {
+        frames: [],
+        nowcastFrames: [],
+        nowFrame: null,
+        upstream: null,
+        error: 'exception',
+        ingest: getRainViewerIngestProof(),
+      },
+      { status: 500 },
+    );
   }
 }

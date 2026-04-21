@@ -1,10 +1,27 @@
 /**
- * METAR / TAF parser for VTSM (Samui International Airport)
- * Source: aviationweather.gov — no API key required
+ * METAR / TAF parser — Samui, Krabi, Phuket (aviationweather.gov, no API key)
  */
 
-export const VTSM_METAR_URL = 'https://aviationweather.gov/api/data/metar?ids=VTSM&format=json&hours=2';
-export const VTSM_TAF_URL   = 'https://aviationweather.gov/api/data/taf?ids=VTSM&format=json';
+/** Single request: METAR for VTSM (Samui), VTSG (Krabi), VTSP (Phuket). */
+export const TH_SOUTH_METAR_URL =
+  'https://aviationweather.gov/api/data/metar?ids=VTSM,VTSG,VTSP&format=json&hours=2';
+export const TH_SOUTH_TAF_URL =
+  'https://aviationweather.gov/api/data/taf?ids=VTSM,VTSG,VTSP&format=json';
+
+/** @deprecated Use {@link TH_SOUTH_METAR_URL} and pick station by `icaoId`. */
+export const VTSM_METAR_URL = TH_SOUTH_METAR_URL;
+/** @deprecated Use {@link TH_SOUTH_TAF_URL} and pick station by `icaoId`. */
+export const VTSM_TAF_URL = TH_SOUTH_TAF_URL;
+
+export const TH_SOUTH_AIRPORT_ICAOS = ['VTSM', 'VTSG', 'VTSP'] as const;
+export type ThSouthAirportIcao = (typeof TH_SOUTH_AIRPORT_ICAOS)[number];
+
+/** Human label for Sammi copy (no ICAO codes in user-facing text). */
+export const TH_SOUTH_AIRPORT_VOICE: Record<ThSouthAirportIcao, string> = {
+  VTSM: 'Samui airport',
+  VTSG: 'Krabi airport',
+  VTSP: 'Phuket airport',
+};
 
 // ── Raw API types ─────────────────────────────────────────────────────────────
 
@@ -45,6 +62,28 @@ export interface RawTaf {
   validTimeFrom: number;
   validTimeTo:   number;
   fcsts:       RawTafFcst[];
+}
+
+export function pickRawMetarForIcao(rows: RawMetar[], icao: string): RawMetar | undefined {
+  const u = icao.toUpperCase();
+  return rows.find(r => r.icaoId?.toUpperCase() === u);
+}
+
+export function pickRawTafForIcao(rows: RawTaf[], icao: string): RawTaf | undefined {
+  const u = icao.toUpperCase();
+  return rows.find(r => r.icaoId?.toUpperCase() === u);
+}
+
+/**
+ * True if METAR wx group reports precipitation / storms (RA, SHRA, TSRA, TS, DZ, …).
+ * Used for Krabi dual-airport logic (VTSG + VTSP).
+ */
+export function metarWxIndicatesPrecipitation(wxString: string | null | undefined): boolean {
+  if (!wxString) return false;
+  const u = wxString.toUpperCase();
+  return /\b(RA|DZ|SHRA|TSRA|TS|SHSN|SN|GR|GS|PL|SG|DRSN|UP|SHGR|FZRA|FZDZ|RASN|SNRA|RABR|DZRA|VCTS|VCSH|TSGR|SHGS)\b/.test(
+    u,
+  );
 }
 
 // ── Parsed & translated types ─────────────────────────────────────────────────
@@ -124,12 +163,16 @@ const WX_LABELS: Record<string, string> = {
   BC: 'patches', DR: 'drifting', BL: 'blowing', PR: 'partial',
 };
 
+/** METAR wx codes include `+` / `-` (heavy/light) — must not be raw RegExp quantifiers. */
+function escapeRegExpLiteral(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function decodeWx(wxString: string | null): string | null {
   if (!wxString) return null;
-  // Simple token replacement
   let result = wxString;
   Object.entries(WX_LABELS).forEach(([code, label]) => {
-    result = result.replace(new RegExp(code, 'g'), label + ' ');
+    result = result.replace(new RegExp(escapeRegExpLiteral(code), 'g'), `${label} `);
   });
   return result.trim().replace(/\s+/g, ' ');
 }
@@ -144,9 +187,13 @@ function windDirToCompass(deg: number | null): string {
 // Rule: NO aviation codes out loud (METAR, TAF, FEW, SCT, BKN, OVC, VFR, IFR, VTSM).
 // Everything becomes human experience. Tone: "I have the equipment, you have the vacation."
 
-function sammiSkyQuip(clouds: ParsedCloud[], wx: string | null): string {
+function sammiSkyQuip(
+  clouds: ParsedCloud[],
+  wx: string | null,
+  airportLabel: string = 'Samui airport',
+): string {
   if (wx && wx.toLowerCase().includes('thunder')) {
-    return "The radar at Samui airport is picking up electrical storm signals. This is data your phone app simply does not have — and right now it says: reschedule that beach dinner, darling.";
+    return `The radar at ${airportLabel} is picking up electrical storm signals. This is data your phone app simply does not have — and right now it says: reschedule that beach dinner, darling.`;
   }
   if (wx && (wx.toLowerCase().includes('rain') || wx.toLowerCase().includes('shower'))) {
     return "Our sensors at the airstrip are confirming active rain. The mainland rain radar backs it up — the sky means business. I see the data your phone app doesn't have, and it's wet.";
@@ -158,21 +205,26 @@ function sammiSkyQuip(clouds: ParsedCloud[], wx: string | null): string {
   switch (dominant) {
     case 'SKC':
     case 'CLR':
-      return "The radar at Samui airport is looking at a completely empty sky. Not a single cloud over the island. This is data your phone app doesn't have — and it says: perfect.";
+      return `The radar at ${airportLabel} is looking at a completely empty sky. Not a cloud in the picture. This is data your phone app doesn't have — and it says: perfect.`;
     case 'FEW':
       return `Our sensors at the airstrip see light wispy clouds${alt}. Decorative, really — the kind you photograph, not hide from. The mainland rain radar confirms zero precipitation signals anywhere near us.`;
     case 'SCT':
-      return `The radar at Samui airport is showing friendly cumulus clouds${alt}. A nice patchwork of sun and shade — ideal beach weather. The mainland rain radar? Completely silent.`;
+      return `The radar at ${airportLabel} is showing friendly cumulus clouds${alt}. A nice patchwork of sun and shade — ideal beach weather. The mainland rain radar? Completely silent.`;
     case 'BKN':
       return `Our sensors at the airstrip see a broken layer of cloud${alt}. More grey than blue, I won't lie. The mainland rain radar is watching — no rain cells yet, but I'm keeping my satellite eyes on it.`;
     case 'OVC':
-      return `The radar at Samui airport sees a full overcast blanket${alt}. Grey sky confirmed — I see the data your phone app doesn't have, and today it says: indoor brunch first, beach later. The mainland rain radar shows no heavy cells though.`;
+      return `The radar at ${airportLabel} sees a full overcast blanket${alt}. Grey sky confirmed — I see the data your phone app doesn't have, and today it says: indoor brunch first, beach later. The mainland rain radar shows no heavy cells though.`;
     default:
       return "Our sensors at the airstrip are reading the sky. Give me a moment — I see the data your phone app doesn't.";
   }
 }
 
-function sammiWindQuip(wspd: number | null, wgst: number | null, wdir: number | null): string {
+function sammiWindQuip(
+  wspd: number | null,
+  wgst: number | null,
+  wdir: number | null,
+  airportLabel: string = 'Samui airport',
+): string {
   const compass  = windDirToCompass(wdir);
   const gustNote = wgst ? `, with gusts up to ${wgst} knots` : '';
   const compassHuman: Record<string, string> = {
@@ -188,54 +240,69 @@ function sammiWindQuip(wspd: number | null, wgst: number | null, wdir: number | 
     return "Wind: glass calm. Our sensors at the airstrip confirm it — not a breath of wind. Your cocktail umbrella is in zero danger.";
   }
   if (wspd < 8) {
-    return `A gentle breeze from ${dir}${gustNote}. The radar at Samui airport clocked it at ${wspd} knots — your phone app wouldn't even bother showing this. Beach-perfect.`;
+    return `A gentle breeze from ${dir}${gustNote}. The radar at ${airportLabel} clocked it at ${wspd} knots — your phone app wouldn't even bother showing this. Beach-perfect.`;
   }
   if (wspd < 15) {
     return `A proper sea breeze from ${dir} at ${wspd} knots${gustNote}. Our sensors at the airstrip have it precisely. Windsurfers will be smug. Everyone else will be refreshed.`;
   }
   if (wspd < 22) {
-    return `A fresh ${wspd}-knot wind from ${dir}${gustNote} — the radar at Samui airport flagged it. Secure the sun loungers. Still a beach day, just an animated one.`;
+    return `A fresh ${wspd}-knot wind from ${dir}${gustNote} — the radar at ${airportLabel} flagged it. Secure the sun loungers. Still a beach day, just an animated one.`;
   }
   return `${wspd} knots from ${dir}${gustNote}. Our sensors at the airstrip are calling this serious wind. This is data your phone app doesn't have — and it says: pool over beach today.`;
 }
 
-function sammiVisQuip(visib: string | null): string {
+function sammiVisQuip(visib: string | null, airportLabel: string = 'Samui airport'): string {
   if (!visib) return 'Visibility data from our airstrip sensors is updating — give me a moment.';
   if (visib === '6+' || visib === '9999' || parseFloat(visib) >= 9) {
     return "Visibility: unlimited. Our sensors at the airstrip confirm you can see all the way to the horizon. The mainland rain radar agrees — clean air in every direction. This is data your phone app simply doesn't show.";
   }
   const km = parseFloat(visib);
-  if (km >= 5) return `The radar at Samui airport is measuring ${km} kilometres of clear air. Perfectly fine for swimming, snorkelling, and sundowners. I see the data — it says: go enjoy yourself.`;
+  if (km >= 5) return `The radar at ${airportLabel} is measuring ${km} kilometres of clear air. Perfectly fine for swimming, snorkelling, and sundowners. I see the data — it says: go enjoy yourself.`;
   if (km >= 2) return `Visibility down to ${km} kilometres — our sensors at the airstrip are picking up haze or light mist. Still very liveable, just softer light than usual. The mainland rain radar is watching with me.`;
   return `Only ${km} kilometres of visibility right now. Our sensors at the airstrip are flagging this. I see the data your phone app doesn't have — and it says: check conditions before heading to the water.`;
 }
 
-function sammiVerdict(fltCat: string, wx: string | null, wspd: number | null): string {
+function sammiVerdict(
+  fltCat: string,
+  wx: string | null,
+  wspd: number | null,
+  airportLabel: string = 'Samui airport',
+): string {
   const hasStorm = wx && (wx.toLowerCase().includes('thunder') || wx.toLowerCase().includes('funnel'));
   if (hasStorm) {
-    return "The radar at Samui airport is seeing electrical storm activity — and the mainland rain radar confirms it. I see the data your phone app doesn't have. Right now it says: stay indoors. I have the equipment; you have the vacation. Listen to me.";
+    return `The radar at ${airportLabel} is seeing electrical storm activity — and the mainland rain radar confirms it. I see the data your phone app doesn't have. Right now it says: stay indoors. I have the equipment; you have the vacation. Listen to me.`;
   }
 
   switch (fltCat) {
     case 'VFR':
       return "The sky is in perfect condition ✈️ — our sensors at the airstrip confirm it, and the mainland rain radar shows clean skies all around. Your phone's weather app doesn't have access to runway sensor data. I do. Go enjoy yourself.";
     case 'MVFR':
-      return "Conditions are borderline today — the radar at Samui airport is seeing low cloud and soft visibility. Beach day is fine. Island flights may be slightly delayed. I'm watching the mainland rain radar so you don't have to.";
+      return `Conditions are borderline today — the radar at ${airportLabel} is seeing low cloud and soft visibility. Beach day is fine. Flights may be slightly delayed. I'm watching the mainland rain radar so you don't have to.`;
     case 'IFR':
       if (wspd && wspd > 15) {
         return "Low cloud combined with strong wind — our sensors at the airstrip are not relaxed right now. I see the data your phone app doesn't have. Stay aware before any water activities.";
       }
-      return "Low cloud and reduced visibility. The radar at Samui airport confirms it; the mainland rain radar shows no heavy cells — just the atmosphere being dramatic. I have the equipment. Today it recommends: indoor brunch, patience, and trust in Sammi.";
+      return `Low cloud and reduced visibility. The radar at ${airportLabel} confirms it; the mainland rain radar shows no heavy cells — just the atmosphere being dramatic. I have the equipment. Today it recommends: indoor brunch, patience, and trust in Sammi.`;
     case 'LIFR':
-      return "Conditions are at minimum right now. The radar at Samui airport and the mainland rain radar are both telling me the same thing — and even I won't spin this one. I see the data your phone app doesn't have. Today: stay safe, stay close to shore.";
+      return `Conditions are at minimum right now. The radar at ${airportLabel} and the mainland rain radar are both telling me the same thing — and even I won't spin this one. I see the data your phone app doesn't have. Today: stay safe, stay close to shore.`;
     default:
       return "Our sensors at the airstrip are reading conditions. I see the data your phone app doesn't have — and I'll tell you exactly what it means.";
   }
 }
 
+export type ParseMetarOptions = {
+  /** e.g. "Krabi airport" — used in Sammi copy instead of "Samui airport". */
+  airportLabel?: string;
+};
+
+export type ParseTafOptions = {
+  airportLabel?: string;
+};
+
 // ── Main parsers ──────────────────────────────────────────────────────────────
 
-export function parseMetar(raw: RawMetar): ParsedMetar {
+export function parseMetar(raw: RawMetar, options?: ParseMetarOptions): ParsedMetar {
+  const airportLabel = options?.airportLabel ?? 'Samui airport';
   const clouds: ParsedCloud[] = (raw.clouds ?? []).map(c => ({
     cover: c.cover,
     base:  c.base,
@@ -269,15 +336,16 @@ export function parseMetar(raw: RawMetar): ParsedMetar {
     clouds,
     fltCat:      raw.fltCat,
     wxString:    wx,
-    sammiSky:    sammiSkyQuip(clouds, raw.wxString),
-    sammiWind:   sammiWindQuip(raw.wspd, raw.wgst, raw.wdir),
-    sammiVisMood: sammiVisQuip(raw.visib),
-    sammiVerdict: sammiVerdict(raw.fltCat, raw.wxString, raw.wspd),
+    sammiSky:    sammiSkyQuip(clouds, raw.wxString, airportLabel),
+    sammiWind:   sammiWindQuip(raw.wspd, raw.wgst, raw.wdir, airportLabel),
+    sammiVisMood: sammiVisQuip(raw.visib, airportLabel),
+    sammiVerdict: sammiVerdict(raw.fltCat, raw.wxString, raw.wspd, airportLabel),
     fltCatColor: fltCatColor as 'green' | 'yellow' | 'red' | 'darkred',
   };
 }
 
-export function parseTaf(raw: RawTaf): ParsedTaf {
+export function parseTaf(raw: RawTaf, options?: ParseTafOptions): ParsedTaf {
+  const airportLabel = options?.airportLabel ?? 'Samui airport';
   const periods: ParsedTafPeriod[] = (raw.fcsts ?? []).map(f => {
     const clouds: ParsedCloud[] = (f.clouds ?? []).map(c => ({
       cover: c.cover,
@@ -316,7 +384,7 @@ export function parseTaf(raw: RawTaf): ParsedTaf {
     } else if (['BKN','OVC'].includes(dominantCloud)) {
       sammiLine = `🌥️ ${cloudLabel.charAt(0).toUpperCase() + cloudLabel.slice(1)}${cloudAlt} with ${windDesc}. The mainland rain radar shows no heavy cells — just moody sky.`;
     } else if (['SKC','CLR','FEW'].includes(dominantCloud)) {
-      sammiLine = `☀️ ${cloudLabel.charAt(0).toUpperCase() + cloudLabel.slice(1)}${cloudAlt}, ${windDesc}. The radar at Samui airport says this is exactly what you came here for.`;
+      sammiLine = `☀️ ${cloudLabel.charAt(0).toUpperCase() + cloudLabel.slice(1)}${cloudAlt}, ${windDesc}. The radar at ${airportLabel} says this is exactly what you came here for.`;
     } else {
       sammiLine = `${cloudLabel.charAt(0).toUpperCase() + cloudLabel.slice(1)}${cloudAlt} with ${windDesc}. Our sensors at the airstrip see no drama.`;
     }

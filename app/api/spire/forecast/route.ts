@@ -25,7 +25,7 @@ function parseOptionalLatLon(request: Request): { lat: number; lon: number } {
 
 export async function GET(request: Request) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  const timer = setTimeout(() => controller.abort(), 22000);
 
   try {
     const { lat, lon } = parseOptionalLatLon(request);
@@ -37,7 +37,13 @@ export async function GET(request: Request) {
         { status: 502 },
       );
     }
-    return NextResponse.json(rows);
+    return NextResponse.json(rows, {
+      headers: {
+        /** Browser + CDN may reuse; lat/lon in query already key the response. */
+        'Cache-Control':
+          'private, max-age=120, s-maxage=120, stale-while-revalidate=3600',
+      },
+    });
   } catch (error) {
     clearTimeout(timer);
     const message = error instanceof Error ? error.message : 'Unknown error';

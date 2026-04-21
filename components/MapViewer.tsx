@@ -1,12 +1,18 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { SamuiWeatherForecastRow } from '../lib/spire';
 import type { TideTrend } from '../lib/tides';
-import { getFirstTideHeightM, getNextTideExtremum, getTideTrend } from '../lib/tides';
+import {
+  getNextTideExtremum,
+  getTideDataSource,
+  getTideHeightAtNow,
+  getTideTrend,
+} from '../lib/tides';
 import TideCard from './TideCard';
+import ShowerNowcastCard from './ShowerNowcastCard';
 import AirQualityCard from './AirQualityCard';
 import UVIndexCard from './UVIndexCard';
 import VacationDashboard from './VacationDashboard';
@@ -23,6 +29,10 @@ import {
   type DashboardRegionId,
   getDashboardRegion,
 } from '../lib/dashboard-regions';
+import type { MetarApiResponse } from '../app/api/metar/route';
+import { dominantCoverFromMetarClouds, type MetarDominantCover } from '../lib/sky-display';
+import { sampleRadarEchoAtLocation } from '../lib/rainviewer-tile-sample';
+import { useRadarFeed } from './RadarFramesProvider';
 
 const SamuiExploreMap = dynamic(() => import('./SamuiExploreMap'), {
   ssr: false,
@@ -39,12 +49,12 @@ const DIRS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW'
 function SammiChatPortal({
   forecastRows,
   onMapFlyTo,
-  samuiIntel,
+  conflictRegion,
   mapRegionKey,
 }: {
   forecastRows: SamuiWeatherForecastRow[];
   onMapFlyTo?: (locationId: string) => void;
-  samuiIntel: boolean;
+  conflictRegion: 'samui' | 'krabi';
   /** SamuiExploreMap remounts per region — re-attach portal to the new `#sammi-chat-anchor`. */
   mapRegionKey: string;
 }) {
@@ -84,7 +94,7 @@ function SammiChatPortal({
         className="!mb-0 h-full min-h-0"
         forecastRows={forecastRows}
         onMapFlyTo={onMapFlyTo}
-        samuiIntel={samuiIntel}
+        conflictRegion={conflictRegion}
       />
     </div>,
     host,
@@ -102,51 +112,69 @@ function forecastCacheTsKey(regionId: DashboardRegionId): string {
   return `samui-spire-forecast-v2-${regionId}-ts`;
 }
 
-/** meteoblue hourly snapshot at island center (same key as dashboard forecast). */
-function MeteoblueModelStrip({ lat, lon }: { lat: number; lon: number }) {
-  const [label, setLabel] = useState<string>('meteoblue: loading…');
+type MeteoblueLiveSnapshot = {
+  tempC: number | null;
+  windSpeedMs: number;
+  windDirDeg: number;
+  /** Nearest 1h slot, mm in that hour — shown as mm/h alongside Spire. */
+  precipMm: number;
+};
 
-  useEffect(() => {
-    const c = new AbortController();
-    fetch(`/api/meteoblue/point?lat=${lat}&lon=${lon}`, { signal: c.signal })
-      .then(r => r.json())
-      .then((d: {
-        ok?: boolean;
-        enabled?: boolean;
-        snapshot?: {
-          tempC: number | null;
-          windSpeedMs: number | null;
-          windDirDeg: number | null;
-        };
-      }) => {
-        if (d.enabled === false) {
-          setLabel('meteoblue: add METEOBLUE_API_KEY');
-          return;
-        }
-        if (!d.ok || !d.snapshot) {
-          setLabel('meteoblue: unavailable');
-          return;
-        }
-        const s = d.snapshot;
-        const wMs =
-          s.windSpeedMs != null ? s.windSpeedMs.toFixed(1) : '—';
-        const t = s.tempC != null ? `${s.tempC}°C` : '—';
-        const wd =
-          s.windDirDeg != null
-            ? DIRS[Math.round(s.windDirDeg / 22.5) % 16]
-            : '—';
-        setLabel(`meteoblue · ${t} · ${wd} ${wMs} m/s`);
-      })
-      .catch(() => setLabel('meteoblue: offline'));
-    return () => c.abort();
-  }, [lat, lon]);
+/** Nearest-hour Meteoblue “now” over eerste Spire-stap: betere actuele bui/temp dan alleen modelgrid. */
+function applyMeteoblueLiveToFirstRow(
+  rows: SamuiWeatherForecastRow[],
+  snap: MeteoblueLiveSnapshot | null,
+): SamuiWeatherForecastRow[] {
+  if (!snap || rows.length === 0) return rows;
+  const r0 = { ...rows[0] };
+  if (snap.tempC != null && Number.isFinite(snap.tempC)) {
+    r0.temp = snap.tempC;
+    r0.feelsLike = snap.tempC;
+  }
+  r0.windSpeed = snap.windSpeedMs;
+  r0.windDir = snap.windDirDeg;
+  r0.precipRate = Math.max(0, snap.precipMm);
+  if (snap.precipMm > 0.08) {
+    r0.pop = Math.max(r0.pop, Math.min(92, Math.round(45 + snap.precipMm * 25)));
+  }
+  return [r0, ...rows.slice(1)];
+}
 
+/** meteoblue live line (data from parent — één fetch voor strip + dashboard blend). */
+function MeteoblueModelStrip({
+  label,
+}: {
+  label: string;
+}) {
   return (
     <div className="pointer-events-none absolute left-3 top-[5.75rem] z-[8] max-w-[min(100%-1.5rem,22rem)] rounded-full border border-white/10 bg-slate-950 px-3 py-1.5 text-[9px] font-semibold text-slate-300 shadow-xl sm:left-[calc(1rem+28rem+0.75rem)] sm:top-4">
       {label}
     </div>
   );
 }
+
+function formatMeteoblueStripLabel(
+  enabled: boolean,
+  ok: boolean,
+  snap: MeteoblueLiveSnapshot | null,
+): string {
+  if (!enabled) return 'meteoblue: add METEOBLUE_API_KEY';
+  if (!ok || !snap) return 'meteoblue: unavailable';
+  const wMs = snap.windSpeedMs.toFixed(1);
+  const t = snap.tempC != null ? `${snap.tempC}°C` : '—';
+  const wd = DIRS[Math.round(snap.windDirDeg / 22.5) % 16];
+  const rain =
+    snap.precipMm > 0.02
+      ? ` · 🌧 ${snap.precipMm.toFixed(2)} mm/h`
+      : ' · dry';
+  return `live meteoblue · ${t}${rain} · ${wd} ${wMs} m/s`;
+}
+
+type MeteoblueClientState =
+  | { status: 'loading' }
+  | { status: 'disabled' }
+  | { status: 'error' }
+  | { status: 'ok'; snap: MeteoblueLiveSnapshot };
 
 export default function MapViewer() {
   const [dashboardRegionId, setDashboardRegionId] = useState<DashboardRegionId>(
@@ -161,6 +189,13 @@ export default function MapViewer() {
   const [tideRaw, setTideRaw]             = useState<unknown>(null);
   const [forecastStatus, setForecastStatus] = useState<'loading' | 'ok' | 'error'>('loading');
   const [forecastError, setForecastError]   = useState<string | null>(null);
+  /** Nearest-hour Meteoblue snapshot — merged into first Spire row as “live” conditions. */
+  const [mbState, setMbState] = useState<MeteoblueClientState>({ status: 'loading' });
+  /** Globale RainViewer feed (root provider) — niet afhankelijk van kaart-mount. */
+  const radarFeed = useRadarFeed();
+  const [radarEcho, setRadarEcho] = useState<'unknown' | 'none' | 'precip'>('unknown');
+  /** Region airport METAR dominant layer — softens Spire cloud % when sky is clear/few. */
+  const [metarSkyCover, setMetarSkyCover] = useState<MetarDominantCover>(null);
 
   // Dashboard collapse — closed on mobile by default, open on desktop
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
@@ -244,32 +279,9 @@ export default function MapViewer() {
     };
   }, [isDashboardOpen, forecastStatus]);
 
-  const handleMapFlyTo = (locationId: string) => {
-    const p = getPoiById(locationId);
-    if (!p) return;
-    setFlyToRequest({
-      key: Date.now(),
-      lng: p.lon,
-      lat: p.lat,
-      zoom: 18.2,
-    });
-  };
-
-  const weather = forecastRows[selectedIndex] ?? null;
-
   useEffect(() => {
     setSelectedMapPoi(null);
   }, [dashboardRegionId]);
-
-  // Future forecast banner
-  const isFuture = selectedIndex > 0 && forecastRows.length > 0;
-  const selectedTimeStr = isFuture && weather
-    ? new Date(weather.time).toLocaleString('en-US', {
-        weekday: 'short', month: 'short', day: 'numeric',
-        hour: '2-digit', minute: '2-digit', hour12: false,
-        timeZone: 'Asia/Bangkok',
-      })
-    : null;
 
   // ── SPIRE forecast (revalidate in background; keep cache on transient failure) ─
   useEffect(() => {
@@ -284,7 +296,6 @@ export default function MapViewer() {
     const q = `?lat=${encodeURIComponent(String(region.lat))}&lon=${encodeURIComponent(String(region.lon))}`;
     fetch(`/api/spire/forecast${q}`, {
       signal: controller.signal,
-      cache: 'no-store',
     })
       .then(async (res) => {
         clearTimeout(timer);
@@ -348,15 +359,33 @@ export default function MapViewer() {
   // ── Tides ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    /** Spire + Open-Meteo fallback can exceed 15s on slow links; never treat error JSON as tide data. */
+    const timer = setTimeout(() => controller.abort(), 28000);
 
     const tq = `?lat=${encodeURIComponent(String(region.lat))}&lon=${encodeURIComponent(String(region.lon))}`;
-    fetch(`/api/tides${tq}`, { signal: controller.signal })
-      .then(res => { clearTimeout(timer); return res.json(); })
-      .then((raw: unknown) => {
+    fetch(`/api/tides${tq}`, { signal: controller.signal, cache: 'no-store' })
+      .then(async (res) => {
+        clearTimeout(timer);
+        const raw: unknown = await res.json();
+        if (!res.ok) {
+          setTideRaw(null);
+          setTideTrend('unknown');
+          setTideHeightM(null);
+          return;
+        }
+        if (
+          raw === null ||
+          typeof raw !== 'object' ||
+          !Array.isArray((raw as { data?: unknown }).data)
+        ) {
+          setTideRaw(null);
+          setTideTrend('unknown');
+          setTideHeightM(null);
+          return;
+        }
         setTideRaw(raw);
         setTideTrend(getTideTrend(raw));
-        setTideHeightM(getFirstTideHeightM(raw));
+        setTideHeightM(getTideHeightAtNow(raw));
       })
       .catch(() => {
         clearTimeout(timer);
@@ -365,33 +394,169 @@ export default function MapViewer() {
         setTideHeightM(null);
       });
 
-    return () => { clearTimeout(timer); controller.abort(); };
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [region.lat, region.lon]);
 
-  // ── Status dot helper ────────────────────────────────────────────────────────
-  const sourceStatus = forecastStatus === 'ok'
-    ? [
-        { icon: '🛰️', ok: true  },
-        { icon: '🌧️', ok: true  },
-        { icon: '✈️', ok: true  },
-        { icon: '📍', ok: false, offline: true },
-      ]
-    : [
-        { icon: '🛰️', ok: false },
-        { icon: '🌧️', ok: false },
-        { icon: '✈️', ok: false },
-        { icon: '📍', ok: false, offline: true },
-      ];
+  // ── METAR sky (VTSM / VTSG) — blend with Spire cloud % on the snapshot card ─
+  useEffect(() => {
+    const icao = dashboardRegionId === 'krabi_baan_mook_taley' ? 'VTSG' : 'VTSM';
+    fetch('/api/metar')
+      .then(r => r.json())
+      .then((d: MetarApiResponse) => {
+        const m = d.stations?.[icao]?.metar;
+        setMetarSkyCover(dominantCoverFromMetarClouds(m?.clouds));
+      })
+      .catch(() => setMetarSkyCover(null));
+  }, [dashboardRegionId]);
+
+  // ── Meteoblue live hour (temp / wind / rain) — blend into row 0 for Krabi & Samui ─
+  useEffect(() => {
+    let cancelled = false;
+    const run = () => {
+      fetch(
+        `/api/meteoblue/point?lat=${encodeURIComponent(String(region.lat))}&lon=${encodeURIComponent(String(region.lon))}`,
+        { cache: 'no-store' },
+      )
+        .then((r) => r.json())
+        .then(
+          (d: {
+            ok?: boolean;
+            enabled?: boolean;
+            snapshot?: {
+              tempC: number | null;
+              windSpeedMs: number;
+              windDirDeg: number;
+              precipMm: number;
+            };
+          }) => {
+            if (cancelled) return;
+            if (d.enabled === false) {
+              setMbState({ status: 'disabled' });
+              return;
+            }
+            if (!d.ok || !d.snapshot) {
+              setMbState({ status: 'error' });
+              return;
+            }
+            const s = d.snapshot;
+            setMbState({
+              status: 'ok',
+              snap: {
+                tempC: typeof s.tempC === 'number' ? s.tempC : null,
+                windSpeedMs: Number(s.windSpeedMs) || 0,
+                windDirDeg: Math.round(Number(s.windDirDeg) || 0),
+                precipMm: typeof s.precipMm === 'number' ? s.precipMm : 0,
+              },
+            });
+          },
+        )
+        .catch(() => {
+          if (!cancelled) setMbState({ status: 'error' });
+        });
+    };
+    setMbState({ status: 'loading' });
+    run();
+    const id = window.setInterval(run, 3 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [region.lat, region.lon]);
+
+  // ── RainViewer tile at pin: echo vs dry Spire / Meteoblue (路径 uit globale feed, niet uit kaart) ─
+  useEffect(() => {
+    const path = radarFeed.latestFrame?.path;
+    if (!path) {
+      if (radarFeed.status === 'loading') setRadarEcho('unknown');
+      else setRadarEcho('none');
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    void sampleRadarEchoAtLocation(region.lat, region.lon, path, ac.signal).then((r) => {
+      if (!cancelled) setRadarEcho(r);
+    });
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [radarFeed.latestFrame, radarFeed.status, region.lat, region.lon]);
+
+  const displayForecastRows = useMemo(() => {
+    const snap = mbState.status === 'ok' ? mbState.snap : null;
+    return applyMeteoblueLiveToFirstRow(forecastRows, snap);
+  }, [forecastRows, mbState]);
+
+  const radarLeadsOverDryModels = useMemo(() => {
+    if (radarEcho !== 'precip' || selectedIndex !== 0 || forecastRows.length === 0) return false;
+    const spire0 = forecastRows[0]!;
+    if (spire0.precipRate >= 0.1) return false;
+    const mbDry =
+      mbState.status !== 'ok' || (mbState.status === 'ok' && mbState.snap.precipMm < 0.05);
+    return mbDry;
+  }, [radarEcho, selectedIndex, forecastRows, mbState]);
+
+  const weather = displayForecastRows[selectedIndex] ?? null;
+
+  const meteoblueStripLabel = useMemo(() => {
+    if (mbState.status === 'loading') return 'meteoblue: loading…';
+    if (mbState.status === 'disabled') return 'meteoblue: add METEOBLUE_API_KEY';
+    if (mbState.status === 'error') return 'meteoblue: unavailable';
+    return formatMeteoblueStripLabel(true, true, mbState.snap);
+  }, [mbState]);
+
+  const handleMapFlyTo = (locationId: string) => {
+    const p = getPoiById(locationId);
+    if (!p) return;
+    setFlyToRequest({
+      key: Date.now(),
+      lng: p.lon,
+      lat: p.lat,
+      zoom: 18.2,
+    });
+  };
+
+  const isFuture = selectedIndex > 0 && displayForecastRows.length > 0;
+  const selectedTimeStr = isFuture && weather
+    ? new Date(weather.time).toLocaleString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+        timeZone: 'Asia/Bangkok',
+      })
+    : null;
+
+  // ── Status dot helper (🌧️ = globale RainViewer feed uit RadarFramesProvider) ─
+  const sourceStatus = useMemo(() => {
+    const radarLoading = radarFeed.status === 'loading';
+    const radarLive = radarFeed.status === 'ready' && radarFeed.frames.length > 0;
+    const fo = forecastStatus === 'ok';
+    return fo
+      ? [
+          { icon: '🛰️', ok: true },
+          { icon: '🌧️', ok: radarLive, offline: radarLoading },
+          { icon: '✈️', ok: true },
+          { icon: '📍', ok: false, offline: true },
+        ]
+      : [
+          { icon: '🛰️', ok: false },
+          { icon: '🌧️', ok: radarLive, offline: radarLoading },
+          { icon: '✈️', ok: false },
+          { icon: '📍', ok: false, offline: true },
+        ];
+  }, [forecastStatus, radarFeed.status, radarFeed.frames.length]);
 
   return (
     <div className="relative box-border h-full min-h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#020617]">
 
-      {/* Storm alert — fixed top (Koh Samui product only) */}
-      {region.isSamuiProduct && <StormAlertBanner />}
+      {/* Storm / METAR alert — fixed top (Samui or Krabi conflict product) */}
+      <StormAlertBanner region={region.isSamuiProduct ? 'samui' : 'krabi'} />
 
       {/* ── Base map: satellite + radar + POIs ─ */}
       <div className="absolute inset-0 z-0 min-h-0">
-        <MeteoblueModelStrip lat={region.lat} lon={region.lon} />
+        <MeteoblueModelStrip label={meteoblueStripLabel} />
         <SamuiExploreMap
           key={dashboardRegionId}
           flyToRequest={flyToRequest}
@@ -555,15 +720,51 @@ export default function MapViewer() {
 
             {forecastStatus === 'ok' && weather && (
               <>
+                {radarLeadsOverDryModels && (
+                  <div className="mb-3 rounded-xl border border-sky-500/45 bg-sky-950/55 px-3 py-2 text-[10px] leading-snug text-sky-50/95">
+                    <span className="font-bold text-sky-300">Radar-led · precipitation at this pin</span>{' '}
+                    Latest RainViewer scan sees echo here while Spire / Meteoblue still read dry — we surface that as
+                    the lead signal for active showers. Seek shelter if it matches what you see outside.
+                  </div>
+                )}
+                {mbState.status === 'ok' && (
+                  <div
+                    className={`mb-3 rounded-xl border px-3 py-2 text-[10px] leading-snug ${
+                      mbState.snap.precipMm > 0.02
+                        ? 'border-cyan-500/30 bg-cyan-950/35 text-cyan-100/95'
+                        : 'border-white/10 bg-white/5 text-slate-400'
+                    }`}
+                  >
+                    <span className={mbState.snap.precipMm > 0.02 ? 'font-bold text-cyan-300' : 'font-semibold text-slate-300'}>
+                      Live · Meteoblue
+                    </span>{' '}
+                    Nearest hour blended into the first row (rain {mbState.snap.precipMm.toFixed(2)} mm/h). Hourly strip =
+                    Spire. Radar overlay = best cue for active showers.
+                  </div>
+                )}
                 <VacationDashboard
-                  rows={forecastRows}
+                  rows={displayForecastRows}
                   selectedIndex={selectedIndex}
                   onSelectedIndexChange={setSelectedIndex}
                   tideTrend={tideTrend}
                   tideHeightM={tideHeightM}
                   sunLatitude={region.lat}
                   sunLongitude={region.lon}
+                  radarLeadsOverDryModels={radarLeadsOverDryModels}
+                  metarSkyCover={metarSkyCover}
                 />
+
+                <div className="mb-3 mt-4">
+                  <ShowerNowcastCard
+                    latitude={region.lat}
+                    longitude={region.lon}
+                    windSpeedMs={displayForecastRows[0]?.windSpeed ?? 0}
+                    windDirDeg={displayForecastRows[0]?.windDir ?? 0}
+                    nowcastFrames={radarFeed.nowcastFrames}
+                    pastFrames={radarFeed.frames}
+                    radarReady={radarFeed.status === 'ready'}
+                  />
+                </div>
 
                 {/* Tide & Beach */}
                 <div className="mb-3 mt-4">
@@ -580,6 +781,7 @@ export default function MapViewer() {
                         trend={tideTrend}
                         heightM={tideHeightM}
                         nextExtremum={tideRaw ? getNextTideExtremum(tideRaw) : null}
+                        tideDataSource={getTideDataSource(tideRaw)}
                       />
                     </div>
                   )}
@@ -607,20 +809,31 @@ export default function MapViewer() {
                   )}
                 </div>
 
+                {/* Airport METAR — Samui, Krabi, Phuket (aviationweather.gov) */}
+                <div className="mb-3">
+                  <button
+                    onClick={() => setShowMetar(!showMetar)}
+                    className="flex w-full items-center justify-between rounded-xl border border-teal-200/12 bg-white/5 px-4 py-2 text-left transition hover:bg-white/10"
+                  >
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                      ✈️ Airport METAR &amp; TAF · USM · KBV · HKT
+                    </span>
+                    <span className="text-[10px] text-slate-500">{showMetar ? '▲' : '▼'}</span>
+                  </button>
+                  {showMetar && (
+                    <div className="mt-2">
+                      <MetarCard
+                        key={dashboardRegionId}
+                        defaultIcao={
+                          dashboardRegionId === 'krabi_baan_mook_taley' ? 'VTSG' : 'VTSM'
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+
                 {region.isSamuiProduct && (
                   <>
-                    {/* Airport METAR */}
-                    <div className="mb-3">
-                      <button
-                        onClick={() => setShowMetar(!showMetar)}
-                        className="flex w-full items-center justify-between rounded-xl border border-teal-200/12 bg-white/5 px-4 py-2 text-left transition hover:bg-white/10"
-                      >
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">✈️ VTSM Airport · METAR &amp; TAF</span>
-                        <span className="text-[10px] text-slate-500">{showMetar ? '▲' : '▼'}</span>
-                      </button>
-                      {showMetar && <div className="mt-2"><MetarCard /></div>}
-                    </div>
-
                     {/* Ecowitt */}
                     <div className="mb-3">
                       <EcowittPlaceholder />
@@ -648,9 +861,9 @@ export default function MapViewer() {
       {/* Sammi — portaled into map under Zoom / Scale / Radar (see #sammi-chat-anchor) */}
       {forecastStatus === 'ok' && forecastRows.length > 0 && (
         <SammiChatPortal
-          forecastRows={forecastRows}
+          forecastRows={displayForecastRows}
           onMapFlyTo={region.isSamuiProduct ? handleMapFlyTo : undefined}
-          samuiIntel={region.isSamuiProduct}
+          conflictRegion={region.isSamuiProduct ? 'samui' : 'krabi'}
           mapRegionKey={dashboardRegionId}
         />
       )}

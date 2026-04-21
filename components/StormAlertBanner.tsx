@@ -5,7 +5,7 @@ import type { ConflictStatusResponse } from '@/app/api/conflict-status/route';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // Re-check every 5 minutes
 
-export default function StormAlertBanner() {
+export default function StormAlertBanner({ region = 'samui' }: { region?: 'samui' | 'krabi' }) {
   const [data, setData]       = useState<ConflictStatusResponse | null>(null);
   const [visible, setVisible] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -13,7 +13,8 @@ export default function StormAlertBanner() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/conflict-status');
+      const q = region === 'krabi' ? '?region=krabi' : '';
+      const res = await fetch(`/api/conflict-status${q}`);
       if (!res.ok) return;
       const json: ConflictStatusResponse = await res.json();
       setData(json);
@@ -34,7 +35,7 @@ export default function StormAlertBanner() {
     timerRef.current = setInterval(fetchStatus, POLL_INTERVAL_MS);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [region]);
 
   // Re-show banner if a new alert comes in after dismissal
   useEffect(() => {
@@ -43,16 +44,28 @@ export default function StormAlertBanner() {
 
   const isStorm = data?.scenario === 'storm_incoming';
   const isAllAlarm = data?.scenario === 'all_alarm';
+  const isUpstream = data?.scenario === 'upstream_metar_rain';
+  const isRainAlert = data?.scenario === 'rain_alert';
   if (!data?.isAlert) return null;
 
   const label = isStorm
     ? 'Storm cell detected · Mainland Radar'
     : isAllAlarm
     ? 'All sources confirm severe weather'
+    : isUpstream
+    ? 'METAR upstream signal · Krabi + Phuket'
+    : isRainAlert
+    ? 'Rain on mainland radar'
     : 'Weather alert';
 
   const subLabel = isStorm
-    ? 'Significant precipitation cell tracking towards Koh Samui'
+    ? region === 'krabi'
+      ? 'Significant cell on the mainland sweep — track for Krabi / Andaman coast'
+      : 'Significant precipitation cell tracking towards Koh Samui'
+    : isUpstream
+    ? 'METAR at Phuket or Krabi reports precipitation while radar and satellites still look dry'
+    : isRainAlert
+    ? 'Mainland radar shows precipitation — SPIRE and METAR still cross-checked'
     : 'Orbital · Mainland Radar · Airport sensors all in agreement';
 
   return (

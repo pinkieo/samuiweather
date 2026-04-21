@@ -1,9 +1,18 @@
 /** Spire Weather API — gedeelde constanten, forecast-mapping + WAQI-merge. */
 
+import {
+  computeSpireBeachSkyCloudCover,
+  extractSpireCloudLayerInputs,
+} from './spire-cloud-cover';
+import { combinedSignal } from './promise-timeout';
+
 export const SPIRE_API_BASE = 'https://api.wx.spire.com';
 
 /** Koh Samui center — o.a. WAQI geo (ziekenhuis / eiland). */
 export const SAMUI_CENTER = { lat: 9.512, lon: 100.0136 } as const;
+
+/** Baan Mook Taley / Ao Nang — Krabi dashboard product (same point as `BAAN_MOOK_TALEY_WGS84` in dashboard-regions). */
+export const KRABI_FORECAST_POINT = { lat: 8.04561, lon: 98.78503 } as const;
 
 export function getSpireApiToken(): string {
   return (
@@ -169,8 +178,26 @@ export interface SamuiWeatherForecastRow {
   pm25: number | null;
   aqi: number | null;
   aqiStatus: string | null;
+  /**
+   * Strand-/zon-relevante bewolking (0–100%): `effective_cloud_cover` of gewogen low/mid/high,
+   * anders `total_cloud_cover`. Zie `lib/spire-cloud-cover.ts`.
+   */
   cloudCover: number;
   pop: number;
+  /** Ruwe Spire `total_cloud_cover` (hele kolom), indien aanwezig — voor debug / vergelijking. */
+  spireCloudTotal?: number | null;
+  /** Alleen met Spire `clouds` bundle (of toekomstige velden). */
+  spireCloudLow?: number | null;
+  spireCloudMid?: number | null;
+  spireCloudHigh?: number | null;
+  /** Base of lowest cloud layer with >50% cover (m AGL) — `clouds` bundle / OPF. */
+  cloudCeiling?: number | null;
+  /** J/kg — `thunderstorm` bundle. */
+  cape?: number | null;
+  /** kg/m² — `thunderstorm` bundle. */
+  pwat?: number | null;
+  /** J/kg — `thunderstorm` bundle. */
+  dcape?: number | null;
   /** Alleen index 0 + WAQI ok */
   station?: string | null;
 }
@@ -231,6 +258,41 @@ function mapSpirePointRow(entry: unknown): Omit<
       'probability_of_precipitation_1hr',
     ]) ?? 0;
 
+  const cloudIn = extractSpireCloudLayerInputs(vr);
+  const cloudCover = computeSpireBeachSkyCloudCover(cloudIn);
+  const totalRaw =
+    pickFirstNumber(vr, ['total_cloud_cover', 'cloud_cover']) ?? null;
+
+  const cloudCeiling =
+    pickFirstNumber(vr, [
+      'cloud_ceiling',
+      'ceiling_height',
+      'height_of_cloud_base_above_ground_level',
+      'cloud_base_height',
+    ]) ?? null;
+
+  const cape =
+    pickFirstNumber(vr, [
+      'cape',
+      'CAPE',
+      'convective_available_potential_energy',
+    ]) ?? null;
+
+  const pwat =
+    pickFirstNumber(vr, [
+      'precipitable_water',
+      'precipitable_water_entire_atmosphere',
+      'total_column_integrated_water_vapour',
+      'tcw',
+    ]) ?? null;
+
+  const dcape =
+    pickFirstNumber(vr, [
+      'downdraft_cape',
+      'downdraft_CAPE',
+      'dcape',
+    ]) ?? null;
+
   return {
     time: e.times?.valid_time ?? new Date().toISOString(),
     temp: convertSpireValue(Number(v.air_temperature ?? 293.15), 'temp'),
@@ -245,9 +307,15 @@ function mapSpirePointRow(entry: unknown): Omit<
     precipRate: Number(
       pickFirstNumber(vr, ['precipitation_rate', 'precipitation_amount_1hr']) ?? 0,
     ),
-    cloudCover: Number(
-      pickFirstNumber(vr, ['cloud_cover', 'total_cloud_cover']) ?? 0,
-    ),
+    cloudCover,
+    spireCloudTotal: totalRaw,
+    spireCloudLow: cloudIn.lowCloudCover,
+    spireCloudMid: cloudIn.midCloudCover,
+    spireCloudHigh: cloudIn.highCloudCover,
+    cloudCeiling,
+    cape,
+    pwat,
+    dcape,
     pop: popRaw <= 1 && popRaw > 0 ? Math.round(popRaw * 100) : Number(popRaw),
     uvIndex: uv,
     pm25,
@@ -333,8 +401,7 @@ function lookupOpenUvForecastForValidTime(
  * andere uren: Spire-waarden, `aqi`/`aqiStatus` null.
  *
  * UV: OpenUV **hourly forecast** (`/forecast`) wordt per `valid_time` gematcht; zo heeft elk uur
- * een index (niet alleen `/uv` op index 0). Daarna: Spire `uv_index` als die er is; anders
- * alleen op index 0 nog `/uv` (huidige waarde).
+ * een index. Daarna: Spire `uv_index` als die er is; anders op index 0 geen aparte OpenUV `/uv` meer.
  */
 export function mergeSpireWithWaqi(
   spireRows: unknown[],
@@ -390,7 +457,11 @@ export function mergeSpireWithWaqi(
   });
 }
 
-export const FORECAST_BUNDLES_VACATION = 'basic,maritime_atmos,solar';
+/**
+ * `maritime-atmos` = 50 m wind + maritieme velden; `solar` staat op veel tokens niet toe.
+ * `clouds` (low/mid/high) — zie `lib/spire-cloud-cover.ts` — alleen als je Spire-abonnement `clouds` toestaat.
+ */
+export const FORECAST_BUNDLES_VACATION = 'basic,maritime-atmos';
 
 /** Legacy: zelfde shape zonder WAQI. */
 export function mapSpireForecastPointData(raw: unknown): SamuiWeatherForecastRow[] {
@@ -422,16 +493,40 @@ export async function getForecastMergedAt(
    */
   const MIN_HOURS_FOR_FULL_NEXT_DAY = 48;
 
-  const fetchSpire = async (): Promise<{ data?: unknown[] }> => {
-    type Att = { timeBundle?: string; forecastHours?: number };
-    const attempts: Att[] = [
-      { timeBundle: 'hourly', forecastHours: 72 },
-      { timeBundle: 'hourly', forecastHours: 48 },
-      { timeBundle: 'hourly' },
-      { timeBundle: 'hourly_6day' },
-      {},
-    ];
+  /**
+   * Single ordered pass over bundle × params combos. The old nested loop could do **4 bundles × 5
+   * params = 20 sequential** Spire HTTP calls before success — very slow on cold start.
+   */
+  type SpirePointStep = {
+    bundles: string;
+    timeBundle?: string;
+    forecastHours?: number;
+  };
 
+  /**
+   * `basic,maritime-atmos` first — most tokens succeed on the first hop. `clouds` often 403;
+   * keep it early but after the happy path so cold loads are one round-trip when possible.
+   */
+  const SPIRE_POINT_STEPS: SpirePointStep[] = [
+    {
+      bundles: 'basic,maritime-atmos,clouds,thunderstorm',
+      timeBundle: 'hourly',
+      forecastHours: 72,
+    },
+    { bundles: 'basic,maritime-atmos,clouds', timeBundle: 'hourly', forecastHours: 72 },
+    { bundles: FORECAST_BUNDLES_VACATION, timeBundle: 'hourly', forecastHours: 72 },
+    { bundles: FORECAST_BUNDLES_VACATION, timeBundle: 'hourly', forecastHours: 48 },
+    { bundles: FORECAST_BUNDLES_VACATION, timeBundle: 'hourly' },
+    { bundles: FORECAST_BUNDLES_VACATION, timeBundle: 'hourly_6day' },
+    { bundles: FORECAST_BUNDLES_VACATION },
+    { bundles: 'basic,maritime-atmos', timeBundle: 'hourly', forecastHours: 72 },
+    { bundles: 'basic,maritime-atmos', timeBundle: 'hourly', forecastHours: 48 },
+    { bundles: 'basic,maritime-atmos', timeBundle: 'hourly' },
+    { bundles: 'basic', timeBundle: 'hourly', forecastHours: 72 },
+    { bundles: 'basic', timeBundle: 'hourly' },
+  ];
+
+  const fetchSpire = async (): Promise<{ data?: unknown[] }> => {
     let best: { data?: unknown[] } | null = null;
     let bestLen = 0;
 
@@ -443,72 +538,120 @@ export async function getForecastMergedAt(
       }
     };
 
-    const bundleList = [
-      FORECAST_BUNDLES_VACATION,
-      'basic,maritime_atmos',
-      'basic',
-    ] as const;
+    /** Avoid one hung Spire hop blocking the whole chain (parent abort still applies). */
+    const spireFetchSignal = () => combinedSignal(signal, 12000);
 
-    const runSeries = async (
-      source: 'optimized' | 'point',
-      makeUrl: (bundles: string, att: Att) => string,
+    const runSteps = async (
+      steps: SpirePointStep[],
+      makeUrl: (step: SpirePointStep) => string,
+      startIndex: number,
+      bundleForbidden: Set<string>,
     ): Promise<{ data?: unknown[] } | null> => {
-      for (const bundles of bundleList) {
-        attemptLoop: for (const att of attempts) {
-          const url = makeUrl(bundles, att);
-          const r = await fetch(url, {
-            headers: { 'spire-api-key': token },
-            signal,
-            next: { revalidate: 900 },
-          });
-          if (r.ok) {
-            const json = (await r.json()) as { data?: unknown[] };
-            const len = Array.isArray(json.data) ? json.data.length : 0;
-            if (len >= MIN_HOURS_FOR_FULL_NEXT_DAY) {
-              if (source === 'optimized') {
-                const loc = getSpireOptimizedPointLocationFromEnv();
-                if (loc) {
-                  console.log(
-                    '[Spire] Optimized point forecast (≥48h hourly steps):',
-                    loc,
-                  );
-                }
-              }
-              return json;
-            }
-            consider(json);
-            continue;
-          }
+      for (let i = startIndex; i < steps.length; i++) {
+        const step = steps[i];
+        if (bundleForbidden.has(step.bundles)) continue;
+
+        const url = makeUrl(step);
+        const r = await fetch(url, {
+          headers: { 'spire-api-key': token },
+          signal: spireFetchSignal(),
+          next: { revalidate: 900 },
+        });
+
+        const json = (await r.json().catch(() => ({}))) as { data?: unknown[] };
+        if (!r.ok) {
           if (r.status === 403) {
-            break attemptLoop;
+            bundleForbidden.add(step.bundles);
+            continue;
           }
           if (r.status === 400 || r.status === 404 || r.status === 422) {
             continue;
           }
           throw new Error(`Spire HTTP ${r.status}`);
         }
+
+        const len = Array.isArray(json.data) ? json.data.length : 0;
+        if (len >= MIN_HOURS_FOR_FULL_NEXT_DAY) {
+          return json;
+        }
+        consider(json);
       }
       return null;
     };
 
+    const bundleForbidden = new Set<string>();
     const optLoc = getSpireOptimizedPointLocationFromEnv();
+
     if (optLoc) {
-      const fromOpt = await runSeries('optimized', (bundles, att) =>
-        buildForecastOptimizedPointUrl(optLoc, bundles, {
-          timeBundle: att.timeBundle,
-          forecastHours: att.forecastHours,
+      const s0 = SPIRE_POINT_STEPS[0];
+      const urlOpt = buildForecastOptimizedPointUrl(optLoc, s0.bundles, {
+        timeBundle: s0.timeBundle,
+        forecastHours: s0.forecastHours,
+      });
+      const urlPt = buildForecastPointUrl(lat, lon, s0.bundles, {
+        timeBundle: s0.timeBundle,
+        forecastHours: s0.forecastHours,
+      });
+      const [rOpt, rPt] = await Promise.all([
+        fetch(urlOpt, {
+          headers: { 'spire-api-key': token },
+          signal: spireFetchSignal(),
+          next: { revalidate: 900 },
         }),
+        fetch(urlPt, {
+          headers: { 'spire-api-key': token },
+          signal: spireFetchSignal(),
+          next: { revalidate: 900 },
+        }),
+      ]);
+      const jOpt = (await rOpt.json().catch(() => ({}))) as { data?: unknown[] };
+      const jPt = (await rPt.json().catch(() => ({}))) as { data?: unknown[] };
+
+      const tryParallel = (
+        r: Response,
+        json: { data?: unknown[] },
+        bundles: string,
+      ): { data?: unknown[] } | null => {
+        if (!r.ok) {
+          if (r.status === 403) {
+            bundleForbidden.add(bundles);
+            return null;
+          }
+          if (r.status === 400 || r.status === 404 || r.status === 422) return null;
+          throw new Error(`Spire HTTP ${r.status}`);
+        }
+        const len = Array.isArray(json.data) ? json.data.length : 0;
+        if (len >= MIN_HOURS_FOR_FULL_NEXT_DAY) return json;
+        consider(json);
+        return null;
+      };
+
+      const early =
+        tryParallel(rOpt, jOpt, s0.bundles) ?? tryParallel(rPt, jPt, s0.bundles);
+      if (early) return early;
+
+      const fromOpt = await runSteps(
+        SPIRE_POINT_STEPS.slice(0, 5),
+        (step) =>
+          buildForecastOptimizedPointUrl(optLoc, step.bundles, {
+            timeBundle: step.timeBundle,
+            forecastHours: step.forecastHours,
+          }),
+        1,
+        bundleForbidden,
       );
-      if (fromOpt) {
-        return fromOpt;
-      }
+      if (fromOpt) return fromOpt;
     }
 
-    const fromPoint = await runSeries('point', (bundles, att) =>
-      buildForecastPointUrl(lat, lon, bundles, {
-        timeBundle: att.timeBundle,
-        forecastHours: att.forecastHours,
-      }),
+    const fromPoint = await runSteps(
+      SPIRE_POINT_STEPS,
+      (step) =>
+        buildForecastPointUrl(lat, lon, step.bundles, {
+          timeBundle: step.timeBundle,
+          forecastHours: step.forecastHours,
+        }),
+      optLoc ? 1 : 0,
+      bundleForbidden,
     );
     if (fromPoint) {
       return fromPoint;
@@ -520,28 +663,20 @@ export async function getForecastMergedAt(
     throw new Error('Spire 403');
   };
 
+  /**
+   * WAQI + OpenUV are optional polish; abort after 4s so they never block Spire merge.
+   * OpenUV `/forecast` alone supplies hourly UV (no separate `/uv` call).
+   */
+  const AUX_MS = 4000;
+  const auxSig = () => combinedSignal(signal, AUX_MS);
+
   const fetchWaqi = (): Promise<unknown> => {
     if (!waqiToken) return Promise.resolve(null);
     const url = `https://api.waqi.info/feed/geo:${lat};${lon}/?token=${encodeURIComponent(waqiToken)}`;
-    return fetch(url, { signal, next: { revalidate: 60 } })
+    return fetch(url, { signal: auxSig(), next: { revalidate: 60 } })
       .then((r) => (r.ok ? r.json() : null))
       .catch((e) => {
         console.error('Spire merge fetchWaqi err:', e);
-        return null;
-      });
-  };
-
-  const fetchUv = (): Promise<unknown> => {
-    if (!uvKey) return Promise.resolve(null);
-    const url = `https://api.openuv.io/api/v1/uv?lat=${lat}&lng=${lon}`;
-    return fetch(url, {
-      headers: { 'x-access-token': uvKey },
-      signal,
-      next: { revalidate: 60 },
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .catch((e) => {
-        console.error('Spire merge fetchUv err:', e);
         return null;
       });
   };
@@ -552,7 +687,7 @@ export async function getForecastMergedAt(
     const url = `https://api.openuv.io/api/v1/forecast?lat=${lat}&lng=${lon}&alt=0`;
     return fetch(url, {
       headers: { 'x-access-token': uvKey },
-      signal,
+      signal: auxSig(),
       next: { revalidate: 60 },
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -562,22 +697,11 @@ export async function getForecastMergedAt(
       });
   };
 
-  const [spireJson, waqiJson, uvJson, uvForecastJson] = await Promise.all([
+  const [spireJson, waqiJson, uvForecastJson] = await Promise.all([
     fetchSpire(),
     fetchWaqi(),
-    fetchUv(),
     fetchUvForecast(),
   ]);
-
-  // Debug logs
-  console.log(
-    '[mergeSpireWithWaqi] waqi ok?',
-    !!waqiJson,
-    '| uv ok?',
-    !!uvJson,
-    '| uv forecast ok?',
-    !!uvForecastJson,
-  );
 
   let rows = Array.isArray(spireJson?.data) ? spireJson.data : [];
   
@@ -591,7 +715,7 @@ export async function getForecastMergedAt(
     return new Date(vt).getTime() >= currentHourMs;
   });
 
-  return mergeSpireWithWaqi(rows, waqiJson, uvJson, uvForecastJson);
+  return mergeSpireWithWaqi(rows, waqiJson, undefined, uvForecastJson);
 }
 
 /** Koh Samui dashboard default. */
@@ -599,4 +723,11 @@ export async function getSamuiForecastMerged(
   signal?: AbortSignal,
 ): Promise<SamuiWeatherForecastRow[]> {
   return getForecastMergedAt(SAMUI_CENTER.lat, SAMUI_CENTER.lon, signal);
+}
+
+/** Krabi coast (Baan Mook Taley) — same SPIRE merge as Samui, different lat/lon. */
+export async function getKrabiForecastMerged(
+  signal?: AbortSignal,
+): Promise<SamuiWeatherForecastRow[]> {
+  return getForecastMergedAt(KRABI_FORECAST_POINT.lat, KRABI_FORECAST_POINT.lon, signal);
 }

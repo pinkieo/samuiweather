@@ -1,8 +1,21 @@
 import { NextResponse } from 'next/server';
-import { getSamuiForecastMerged } from '@/lib/spire';
-import { getRadarStatus, type AirportSnapshot } from '@/lib/sammi-post-generator';
-import { resolveWeatherConflict, type ConflictResult, type MeteoblueCheck } from '@/lib/weather-conflict';
-import { parseMetar, VTSM_METAR_URL, type RawMetar } from '@/lib/metar';
+import type { NextRequest } from 'next/server';
+import { getKrabiForecastMerged, getSamuiForecastMerged, KRABI_FORECAST_POINT } from '@/lib/spire';
+import {
+  getRadarStatus,
+  type AirportSnapshot,
+  airportSnapshotFromIcao,
+} from '@/lib/sammi-post-generator';
+import {
+  resolveWeatherConflict,
+  type ConflictResult,
+  type MeteoblueCheck,
+  type ResolveWeatherConflictOptions,
+} from '@/lib/weather-conflict';
+import {
+  TH_SOUTH_METAR_URL,
+  type RawMetar,
+} from '@/lib/metar';
 
 export const revalidate = 300;
 
@@ -11,43 +24,45 @@ export interface ConflictStatusResponse {
   confidence:   ConflictResult['confidence'];
   finalVerdict: string;
   statusBoard:  ConflictResult['statusBoard'];
-  isAlert:      boolean;   // true when scenario is storm_incoming or all_alarm
+  isAlert:      boolean;
   fetchedAt:    number;
   error?:       string;
 }
 
 async function buildAirportSnapshot(): Promise<AirportSnapshot | null> {
   try {
-    const res = await fetch(VTSM_METAR_URL, { next: { revalidate: 300 } });
+    const res = await fetch(TH_SOUTH_METAR_URL, { next: { revalidate: 300 } });
     if (!res.ok) return null;
     const raw: RawMetar[] = await res.json();
-    if (!raw.length) return null;
-    const m = parseMetar(raw[0]);
-    const baseFt = m.clouds[0]?.base ?? null;
-    return {
-      raw:            m.raw,
-      tempC:          m.temp,
-      windKts:        m.wspd,
-      windDir:        m.wdir,
-      gustKts:        m.wgst,
-      visib:          m.visib,
-      cloudCoverCode: m.clouds[0]?.cover ?? null,
-      cloudBaseFt:    baseFt,
-      cloudBaseM:     baseFt ? Math.round(baseFt * 0.3048 / 50) * 50 : null,
-      fltCat:         m.fltCat,
-      wxString:       m.wxString,
-    };
+    return airportSnapshotFromIcao(raw, 'VTSM');
   } catch {
     return null;
   }
 }
 
-async function fetchMeteoblueCheck(): Promise<MeteoblueCheck | null> {
+async function buildKrabiDualSnapshots(): Promise<{
+  krabi: AirportSnapshot | null;
+  phuket: AirportSnapshot | null;
+}> {
+  try {
+    const res = await fetch(TH_SOUTH_METAR_URL, { next: { revalidate: 300 } });
+    if (!res.ok) return { krabi: null, phuket: null };
+    const raw: RawMetar[] = await res.json();
+    return {
+      krabi:  airportSnapshotFromIcao(raw, 'VTSG'),
+      phuket: airportSnapshotFromIcao(raw, 'VTSP'),
+    };
+  } catch {
+    return { krabi: null, phuket: null };
+  }
+}
+
+async function fetchMeteoblueCheck(at?: { lat: number; lon: number }): Promise<MeteoblueCheck | null> {
   try {
     const apiKey = process.env.METEOBLUE_API_KEY;
     if (!apiKey) return null;
-    const lat = process.env.METEOBLUE_LAT ?? '9.5120';
-    const lon = process.env.METEOBLUE_LON ?? '100.0137';
+    const lat = at != null ? String(at.lat) : (process.env.METEOBLUE_LAT ?? '9.5120');
+    const lon = at != null ? String(at.lon) : (process.env.METEOBLUE_LON ?? '100.0137');
     const asl = process.env.METEOBLUE_ASL ?? '5';
     const url = `https://my.meteoblue.com/packages/basic-1h?apikey=${apiKey}&lat=${lat}&lon=${lon}&asl=${asl}&format=json`;
     const res = await fetch(url, { next: { revalidate: 3600 } });
@@ -55,7 +70,6 @@ async function fetchMeteoblueCheck(): Promise<MeteoblueCheck | null> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const raw: any = await res.json();
     const d = raw.data_1h;
-    // Use the closest current hour (index 0)
     return {
       precipMm:   d.precipitation?.[0]             ?? 0,
       precipProb: d.precipitation_probability?.[0] ?? 0,
@@ -66,12 +80,16 @@ async function fetchMeteoblueCheck(): Promise<MeteoblueCheck | null> {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const region = req.nextUrl.searchParams.get('region') === 'krabi' ? 'krabi' : 'samui';
+
   try {
-    const [forecastRows, airport, meteoblue] = await Promise.all([
-      getSamuiForecastMerged(new AbortController().signal),
-      buildAirportSnapshot(),
-      fetchMeteoblueCheck(),
+    const [forecastRows, meteoblue, airportData] = await Promise.all([
+      region === 'krabi'
+        ? getKrabiForecastMerged(new AbortController().signal)
+        : getSamuiForecastMerged(new AbortController().signal),
+      fetchMeteoblueCheck(region === 'krabi' ? KRABI_FORECAST_POINT : undefined),
+      region === 'krabi' ? buildKrabiDualSnapshots() : buildAirportSnapshot(),
     ]);
 
     if (!forecastRows.length) {
@@ -84,15 +102,36 @@ export async function GET() {
     const now   = forecastRows[0];
     const radar = getRadarStatus(now.precipRate);
 
-    const conflict = resolveWeatherConflict({
-      precipRate:  now.precipRate,
-      pop:         now.pop,
-      cloudCover:  now.cloudCover,
-      temp:        now.temp,
-      windSpeed:   now.windSpeed,
-    }, radar, airport, meteoblue);
+    let conflictOpts: ResolveWeatherConflictOptions | undefined;
+    let airport: AirportSnapshot | null;
 
-    const isAlert = conflict.scenario === 'storm_incoming' || conflict.scenario === 'all_alarm';
+    if (region === 'krabi') {
+      const dual = airportData as { krabi: AirportSnapshot | null; phuket: AirportSnapshot | null };
+      airport = dual.krabi;
+      conflictOpts = { krabiDualAirport: { krabi: dual.krabi, phuket: dual.phuket } };
+    } else {
+      airport = airportData as AirportSnapshot | null;
+    }
+
+    const conflict = resolveWeatherConflict(
+      {
+        precipRate:  now.precipRate,
+        pop:         now.pop,
+        cloudCover:  now.cloudCover,
+        temp:        now.temp,
+        windSpeed:   now.windSpeed,
+      },
+      radar,
+      airport,
+      meteoblue,
+      conflictOpts,
+    );
+
+    const isAlert =
+      conflict.scenario === 'storm_incoming' ||
+      conflict.scenario === 'all_alarm' ||
+      (region === 'krabi' &&
+        (conflict.scenario === 'upstream_metar_rain' || conflict.scenario === 'rain_alert'));
 
     return NextResponse.json({
       scenario:     conflict.scenario,

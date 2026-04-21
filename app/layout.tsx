@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
+import { Providers } from './providers';
 import './globals.css';
 /** Global so Mapbox’s runtime check sees styles before any dynamically loaded map chunk. */
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -30,7 +31,7 @@ export default function RootLayout({
         className="min-h-[100dvh] min-h-[100svh] min-h-[100vh] overflow-hidden bg-[#020617] antialiased"
         suppressHydrationWarning
       >
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

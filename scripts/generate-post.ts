@@ -64,13 +64,15 @@ async function main() {
 
   // Phase 3 — airport sensors
   console.log('🛫  Fetching airport sensors (VTSM)…');
-  const { VTSM_METAR_URL, parseMetar } = await import('../lib/metar');
+  const { TH_SOUTH_METAR_URL, TH_SOUTH_AIRPORT_VOICE, parseMetar, pickRawMetarForIcao } =
+    await import('../lib/metar');
   try {
-    const metarRes = await fetch(VTSM_METAR_URL);
+    const metarRes = await fetch(TH_SOUTH_METAR_URL);
     if (metarRes.ok) {
-      const raw = await metarRes.json() as Parameters<typeof parseMetar>[0][];
-      if (raw.length > 0) {
-        const m = parseMetar(raw[0]);
+      const raw = (await metarRes.json()) as import('../lib/metar').RawMetar[];
+      const row = pickRawMetarForIcao(raw, 'VTSM');
+      if (row) {
+        const m = parseMetar(row, { airportLabel: TH_SOUTH_AIRPORT_VOICE.VTSM });
         const cloudDesc = m.clouds[0]
           ? `${m.clouds[0].cover}@${m.clouds[0].base ?? '?'}ft`
           : m.fltCat;

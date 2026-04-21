@@ -10,7 +10,10 @@
     "embed": "npx tsx scripts/embed-reddit.ts",
     "generate-post": "npx tsx scripts/generate-post.ts",
     "radar:snapshot": "npx tsx scripts/snapshot-radar-frames.ts",
-    "radar:fixture": "npx tsx scripts/snapshot-radar-frames.ts && node -e \"require('fs').copyFileSync('public/radar-practice.json','public/radar-practice.fixture.json')\""
+    "radar:fixture": "npx tsx scripts/snapshot-radar-frames.ts && node -e \"require('fs').copyFileSync('public/radar-practice.json','public/radar-practice.fixture.json')\"",
+    "reddit:fetch": "npx tsx scripts/reddit-samui-fetch.ts",
+    "reddit:daily-topic": "npx tsx scripts/daily-sammi-topic-cli.ts",
+    "weather:hourly": "python weather_engine_hourly.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

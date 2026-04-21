@@ -7,6 +7,7 @@ import {
   getTomorrowForecastRow,
   pickDailySamuiTip,
 } from '../lib/samui-concierge-intel';
+import { calculateBeachSunScore } from '../lib/beachSunScore';
 import { formatTempC, formatWindMs, type SamuiWeatherForecastRow } from '../lib/spire';
 
 // ─── Mood palette ─────────────────────────────────────────────────────────────
@@ -230,15 +231,18 @@ export default function SammiConcierge({
   forecastRows = [],
   onMapFlyTo,
   className,
-  samuiIntel = true,
+  conflictRegion = 'samui',
+  beachRegionLabel,
 }: {
   forecastRows?: SamuiWeatherForecastRow[];
   /** When Sammi returns `mapFlyTo` from chat API, parent pans the Mapbox map */
   onMapFlyTo?: (locationId: string) => void;
   /** e.g. `mb-0` when parent handles fixed positioning */
   className?: string;
-  /** false on Krabi test tab — skip Samui-only conflict / METAR divergence context */
-  samuiIntel?: boolean;
+  /** Which product drives `/api/conflict-status` — Samui (VTSM) or Krabi (VTSG+VTSP). */
+  conflictRegion?: 'samui' | 'krabi';
+  /** For Beach Sun Score copy in chat (defaults from conflictRegion). */
+  beachRegionLabel?: string;
 }) {
   const [chatInput, setChatInput]     = useState('');
   const [chatMsgs, setChatMsgs]       = useState<ChatMessage[]>([]);
@@ -248,13 +252,10 @@ export default function SammiConcierge({
   const inputRef       = useRef<HTMLInputElement>(null);
   const intelScrollRef = useRef<HTMLDivElement>(null);
 
-  // Fetch conflict status (Koh Samui product only — VTSM + island meteoblue)
+  // Fetch conflict status (SPIRE + mainland radar + METAR — Samui or Krabi dual-strip)
   useEffect(() => {
-    if (!samuiIntel) {
-      setConflictStatus(null);
-      return;
-    }
-    fetch('/api/conflict-status')
+    const q = conflictRegion === 'krabi' ? '?region=krabi' : '';
+    fetch(`/api/conflict-status${q}`)
       .then(r => r.ok ? r.json() : null)
       .then((d: { scenario: string; confidence: string; isAlert: boolean; statusBoard?: { source: string; verdict: string }[] } | null) => {
         if (!d) return;
@@ -266,10 +267,17 @@ export default function SammiConcierge({
         setConflictStatus({ scenario: d.scenario, confidence: d.confidence, isAlert: d.isAlert, spireRain, meteoblueRain, satelliteDisagree });
       })
       .catch(() => {});
-  }, [samuiIntel]);
+  }, [conflictRegion]);
 
   const tomorrowRow = useMemo(() => getTomorrowForecastRow(forecastRows), [forecastRows]);
   const islandTip    = useMemo(() => pickDailySamuiTip(), []);
+  const regionBeachLabel =
+    beachRegionLabel ?? (conflictRegion === 'krabi' ? 'Ao Nang' : 'Chaweng');
+
+  const nowBeachScore = useMemo(() => {
+    const r = forecastRows[0];
+    return r ? calculateBeachSunScore(r) : null;
+  }, [forecastRows]);
 
   /** Scroll to bottom only when chatting; on first load keep top visible (avatar + intel). */
   useEffect(() => {
@@ -304,6 +312,10 @@ export default function SammiConcierge({
             satelliteDisagree: conflictStatus?.satelliteDisagree ?? false,
             spireRain:         conflictStatus?.spireRain ?? false,
             meteoblueRain:     conflictStatus?.meteoblueRain ?? false,
+            beachSunScore:     nowBeachScore?.score,
+            beachSunLabel:     nowBeachScore?.label,
+            beachSunAdvice:    nowBeachScore?.advice,
+            beachRegionLabel:  regionBeachLabel,
           } : undefined,
         }),
       });
