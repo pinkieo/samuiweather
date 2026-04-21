@@ -43,7 +43,9 @@ jobs:
           cache-dependency-path: requirements-weather-engine.txt
 
       - name: Install dependencies
-        run: pip install -r requirements-weather-engine.txt
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-weather-engine.txt
 
       # Entrypoint: weather_engine_hourly.py (Spire + RainViewer + Supabase upsert).
       - name: Run weather engine
@@ -58,6 +60,18 @@ jobs:
           if [ ! -f weather_engine_hourly.py ]; then
             echo "::error::weather_engine_hourly.py not in repo root — push the latest workflow and script from main."
             ls -la
+            exit 1
+          fi
+          if [ -z "${SPIRE_API_TOKEN:-}" ]; then
+            echo "::error::SPIRE_API_TOKEN is empty. Add repository secret SPIRE_API_TOKEN or SPIRE_API_KEY (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+          if [ -z "${SUPABASE_URL:-}" ]; then
+            echo "::error::SUPABASE_URL is empty. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            echo "::error::SUPABASE_SERVICE_ROLE_KEY is empty. Add SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY."
             exit 1
           fi
           python weather_engine_hourly.py
