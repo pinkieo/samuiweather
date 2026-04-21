@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
 
       # If this step is missing in the Actions log, you are not running this workflow file from GitHub.
-      - name: Entrypoint check (must NOT use weather_clock.py)
+      - name: Entrypoint check
         run: |
           echo "Samui hourly ingest - ENTRYPOINT=weather_engine_hourly.py REV=2026-04-19"
           test -f weather_engine_hourly.py
@@ -45,8 +45,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-weather-engine.txt
 
-      # Entrypoint is weather_engine_hourly.py (full Spire + RainViewer + Supabase).
-      # Do not swap in weather_clock.py here — that file is a stub and not the hourly ingest.
+      # Entrypoint: weather_engine_hourly.py (Spire + RainViewer + Supabase upsert).
       - name: Run weather engine
         env:
           PYTHONUTF8: "1"
