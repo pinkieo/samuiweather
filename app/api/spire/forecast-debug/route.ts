@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getForecastMergedAt, SAMUI_CENTER } from '@/lib/spire';
+import { fetchSpireForecastDebugPanel, SAMUI_CENTER } from '@/lib/spire';
 
 export const dynamic = 'force-dynamic';
-
-/** Edge cache: refresh at most every 6h (replaces frequent cron freshness) */
-export const revalidate = 21600;
 
 function parseOptionalLatLon(request: Request): { lat: number; lon: number } {
   const { searchParams } = new URL(request.url);
@@ -23,28 +20,29 @@ function parseOptionalLatLon(request: Request): { lat: number; lon: number } {
   return { lat: SAMUI_CENTER.lat, lon: SAMUI_CENTER.lon };
 }
 
+/**
+ * Ruwe Spire `/forecast/point` payloads per parameter-set (geen WAQI-merge).
+ * Open in browser: `/api/spire/forecast-debug` of `?lat=&lon=`.
+ */
 export async function GET(request: Request) {
   const controller = new AbortController();
-  /** Spire tries many bundle/time_bundle combos (hourly + extended); allow headroom before abort. */
-  const timer = setTimeout(() => controller.abort(), 45000);
+  const timer = setTimeout(() => controller.abort(), 120000);
 
   try {
     const { lat, lon } = parseOptionalLatLon(request);
-    const rows = await getForecastMergedAt(lat, lon, controller.signal);
+    const panel = await fetchSpireForecastDebugPanel(lat, lon, controller.signal);
     clearTimeout(timer);
-    if (rows.length === 0) {
-      return NextResponse.json(
-        { error: 'No forecast data from Spire' },
-        { status: 502 },
-      );
-    }
-    return NextResponse.json(rows, {
-      headers: {
-        /** Browser + CDN may reuse; lat/lon in query already key the response. */
-        'Cache-Control':
-          'private, max-age=120, s-maxage=120, stale-while-revalidate=3600',
+    return NextResponse.json(
+      {
+        ...panel,
+        hint: 'Ruwe Spire JSON per query. `stats` = aantal rijen + span (uur) tussen eerste/laatste valid_time. `data` max 400 rijen als ingekort.',
       },
-    });
+      {
+        headers: {
+          'Cache-Control': 'no-store',
+        },
+      },
+    );
   } catch (error) {
     clearTimeout(timer);
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -52,12 +50,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: message }, { status: 500 });
     }
     if (error instanceof Error && error.name === 'AbortError') {
-      return NextResponse.json({ error: 'Timeout: Spire API did not respond' }, { status: 504 });
+      return NextResponse.json({ error: 'Timeout' }, { status: 504 });
     }
-    console.error('spire/forecast:', error);
-    return NextResponse.json(
-      { error: 'Data fetch failed' },
-      { status: 500 },
-    );
+    console.error('spire/forecast-debug:', error);
+    return NextResponse.json({ error: 'Debug fetch failed' }, { status: 500 });
   }
 }

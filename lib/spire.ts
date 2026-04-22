@@ -471,6 +471,231 @@ export function mapSpireForecastPointData(raw: unknown): SamuiWeatherForecastRow
   return mergeSpireWithWaqi(data, null);
 }
 
+/** Stable sort key for Spire `valid_time` (merge hourly + 6-hourly series). */
+function spireValidTimeKey(entry: unknown): string {
+  const t = (entry as { times?: { valid_time?: string } })?.times?.valid_time;
+  if (!t || typeof t !== 'string') return '';
+  try {
+    return new Date(t).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  } catch {
+    return t;
+  }
+}
+
+/** Hours between earliest and latest `valid_time` in the series (unsorted-safe). */
+function spireForecastSpanHours(data: unknown[]): number {
+  let minT = Infinity;
+  let maxT = -Infinity;
+  for (const e of data) {
+    const k = spireValidTimeKey(e);
+    if (!k) continue;
+    const t = new Date(k).getTime();
+    if (Number.isNaN(t)) continue;
+    minT = Math.min(minT, t);
+    maxT = Math.max(maxT, t);
+  }
+  if (!Number.isFinite(minT) || !Number.isFinite(maxT)) return 0;
+  return (maxT - minT) / 3600000;
+}
+
+/** Samenvatting van één Spire `/forecast/point` `data[]` — o.a. voor debug-endpoint. */
+export function computeSpirePointDataStats(data: unknown): {
+  rowCount: number;
+  spanHours: number;
+  firstValidTime: string | null;
+  lastValidTime: string | null;
+} {
+  if (!Array.isArray(data)) {
+    return { rowCount: 0, spanHours: 0, firstValidTime: null, lastValidTime: null };
+  }
+  let minT = Infinity;
+  let maxT = -Infinity;
+  let firstAtMin = '';
+  let lastAtMax = '';
+  for (const e of data) {
+    const k = spireValidTimeKey(e);
+    if (!k) continue;
+    const t = new Date(k).getTime();
+    if (Number.isNaN(t)) continue;
+    if (t < minT) {
+      minT = t;
+      firstAtMin = k;
+    }
+    if (t > maxT) {
+      maxT = t;
+      lastAtMax = k;
+    }
+  }
+  const spanHours =
+    Number.isFinite(minT) && Number.isFinite(maxT) ? (maxT - minT) / 3600000 : 0;
+  return {
+    rowCount: data.length,
+    spanHours,
+    firstValidTime: firstAtMin || null,
+    lastValidTime: lastAtMax || null,
+  };
+}
+
+export type SpireForecastDebugQueryResult = {
+  label: string;
+  url: string;
+  status: number;
+  ok: boolean;
+  stats: ReturnType<typeof computeSpirePointDataStats>;
+  message?: string;
+  meta?: unknown;
+  /** Ruwe rijen (ingekort als `truncated`) */
+  data?: unknown[];
+  truncated?: boolean;
+  totalDataRows?: number;
+};
+
+/**
+ * Eén request per veelgebruikte parametercombinatie — zie wat Spire **werkelijk** teruggeeft
+ * (vóór WAQI/OpenUV-merge). Gebruik `/api/spire/forecast-debug` in de browser.
+ */
+export async function fetchSpireForecastDebugPanel(
+  lat: number,
+  lon: number,
+  signal?: AbortSignal,
+): Promise<{ lat: number; lon: number; generatedAt: string; queries: SpireForecastDebugQueryResult[] }> {
+  const token = getSpireApiToken();
+  if (!token) {
+    throw new Error('SPIRE_API_TOKEN ontbreekt');
+  }
+
+  const MAX_DEBUG_ROWS = 400;
+  const perFetchMs = 15000;
+
+  const specs: {
+    label: string;
+    bundles: string;
+    timeBundle?: string;
+    forecastHours?: number;
+  }[] = [
+    {
+      label: 'hourly + forecast_hours=360 (vacation bundles)',
+      bundles: FORECAST_BUNDLES_VACATION,
+      timeBundle: 'hourly',
+      forecastHours: 360,
+    },
+    {
+      label: 'hourly, geen forecast_hours (vacation)',
+      bundles: FORECAST_BUNDLES_VACATION,
+      timeBundle: 'hourly',
+    },
+    {
+      label: 'hourly_6day (vacation)',
+      bundles: FORECAST_BUNDLES_VACATION,
+      timeBundle: 'hourly_6day',
+    },
+    {
+      label: 'medium_range_std_freq + forecast_hours=360 (vacation)',
+      bundles: FORECAST_BUNDLES_VACATION,
+      timeBundle: 'medium_range_std_freq',
+      forecastHours: 360,
+    },
+    {
+      label: 'medium_range_high_freq + forecast_hours=360 (vacation)',
+      bundles: FORECAST_BUNDLES_VACATION,
+      timeBundle: 'medium_range_high_freq',
+      forecastHours: 360,
+    },
+    {
+      label: 'all + forecast_hours=360 (basic)',
+      bundles: 'basic',
+      timeBundle: 'all',
+      forecastHours: 360,
+    },
+    {
+      label: '6_hourly + forecast_hours=360 (vacation)',
+      bundles: FORECAST_BUNDLES_VACATION,
+      timeBundle: '6_hourly',
+      forecastHours: 360,
+    },
+    {
+      label: 'geen time_bundle (vacation — API default)',
+      bundles: FORECAST_BUNDLES_VACATION,
+    },
+  ];
+
+  const runOne = async (spec: (typeof specs)[number]): Promise<SpireForecastDebugQueryResult> => {
+    const url = buildForecastPointUrl(lat, lon, spec.bundles, {
+      timeBundle: spec.timeBundle,
+      forecastHours: spec.forecastHours,
+    });
+    try {
+      const r = await fetch(url, {
+        headers: { 'spire-api-key': token },
+        signal: combinedSignal(signal, perFetchMs),
+        cache: 'no-store',
+      });
+      const json = (await r.json().catch(() => ({}))) as {
+        data?: unknown[];
+        meta?: unknown;
+        message?: string;
+        error?: string;
+      };
+      const raw = Array.isArray(json.data) ? json.data : [];
+      const stats = computeSpirePointDataStats(raw);
+      const truncated = raw.length > MAX_DEBUG_ROWS;
+      const data = truncated ? raw.slice(0, MAX_DEBUG_ROWS) : raw;
+      return {
+        label: spec.label,
+        url,
+        status: r.status,
+        ok: r.ok,
+        stats,
+        message:
+          (typeof json.message === 'string' && json.message) ||
+          (typeof json.error === 'string' && json.error) ||
+          undefined,
+        meta: json.meta,
+        data,
+        truncated: truncated || undefined,
+        totalDataRows: raw.length,
+      };
+    } catch (e) {
+      return {
+        label: spec.label,
+        url,
+        status: 0,
+        ok: false,
+        stats: computeSpirePointDataStats([]),
+        message: e instanceof Error ? e.message : String(e),
+      };
+    }
+  };
+
+  const queries = await Promise.all(specs.map(runOne));
+
+  return {
+    lat,
+    lon,
+    generatedAt: new Date().toISOString(),
+    queries,
+  };
+}
+
+/**
+ * Overlay hourly steps on 6-hourly extended steps (same `valid_time` → hourly wins).
+ * ProSeaDure order: 2-day hourly + 15-day 6-hourly — Spire `time_bundle=hourly` caps at ~2 days.
+ */
+function mergeSpireRawForecastArrays(hourlyPreferred: unknown[], sixHourlyFill: unknown[]): unknown[] {
+  const map = new Map<string, unknown>();
+  for (const e of sixHourlyFill) {
+    const k = spireValidTimeKey(e);
+    if (k) map.set(k, e);
+  }
+  for (const e of hourlyPreferred) {
+    const k = spireValidTimeKey(e);
+    if (k) map.set(k, e);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, v]) => v);
+}
+
 /**
  * Parallel Spire (+ bundle-fallback) + WAQI at a point; één array voor de frontend.
  */
@@ -508,11 +733,26 @@ export async function getForecastMergedAt(
 
   /**
    * Spire may return far fewer hourly rows than `forecast_hours` suggests. Only accept a response
-   * as “done” for that step when depth is ~70% of what we asked (or undefined = any ≥48 via caller).
+   * as “done” when depth matches what we asked.
+   *
+   * Important: steps like `{ timeBundle: 'hourly' }` **without** `forecast_hours` still get ~48 rows
+   * from Spire. Treating `forecastHours == null` as “always ok” used to **return immediately** and
+   * skip `hourly_6day` and later steps — daily outlook stopped at ~2 days (“Tuesday”).
    */
   const spireHourlyDepthAcceptable = (len: number, step: SpirePointStep): boolean => {
     const want = step.forecastHours;
-    if (want == null) return true;
+    if (want == null) {
+      if (step.timeBundle === 'hourly_6day') {
+        return len >= 100;
+      }
+      if (step.timeBundle === 'hourly') {
+        return false;
+      }
+      if (step.timeBundle == null) {
+        return len >= 112;
+      }
+      return len >= MIN_HOURS_FOR_FULL_NEXT_DAY;
+    }
     const need = Math.max(MIN_HOURS_FOR_FULL_NEXT_DAY, Math.floor(want * 0.7));
     return len >= need;
   };
@@ -568,6 +808,129 @@ export async function getForecastMergedAt(
     ),
     { bundles: 'basic', timeBundle: 'hourly' },
   ];
+
+  /**
+   * Longer outlook for daily cards: Spire’s legacy `6_hourly` bundle only reaches **~day 6**
+   * (same family as Power API docs). Glossary also lists `medium_range_*` and `all` — those can
+   * extend toward the ~15-day order form. Acceptance uses **time span**, not row count, so we do
+   * not treat a capped ~6d series as “360h done” just because it has enough 6-hourly rows.
+   */
+  const spireExtendedSeriesAcceptable = (data: unknown[], step: SpirePointStep): boolean => {
+    if (!Array.isArray(data) || data.length < 8) return false;
+    const span = spireForecastSpanHours(data);
+    const want = step.forecastHours;
+    if (want == null) return span >= 72;
+    const minSpan = Math.max(Math.min(72, want * 0.45), Math.floor(want * 0.72));
+    return span >= minSpan;
+  };
+
+  /** Long-range passes: longest horizons first; keep bundle count small to limit sequential hops. */
+  const LONG_RANGE_HOUR_TRIES = [384, 360, 288, 240, 168, 120] as const;
+  /** Legacy `6_hourly` (~6d cap): still try shorter horizons after richer time bundles. */
+  const LEGACY_SIX_HOUR_TRIES = [360, 288, 240, 168, 120, 96, 72, 48] as const;
+  const LONG_RANGE_TIME_BUNDLES = [
+    'medium_range_std_freq',
+    'medium_range_high_freq',
+    'all',
+  ] as const;
+
+  const SPIRE_EXTENDED_STEPS: SpirePointStep[] = [];
+  for (const timeBundle of LONG_RANGE_TIME_BUNDLES) {
+    for (const bundles of [
+      'basic,maritime-atmos,clouds,thunderstorm',
+      FORECAST_BUNDLES_VACATION,
+      'basic',
+    ] as const) {
+      for (const forecastHours of LONG_RANGE_HOUR_TRIES) {
+        SPIRE_EXTENDED_STEPS.push({ bundles, timeBundle, forecastHours });
+      }
+    }
+  }
+
+  const SPIRE_SIX_HOURLY_FALLBACK_STEPS: SpirePointStep[] = [
+    ...LEGACY_SIX_HOUR_TRIES.map((forecastHours) => ({
+      bundles: 'basic,maritime-atmos,clouds,thunderstorm',
+      timeBundle: '6_hourly',
+      forecastHours,
+    })),
+    ...LEGACY_SIX_HOUR_TRIES.map((forecastHours) => ({
+      bundles: 'basic,maritime-atmos,clouds',
+      timeBundle: '6_hourly',
+      forecastHours,
+    })),
+    ...LEGACY_SIX_HOUR_TRIES.map((forecastHours) => ({
+      bundles: FORECAST_BUNDLES_VACATION,
+      timeBundle: '6_hourly',
+      forecastHours,
+    })),
+    ...LEGACY_SIX_HOUR_TRIES.map((forecastHours) => ({
+      bundles: 'basic,maritime-atmos',
+      timeBundle: '6_hourly',
+      forecastHours,
+    })),
+    ...LEGACY_SIX_HOUR_TRIES.map((forecastHours) => ({
+      bundles: 'basic',
+      timeBundle: '6_hourly',
+      forecastHours,
+    })),
+  ];
+
+  const fetchSpireSixHourly = async (): Promise<{ data?: unknown[] } | null> => {
+    let best: { data?: unknown[] } | null = null;
+    let bestSpan = 0;
+    let bestLen = 0;
+    const consider = (json: { data?: unknown[] }) => {
+      const data = json.data;
+      if (!Array.isArray(data) || data.length < 8) return;
+      const span = spireForecastSpanHours(data);
+      if (span > bestSpan + 0.5 || (Math.abs(span - bestSpan) <= 0.5 && data.length > bestLen)) {
+        best = json;
+        bestSpan = span;
+        bestLen = data.length;
+      }
+    };
+    const spireFetchSignal = () => combinedSignal(signal, 12000);
+
+    const runStepList = async (steps: SpirePointStep[]) => {
+      for (const step of steps) {
+        const url = buildForecastPointUrl(lat, lon, step.bundles, {
+          timeBundle: step.timeBundle,
+          forecastHours: step.forecastHours,
+        });
+        try {
+          const r = await fetch(url, {
+            headers: { 'spire-api-key': token },
+            signal: spireFetchSignal(),
+            next: { revalidate: 900 },
+          });
+          const json = (await r.json().catch(() => ({}))) as { data?: unknown[] };
+          if (!r.ok) {
+            if (r.status === 403 || r.status === 400 || r.status === 404 || r.status === 422) {
+              continue;
+            }
+            continue;
+          }
+          const data = json.data;
+          if (!Array.isArray(data) || data.length < 8) continue;
+          if (spireExtendedSeriesAcceptable(data, step)) {
+            return json;
+          }
+          consider(json);
+        } catch {
+          /* try next bundle / horizon */
+        }
+      }
+      return null;
+    };
+
+    const early = await runStepList(SPIRE_EXTENDED_STEPS);
+    if (early) return early;
+
+    const fallback = await runStepList(SPIRE_SIX_HOURLY_FALLBACK_STEPS);
+    if (fallback) return fallback;
+
+    return best && bestLen >= 8 ? best : null;
+  };
 
   const fetchSpire = async (): Promise<{ data?: unknown[] }> => {
     let best: { data?: unknown[] } | null = null;
@@ -741,13 +1104,22 @@ export async function getForecastMergedAt(
       });
   };
 
-  const [spireJson, waqiJson, uvForecastJson] = await Promise.all([
+  const [spireJson, spireSixJson, waqiJson, uvForecastJson] = await Promise.all([
     fetchSpire(),
+    fetchSpireSixHourly().catch((e) => {
+      console.error('Spire merge fetchSpireSixHourly err:', e);
+      return null;
+    }),
     fetchWaqi(),
     fetchUvForecast(),
   ]);
 
-  let rows = Array.isArray(spireJson?.data) ? spireJson.data : [];
+  let rows: unknown[] = Array.isArray(spireJson?.data) ? [...spireJson.data] : [];
+  const sixData =
+    spireSixJson && Array.isArray(spireSixJson.data) ? spireSixJson.data : [];
+  if (sixData.length > 0) {
+    rows = mergeSpireRawForecastArrays(rows, sixData);
+  }
   
   // Filter historical data out, only keep from the current hour forward
   const nowMs = Date.now();
