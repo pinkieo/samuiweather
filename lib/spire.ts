@@ -493,6 +493,9 @@ export async function getForecastMergedAt(
    */
   const MIN_HOURS_FOR_FULL_NEXT_DAY = 48;
 
+  /** Prefer long hourly runs first so daily outlook can show ~15 days (360h) when the token allows. */
+  const SPIRE_HOUR_TRIES = [360, 240, 72, 48] as const;
+
   /**
    * Single ordered pass over bundle × params combos. The old nested loop could do **4 bundles × 5
    * params = 20 sequential** Spire HTTP calls before success — very slow on cold start.
@@ -504,25 +507,54 @@ export async function getForecastMergedAt(
   };
 
   /**
-   * `basic,maritime-atmos` first — most tokens succeed on the first hop. `clouds` often 403;
-   * keep it early but after the happy path so cold loads are one round-trip when possible.
+   * Longer `forecast_hours` steps first (15d → shorter fallbacks). `clouds` / thunderstorm may 403;
+   * keep rich bundles first, then strip down.
    */
   const SPIRE_POINT_STEPS: SpirePointStep[] = [
-    {
-      bundles: 'basic,maritime-atmos,clouds,thunderstorm',
-      timeBundle: 'hourly',
-      forecastHours: 72,
-    },
-    { bundles: 'basic,maritime-atmos,clouds', timeBundle: 'hourly', forecastHours: 72 },
-    { bundles: FORECAST_BUNDLES_VACATION, timeBundle: 'hourly', forecastHours: 72 },
-    { bundles: FORECAST_BUNDLES_VACATION, timeBundle: 'hourly', forecastHours: 48 },
+    ...SPIRE_HOUR_TRIES.map(
+      (forecastHours) =>
+        ({
+          bundles: 'basic,maritime-atmos,clouds,thunderstorm',
+          timeBundle: 'hourly',
+          forecastHours,
+        }) satisfies SpirePointStep,
+    ),
+    ...SPIRE_HOUR_TRIES.map(
+      (forecastHours) =>
+        ({
+          bundles: 'basic,maritime-atmos,clouds',
+          timeBundle: 'hourly',
+          forecastHours,
+        }) satisfies SpirePointStep,
+    ),
+    ...SPIRE_HOUR_TRIES.map(
+      (forecastHours) =>
+        ({
+          bundles: FORECAST_BUNDLES_VACATION,
+          timeBundle: 'hourly',
+          forecastHours,
+        }) satisfies SpirePointStep,
+    ),
     { bundles: FORECAST_BUNDLES_VACATION, timeBundle: 'hourly' },
     { bundles: FORECAST_BUNDLES_VACATION, timeBundle: 'hourly_6day' },
     { bundles: FORECAST_BUNDLES_VACATION },
-    { bundles: 'basic,maritime-atmos', timeBundle: 'hourly', forecastHours: 72 },
-    { bundles: 'basic,maritime-atmos', timeBundle: 'hourly', forecastHours: 48 },
+    ...SPIRE_HOUR_TRIES.map(
+      (forecastHours) =>
+        ({
+          bundles: 'basic,maritime-atmos',
+          timeBundle: 'hourly',
+          forecastHours,
+        }) satisfies SpirePointStep,
+    ),
     { bundles: 'basic,maritime-atmos', timeBundle: 'hourly' },
-    { bundles: 'basic', timeBundle: 'hourly', forecastHours: 72 },
+    ...SPIRE_HOUR_TRIES.map(
+      (forecastHours) =>
+        ({
+          bundles: 'basic',
+          timeBundle: 'hourly',
+          forecastHours,
+        }) satisfies SpirePointStep,
+    ),
     { bundles: 'basic', timeBundle: 'hourly' },
   ];
 
@@ -631,7 +663,7 @@ export async function getForecastMergedAt(
       if (early) return early;
 
       const fromOpt = await runSteps(
-        SPIRE_POINT_STEPS.slice(0, 5),
+        SPIRE_POINT_STEPS.slice(0, 12),
         (step) =>
           buildForecastOptimizedPointUrl(optLoc, step.bundles, {
             timeBundle: step.timeBundle,

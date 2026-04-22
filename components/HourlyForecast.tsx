@@ -97,7 +97,7 @@ function todayHourlyWithIndices(
   return rows.slice(0, 24).map((row, i) => ({ row, index: i }));
 }
 
-function HourlyScrollStrip({
+export function HourlyScrollStrip({
   scrollKey,
   dense,
   children,

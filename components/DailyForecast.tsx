@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { formatTempC, formatWindMs, type SamuiWeatherForecastRow } from '../lib/spire';
 import { getSunInfo } from '../lib/sun';
-import { HourlyStripForCalendarDay } from './HourlyForecast';
+import { HourlyScrollStrip, HourlyStripForCalendarDay } from './HourlyForecast';
 
-/** Spire extended outlook — cap UI at 30 calendar days when hourly data supports it */
-const MAX_DAILY_OUTLOOK = 30;
+/** Cap daily strip at 15 calendar days (matches ~360h Spire target when available). */
+const MAX_DAILY_OUTLOOK = 15;
 
 interface DailyForecastProps {
   rows: SamuiWeatherForecastRow[];
@@ -30,7 +30,6 @@ interface DailyData {
 
 export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) {
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
-  const stripRef = useRef<HTMLDivElement>(null);
 
   const dailyMap = new Map<string, DailyData>();
 
@@ -128,16 +127,12 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2 pl-1 pr-0.5">
         <p className="text-[9px] font-black uppercase tracking-widest text-cyan-400">
-          Daily outlook · {dayCount} {dayCount === 1 ? 'day' : 'days'} · swipe · tap for hourly
+          Daily outlook · up to {MAX_DAILY_OUTLOOK} days · {dayCount} loaded · swipe · tap for hourly
         </p>
       </div>
 
-      <div className="relative">
-        <div
-          ref={stripRef}
-          className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto pb-2 pt-0.5 [scrollbar-width:thin] [scrollbar-color:rgba(34,211,238,0.35)_transparent] sm:gap-2.5"
-        >
-          {dailyArray.map((day, index) => {
+      <HourlyScrollStrip scrollKey={dailyArray.length}>
+        {dailyArray.map((day, index) => {
             const isToday = index === 0;
             const isTomorrow = index === 1;
             const displayDay = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : day.dayName;
@@ -156,7 +151,7 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
                 type="button"
                 onClick={() => handleDayTap(day)}
                 className={[
-                  'flex w-[5.25rem] shrink-0 snap-start flex-col items-center rounded-2xl border px-2 py-2.5 shadow-lg transition sm:w-[5.75rem] sm:px-2.5 sm:py-3',
+                  'flex w-[5.25rem] shrink-0 snap-center flex-col items-center rounded-2xl border px-2 py-2.5 shadow-lg transition sm:w-[5.75rem] sm:px-2.5 sm:py-3',
                   isToday ? 'border-cyan-500/40 bg-slate-900' : 'border-white/10 bg-slate-900',
                   isOpen ? 'ring-1 ring-cyan-500/35' : 'hover:border-cyan-500/25 hover:bg-slate-800',
                 ].join(' ')}
@@ -204,13 +199,7 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
               </button>
             );
           })}
-        </div>
-        {/* Scroll hint */}
-        <div
-          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-slate-950 to-transparent sm:w-12"
-          aria-hidden
-        />
-      </div>
+      </HourlyScrollStrip>
 
       {expandedDayKey && expandedDay && (
         <div className="rounded-2xl border border-cyan-500/25 bg-slate-950 px-3 py-3">

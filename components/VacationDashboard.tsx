@@ -475,7 +475,7 @@ export default function VacationDashboard({
         <HourlyForecast rows={rows} selectedIndex={selectedIndex} onHourSelect={onSelectedIndexChange} />
       </div>
 
-      {/* ── 2. Daily outlook (scrollable, up to 30 days) ──────────────── */}
+      {/* ── 2. Daily outlook (scrollable, up to 15 days when Spire returns 360h) ──────────────── */}
       <DailyForecast rows={rows} onDayClick={onSelectedIndexChange} />
 
       {/* ── 3. Beach Sun Score + Verdict Hero ─────────────────────────── */}
