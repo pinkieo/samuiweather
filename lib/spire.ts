@@ -507,6 +507,17 @@ export async function getForecastMergedAt(
   };
 
   /**
+   * Spire may return far fewer hourly rows than `forecast_hours` suggests. Only accept a response
+   * as “done” for that step when depth is ~70% of what we asked (or undefined = any ≥48 via caller).
+   */
+  const spireHourlyDepthAcceptable = (len: number, step: SpirePointStep): boolean => {
+    const want = step.forecastHours;
+    if (want == null) return true;
+    const need = Math.max(MIN_HOURS_FOR_FULL_NEXT_DAY, Math.floor(want * 0.7));
+    return len >= need;
+  };
+
+  /**
    * Longer `forecast_hours` steps first (15d → shorter fallbacks). `clouds` / thunderstorm may 403;
    * keep rich bundles first, then strip down.
    */
@@ -603,7 +614,7 @@ export async function getForecastMergedAt(
         }
 
         const len = Array.isArray(json.data) ? json.data.length : 0;
-        if (len >= MIN_HOURS_FOR_FULL_NEXT_DAY) {
+        if (len >= MIN_HOURS_FOR_FULL_NEXT_DAY && spireHourlyDepthAcceptable(len, step)) {
           return json;
         }
         consider(json);
@@ -642,24 +653,25 @@ export async function getForecastMergedAt(
       const tryParallel = (
         r: Response,
         json: { data?: unknown[] },
-        bundles: string,
+        step: SpirePointStep,
       ): { data?: unknown[] } | null => {
         if (!r.ok) {
           if (r.status === 403) {
-            bundleForbidden.add(bundles);
+            bundleForbidden.add(step.bundles);
             return null;
           }
           if (r.status === 400 || r.status === 404 || r.status === 422) return null;
           throw new Error(`Spire HTTP ${r.status}`);
         }
         const len = Array.isArray(json.data) ? json.data.length : 0;
-        if (len >= MIN_HOURS_FOR_FULL_NEXT_DAY) return json;
+        if (len >= MIN_HOURS_FOR_FULL_NEXT_DAY && spireHourlyDepthAcceptable(len, step)) {
+          return json;
+        }
         consider(json);
         return null;
       };
 
-      const early =
-        tryParallel(rOpt, jOpt, s0.bundles) ?? tryParallel(rPt, jPt, s0.bundles);
+      const early = tryParallel(rOpt, jOpt, s0) ?? tryParallel(rPt, jPt, s0);
       if (early) return early;
 
       const fromOpt = await runSteps(
