@@ -72,6 +72,11 @@ export interface SamuiExploreMapProps {
     | null;
   /** Shown in zoom HUD, e.g. `island` vs `coast`. */
   mapScaleContextLabel?: string;
+  /**
+   * Optional RainViewer scrub: show this frame on the map instead of the newest past scan.
+   * `null` = live (latest scan from feed).
+   */
+  radarScrub?: { path: string; time: number } | null;
 }
 
 /**
@@ -159,6 +164,7 @@ export default function SamuiExploreMap({
   showIslandPois = true,
   homeLocationPins = null,
   mapScaleContextLabel = 'island',
+  radarScrub = null,
 }: SamuiExploreMapProps) {
   const mapRef = useRef<MapRef | null>(null);
   const startLng = initialLongitude ?? INITIAL_LNG;
@@ -281,15 +287,17 @@ export default function SamuiExploreMap({
     return best;
   }, [radarFrames]);
 
-  const activeRadarPath = latestRadarFrame?.path ?? null;
+  const activeRadarPath = radarScrub?.path ?? latestRadarFrame?.path ?? null;
 
-  const latestScanClockLabel = useMemo(() => {
-    if (!latestRadarFrame?.time) return null;
-    return new Date(latestRadarFrame.time * 1000).toLocaleTimeString(undefined, {
+  /** Tijd van de scan die nu op de kaart ligt (scrub of live). */
+  const activeScanClockLabel = useMemo(() => {
+    const t = radarScrub?.time ?? latestRadarFrame?.time;
+    if (!t) return null;
+    return new Date(t * 1000).toLocaleTimeString(undefined, {
       hour: 'numeric',
       minute: '2-digit',
     });
-  }, [latestRadarFrame]);
+  }, [radarScrub?.time, latestRadarFrame?.time]);
 
   const radarTiles = useMemo(
     () => (activeRadarPath ? [buildRadarTileUrl(activeRadarPath)] : []),
@@ -766,9 +774,14 @@ export default function SamuiExploreMap({
         <div className="pointer-events-auto absolute bottom-24 left-3 flex max-w-[min(100%-1.5rem,22rem)] flex-col items-start gap-1 sm:bottom-28">
           <div
             className="rounded-full border border-cyan-500/35 bg-cyan-500/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-cyan-200 shadow-lg backdrop-blur-md"
-            title="Latest RainViewer scan only — no animation loop. Map crossfades when a newer scan appears after refresh."
+            title={
+              radarScrub
+                ? `Scan ${activeScanClockLabel ?? '—'} (tijdlijn). Tik “Live” in de urenbalk voor de nieuwste sweep.`
+                : 'Latest RainViewer scan only — no animation loop. Map crossfades when a newer scan appears after refresh.'
+            }
           >
-            🌧 Radar · latest scan{latestScanClockLabel ? ` · ${latestScanClockLabel}` : ''} · refresh{' '}
+            🌧 Radar · {radarScrub ? 'tijdlijn' : 'live'}
+            {activeScanClockLabel ? ` · ${activeScanClockLabel}` : ''} · refresh{' '}
             {Math.round(radarDisplay.framesPollMs / 60000)}m · fade {radarDisplay.fadeTransitionMs}ms
           </div>
           <p className="rounded-lg border border-white/10 bg-slate-950/85 px-2 py-1 text-[8px] leading-snug text-slate-500 backdrop-blur-sm">

@@ -199,12 +199,21 @@ export default function MapViewer() {
   const [metarSkyCover, setMetarSkyCover] = useState<MetarDominantCover>(null);
   /** Storm strip is `fixed` + high z-index — pad the drawer so region tabs stay reachable. */
   const [stormBannerActive, setStormBannerActive] = useState(false);
+  /** RainViewer frame chosen from hourly strip — `null` = newest scan (live). */
+  const [radarScrubFrame, setRadarScrubFrame] = useState<{
+    path: string;
+    time: number;
+  } | null>(null);
 
   // Dashboard collapse — closed on mobile by default, open on desktop
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   useEffect(() => {
     if (window.innerWidth >= 640) setIsDashboardOpen(true);
   }, []);
+
+  useEffect(() => {
+    setRadarScrubFrame(null);
+  }, [dashboardRegionId]);
 
   // Section toggles
   const [showTide,  setShowTide]  = useState(true);
@@ -581,15 +590,18 @@ export default function MapViewer() {
             })) ?? null
           }
           mapScaleContextLabel={region.isSamuiProduct ? 'island' : 'coast'}
+          radarScrub={radarScrubFrame}
         />
 
-        {/* Buienradar-style hourly strip — RainViewer scans bucketed per Bangkok hour */}
+        {/* Buienradar-style hourly strip — tap hour → map shows that scan; Live = newest */}
         <div className="pointer-events-none absolute bottom-[7.25rem] left-1/2 z-[18] w-[min(96vw,40rem)] -translate-x-1/2 px-2 sm:bottom-[7.75rem]">
           <RadarHourlyTimeline
             key={dashboardRegionId}
             lat={region.lat}
             lon={region.lon}
             product={region.isSamuiProduct ? 'samui' : 'krabi'}
+            radarScrub={radarScrubFrame}
+            onRadarScrub={setRadarScrubFrame}
           />
         </div>
       </div>

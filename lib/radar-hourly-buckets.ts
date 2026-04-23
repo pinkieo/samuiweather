@@ -44,6 +44,49 @@ export type HourBucketRadar = {
   level: 0 | 1 | null;
 };
 
+/** Latest RainViewer scan within [hourStartUtc, hourStartUtc+3600) — best for map scrub. */
+export function pickLatestFrameInHour(
+  frames: RadarFrameLike[],
+  hourStartUtc: number,
+): RadarFrameLike | null {
+  const hourEnd = hourStartUtc + 3600;
+  const inHour = frames.filter((f) => f.time >= hourStartUtc && f.time < hourEnd);
+  if (inHour.length === 0) return null;
+  let best = inHour[0]!;
+  for (let i = 1; i < inHour.length; i++) {
+    const f = inHour[i]!;
+    if (f.time > best.time) best = f;
+  }
+  return best;
+}
+
+/**
+ * Frame voor kaart-scrub: eerst echte scan in het uur; voor **toekomstige** ICT-uren zonder hit
+ * het nowcast-frame waarvan de tijd het dichtst bij het midden van dat uur ligt (RainViewer
+ * cluster soms alle `time`-stempels in het huidige uur).
+ */
+export function pickScrubFrameForHour(
+  merged: RadarFrameLike[],
+  nowcastOnly: RadarFrameLike[],
+  hourStartUtc: number,
+  currentBangkokHourStartUtc: number,
+): RadarFrameLike | null {
+  const direct = pickLatestFrameInHour(merged, hourStartUtc);
+  if (direct) return direct;
+  if (hourStartUtc <= currentBangkokHourStartUtc || nowcastOnly.length === 0) return null;
+  const target = hourStartUtc + 1800;
+  let best: RadarFrameLike | null = null;
+  let bestAbs = Infinity;
+  for (const f of nowcastOnly) {
+    const abs = Math.abs(f.time - target);
+    if (abs < bestAbs) {
+      bestAbs = abs;
+      best = f;
+    }
+  }
+  return best;
+}
+
 export function buildHourlyRadarBuckets(
   hourStarts: number[],
   frames: RadarFrameLike[],

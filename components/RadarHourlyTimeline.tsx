@@ -9,6 +9,7 @@ import {
   buildHourlyRadarBuckets,
   hourBucketKeyBangkok,
   mergeRadarFrames,
+  pickScrubFrameForHour,
   type HourBucketRadar,
 } from '@/lib/radar-hourly-buckets';
 
@@ -40,16 +41,23 @@ function formatHourTooltip(utcSec: number): string {
   });
 }
 
+export type RadarScrubFrame = { path: string; time: number };
+
 export default function RadarHourlyTimeline({
   lat,
   lon,
   product,
   className,
+  radarScrub = null,
+  onRadarScrub,
 }: {
   lat: number;
   lon: number;
   product: 'krabi' | 'samui';
   className?: string;
+  /** Map overlay — `null` = nieuwste scan (live). */
+  radarScrub?: RadarScrubFrame | null;
+  onRadarScrub?: (frame: RadarScrubFrame | null) => void;
 }) {
   const { frames, nowcastFrames, status } = useRadarFeed();
   const framesRef = useRef<RadarFrame[]>(frames);
@@ -64,6 +72,11 @@ export default function RadarHourlyTimeline({
     [frames, nowcastFrames],
   );
 
+  const mergedFrames = useMemo(
+    () => mergeRadarFrames(frames, nowcastFrames),
+    [frames, nowcastFrames],
+  );
+
   const [buckets, setBuckets] = useState<HourBucketRadar[]>([]);
   const [busy, setBusy] = useState(false);
   const seq = useRef(0);
@@ -71,7 +84,8 @@ export default function RadarHourlyTimeline({
   useEffect(() => {
     const merged = mergeRadarFrames(framesRef.current, nowcastRef.current);
     const nowSec = Math.floor(Date.now() / 1000);
-    const hourStarts = bangkokWindowHourStarts(nowSec, 2, 5);
+    const ncLen = nowcastRef.current.length;
+    const hourStarts = bangkokWindowHourStarts(nowSec, 2, ncLen > 0 ? 5 : 0);
     const rangeStart = hourStarts[0]!;
     const rangeEnd = hourStarts[hourStarts.length - 1]! + 3600;
     const inWindowAll = merged.filter((f) => f.time >= rangeStart && f.time < rangeEnd);
@@ -107,7 +121,9 @@ export default function RadarHourlyTimeline({
     return () => ac.abort();
   }, [feedSig, lat, lon, product]);
 
-  const nowKey = hourBucketKeyBangkok(Math.floor(Date.now() / 1000));
+  const nowSecForHour = Math.floor(Date.now() / 1000);
+  const nowKey = hourBucketKeyBangkok(nowSecForHour);
+  const currentBangkokHourStartUtc = bangkokWindowHourStarts(nowSecForHour, 0, 0)[0]!;
 
   if (status === 'error' && frames.length === 0 && nowcastFrames.length === 0) return null;
 
@@ -122,48 +138,88 @@ export default function RadarHourlyTimeline({
       role="region"
       aria-label="Radar per uur op jouw pin (ICT)"
     >
-      <div className="mb-1.5 flex items-center justify-between gap-2">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
         <span className="text-[9px] font-black uppercase tracking-wider text-cyan-200/95">
           Radar · uren (Bangkok)
         </span>
-        {busy && (
-          <span className="text-[8px] font-semibold text-slate-500">Scans lezen…</span>
-        )}
+        <div className="flex items-center gap-2">
+          {busy && (
+            <span className="text-[8px] font-semibold text-slate-500">Scans lezen…</span>
+          )}
+          <button
+            type="button"
+            disabled={busy || !onRadarScrub}
+            onClick={() => onRadarScrub?.(null)}
+            className={[
+              'rounded-md px-2 py-0.5 text-[8px] font-bold uppercase tracking-wide transition-colors',
+              radarScrub === null
+                ? 'bg-cyan-500/25 text-cyan-200 ring-1 ring-cyan-400/60'
+                : 'bg-slate-800/90 text-slate-400 hover:bg-slate-700/90 hover:text-slate-200',
+              busy || !onRadarScrub ? 'cursor-not-allowed opacity-50' : '',
+            ].join(' ')}
+          >
+            Live
+          </button>
+        </div>
       </div>
       <p className="mb-2 text-[8px] leading-snug text-slate-500">
-        Kleur = echo op je pin + omgeving (zoals buienradar). Geen staaf = geen scan in dat uur.
-        Nowcast = korte vooruitblik.
+        Kleur = echo op je pin. Tik een uur om die radarscan op de kaart te tonen. Live = nieuwste
+        sweep. Uren vooruit alleen bij RainViewer-nowcast; anders tonen we alleen ~2 uur historie +
+        nu.
       </p>
       <div className="flex gap-1 sm:gap-1.5">
         {buckets.map((b) => {
           const isNow = b.key === nowKey;
+          const frameInHour = pickScrubFrameForHour(
+            mergedFrames,
+            nowcastFrames,
+            b.hourStartUtc,
+            currentBangkokHourStartUtc,
+          );
+          const canScrub = Boolean(frameInHour && onRadarScrub && !busy);
+          const isSelected =
+            radarScrub != null &&
+            frameInHour != null &&
+            radarScrub.path === frameInHour.path;
           const barClass =
             b.level === 1
               ? 'bg-gradient-to-t from-sky-700 via-amber-500 to-rose-500 shadow-[0_0_12px_rgba(251,191,36,0.35)]'
               : b.level === 0
                 ? 'bg-slate-800/90'
                 : 'border border-dashed border-slate-600/80 bg-slate-900/40';
+          const hintBase =
+            b.level === 1
+              ? 'Neerslag op pin / nabij'
+              : b.level === 0
+                ? 'Geen echo op pin / nabij (in beschikbare scans)'
+                : 'Geen radarscan in dit uur';
+          const scrubHint = canScrub ? ' — klik: deze scan op de kaart' : '';
           return (
             <div key={b.key} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-              <div
-                title={`${formatHourTooltip(b.hourStartUtc)} — ${
-                  b.level === 1
-                    ? 'Neerslag op pin / nabij'
-                    : b.level === 0
-                      ? 'Geen echo op pin / nabij (in beschikbare scans)'
-                      : 'Geen radarscan in dit uur'
-                }`}
+              <button
+                type="button"
+                disabled={!canScrub}
+                onClick={() => {
+                  if (frameInHour && onRadarScrub) {
+                    onRadarScrub({ path: frameInHour.path, time: frameInHour.time });
+                  }
+                }}
+                title={`${formatHourTooltip(b.hourStartUtc)} — ${hintBase}${scrubHint}`}
                 className={[
-                  'h-11 w-full max-w-[3.5rem] rounded-md transition-opacity',
+                  'h-11 w-full max-w-[3.5rem] rounded-md transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80',
                   barClass,
-                  isNow ? 'ring-1 ring-cyan-400/70' : '',
+                  isNow && radarScrub === null ? 'ring-1 ring-cyan-400/70' : '',
+                  isSelected ? 'ring-2 ring-amber-400/90 ring-offset-1 ring-offset-slate-950' : '',
                   busy ? 'opacity-60' : '',
+                  canScrub ? 'cursor-pointer hover:brightness-110' : 'cursor-default',
+                  !canScrub ? 'opacity-80' : '',
                 ].join(' ')}
               />
               <span
                 className={[
                   'text-[8px] font-bold tabular-nums',
                   isNow ? 'text-cyan-300' : 'text-slate-500',
+                  isSelected ? 'text-amber-200' : '',
                 ].join(' ')}
               >
                 {isNow ? 'Nu' : formatHourLabel(b.hourStartUtc)}
