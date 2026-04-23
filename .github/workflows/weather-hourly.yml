@@ -36,7 +36,7 @@ jobs:
       # If this step is missing in the Actions log, you are not running this workflow file from GitHub.
       - name: Entrypoint check
         run: |
-          echo "Samui hourly ingest - ENTRYPOINT=weather_engine_hourly.py REV=2026-04-24-no-fog-column-key"
+          echo "Samui hourly ingest - weather_engine_hourly.py (fog fix on main: 37a3570+)"
           test -f weather_engine_hourly.py
           echo "OK: weather_engine_hourly.py is in the repo checkout."
 
@@ -72,6 +72,7 @@ jobs:
           SPIRE_OPF_ENABLED: ${{ vars.SPIRE_OPF_ENABLED }}
         run: |
           set -euo pipefail
+          echo "CI_GIT_SHA=$(git rev-parse HEAD)"
           if [ ! -f weather_engine_hourly.py ]; then
             echo "::error::weather_engine_hourly.py not in repo root — push the latest workflow and script from main."
             ls -la
