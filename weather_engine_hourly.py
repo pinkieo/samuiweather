@@ -945,6 +945,22 @@ def coerce_whole_floats_for_postgres(row: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+# PostgREST rejects keys that are not real DB columns. Keep in sync with supabase/007+009/014.
+# Fog lives in `values_json` only until `probability_of_fog` is added by migration 014+.
+_UNSAFE_TOPLEVEL_FOR_UPSERT: frozenset[str] = frozenset(
+    {
+        "probability_of_fog",
+    }
+)
+
+
+def _strip_unsafe_upsert_keys(rows: List[Dict[str, Any]]) -> None:
+    """Remove keys PostgREST will not accept (unknown columns). In-place; call right before upsert."""
+    for row in rows:
+        for k in _UNSAFE_TOPLEVEL_FOR_UPSERT:
+            row.pop(k, None)
+
+
 def _exception_text(exc: BaseException) -> str:
     """All printable parts of an exception; PostgREST `APIError` may hide details in `str()` only."""
     parts: list[str] = [str(exc), repr(exc)]
@@ -976,6 +992,11 @@ def get_supabase() -> Client:
 
 def run() -> int:
     load_env()
+    # If this line is missing in GitHub Actions logs, the job is not running this file revision.
+    print(
+        "weather_engine_hourly.py ingest_build=fog-col-stripped-v2",
+        file=sys.stderr,
+    )
     dry = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
     token = (os.environ.get("SPIRE_API_TOKEN") or os.environ.get("SPIRE_API_KEY") or "").strip()
     if not token:
@@ -1073,6 +1094,8 @@ def run() -> int:
         row = coerce_whole_floats_for_postgres(dict(r))
         row["updated_at"] = now_iso
         payload.append(row)
+
+    _strip_unsafe_upsert_keys(payload)
 
     try:
         sb.table("weather_forecast").upsert(
