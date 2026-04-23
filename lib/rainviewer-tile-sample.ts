@@ -4,73 +4,114 @@
  * Runs in the browser (Canvas + fetch); used to prefer radar over dry model rows.
  */
 
-const NATIVE_Z = 7;
-const TILE_PX = 512;
-
-function latLonToTileFraction(lat: number, lon: number, z: number): { xTile: number; yTile: number; fx: number; fy: number } {
-  const n = 2 ** z;
-  const x = ((lon + 180) / 360) * n;
-  const latRad = (lat * Math.PI) / 180;
-  const y =
-    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
-  const xTile = Math.floor(x);
-  const yTile = Math.floor(y);
-  const fx = (x - xTile) * TILE_PX;
-  const fy = (y - yTile) * TILE_PX;
-  return { xTile, yTile, fx, fy };
-}
-
-/** RainViewer “no echo” is typically near-white; coloured pixels indicate precipitation. */
-function pixelLooksLikeEcho(r: number, g: number, b: number, a: number): boolean {
-  if (a < 12) return false;
-  if (r > 248 && g > 248 && b > 248) return false;
-  const sum = r + g + b;
-  if (sum > 735 && Math.max(r, g, b) - Math.min(r, g, b) < 18) return false;
-  return true;
-}
+import {
+  latLonToRainviewerTileFraction,
+  pixelLooksLikeRainEcho,
+  RAINVIEWER_NATIVE_Z,
+  RAINVIEWER_TILE_PX,
+} from './rainviewer-tile-math';
+import {
+  RADAR_PROFILE_OFFSETS_KRABI,
+  RADAR_PROFILE_OFFSETS_SAMUI,
+  RADAR_PROFILE_OFFSETS_TIMELINE_KRABI,
+  RADAR_PROFILE_OFFSETS_TIMELINE_SAMUI,
+} from './radar-profile-offsets';
 
 export type RadarEchoSample = 'none' | 'precip' | 'unknown';
 
+function scanCanvasDisc(
+  ctx: CanvasRenderingContext2D,
+  fx: number,
+  fy: number,
+  half: number,
+): boolean {
+  const r2 = half * half;
+  for (let dy = -half; dy <= half; dy++) {
+    for (let dx = -half; dx <= half; dx++) {
+      if (dx * dx + dy * dy > r2) continue;
+      const ix = Math.round(fx + dx);
+      const iy = Math.round(fy + dy);
+      if (ix < 0 || iy < 0 || ix >= RAINVIEWER_TILE_PX || iy >= RAINVIEWER_TILE_PX) continue;
+      const d = ctx.getImageData(ix, iy, 1, 1).data;
+      if (pixelLooksLikeRainEcho(d[0]!, d[1]!, d[2]!, d[3]!)) return true;
+    }
+  }
+  return false;
+}
+
+export type SampleRadarEchoOptions = {
+  /** Circular neighbourhood radius in pixels (native 512 tile). Default 3. */
+  halfPx?: number;
+};
+
 /**
- * Fetch the native radar tile for this frame and test a small neighbourhood around the lat/lon.
+ * Fetch the native radar tile for this frame and test a neighbourhood around the lat/lon.
  */
 export async function sampleRadarEchoAtLocation(
   lat: number,
   lon: number,
   framePath: string,
   signal?: AbortSignal,
+  options?: SampleRadarEchoOptions,
 ): Promise<RadarEchoSample> {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return 'unknown';
   }
+  const half = options?.halfPx ?? 3;
   const clean = framePath.replace(/^\//, '');
-  const { xTile, yTile, fx, fy } = latLonToTileFraction(lat, lon, NATIVE_Z);
-  const url = `/api/radar/${clean}/512/${NATIVE_Z}/${xTile}/${yTile}/2/1_1.png`;
+  const { xTile, yTile, fx, fy } = latLonToRainviewerTileFraction(lat, lon, RAINVIEWER_NATIVE_Z);
+  const url = `/api/radar/${clean}/512/${RAINVIEWER_NATIVE_Z}/${xTile}/${yTile}/2/1_1.png`;
 
+  let bmp: ImageBitmap | undefined;
   try {
     const res = await fetch(url, { cache: 'no-store', signal });
     if (!res.ok) return 'unknown';
     const blob = await res.blob();
-    const bmp = await createImageBitmap(blob);
+    bmp = await createImageBitmap(blob);
     const canvas = document.createElement('canvas');
-    canvas.width = TILE_PX;
-    canvas.height = TILE_PX;
+    canvas.width = RAINVIEWER_TILE_PX;
+    canvas.height = RAINVIEWER_TILE_PX;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return 'unknown';
     ctx.drawImage(bmp, 0, 0);
-    const half = 3;
-    for (let dy = -half; dy <= half; dy++) {
-      for (let dx = -half; dx <= half; dx++) {
-        const ix = Math.round(fx + dx);
-        const iy = Math.round(fy + dy);
-        if (ix < 0 || iy < 0 || ix >= TILE_PX || iy >= TILE_PX) continue;
-        const d = ctx.getImageData(ix, iy, 1, 1).data;
-        if (pixelLooksLikeEcho(d[0]!, d[1]!, d[2]!, d[3]!)) return 'precip';
-      }
-    }
+    if (scanCanvasDisc(ctx, fx, fy, half)) return 'precip';
     return 'none';
   } catch {
     if (signal?.aborted) return 'unknown';
     return 'unknown';
+  } finally {
+    bmp?.close();
   }
+}
+
+/**
+ * Pin + ring of offsets (Buienradar-style: cell may pass north/east of villa).
+ */
+export type SampleRadarNearPinMode = 'full' | 'timeline';
+
+export async function sampleRadarEchoNearPin(
+  lat: number,
+  lon: number,
+  framePath: string,
+  signal: AbortSignal | undefined,
+  product: 'krabi' | 'samui',
+  mode: SampleRadarNearPinMode = 'full',
+): Promise<RadarEchoSample> {
+  const timeline = mode === 'timeline';
+  const offsets =
+    product === 'krabi'
+      ? timeline
+        ? RADAR_PROFILE_OFFSETS_TIMELINE_KRABI
+        : RADAR_PROFILE_OFFSETS_KRABI
+      : timeline
+        ? RADAR_PROFILE_OFFSETS_TIMELINE_SAMUI
+        : RADAR_PROFILE_OFFSETS_SAMUI;
+  const halfPx = timeline ? (product === 'krabi' ? 44 : 30) : product === 'krabi' ? 52 : 36;
+  let anyUnknown = false;
+  for (const [dLat, dLon] of offsets) {
+    const r = await sampleRadarEchoAtLocation(lat + dLat, lon + dLon, framePath, signal, { halfPx });
+    if (r === 'precip') return 'precip';
+    if (r === 'unknown') anyUnknown = true;
+  }
+  return anyUnknown ? 'unknown' : 'none';
 }

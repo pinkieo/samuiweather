@@ -5,16 +5,24 @@ import type { ConflictStatusResponse } from '@/app/api/conflict-status/route';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // Re-check every 5 minutes
 
-export default function StormAlertBanner({ region = 'samui' }: { region?: 'samui' | 'krabi' }) {
+export default function StormAlertBanner({
+  region = 'samui',
+  onActiveChange,
+}: {
+  region?: 'samui' | 'krabi';
+  /** True while the alert strip is visible (not dismissed) — parent can offset UI below it. */
+  onActiveChange?: (active: boolean) => void;
+}) {
   const [data, setData]       = useState<ConflictStatusResponse | null>(null);
   const [visible, setVisible] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const dismissedRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchStatus = async () => {
     try {
       const q = region === 'krabi' ? '?region=krabi' : '';
-      const res = await fetch(`/api/conflict-status${q}`);
+      const res = await fetch(`/api/conflict-status${q}`, { cache: 'no-store' });
       if (!res.ok) return;
       const json: ConflictStatusResponse = await res.json();
       setData(json);
@@ -22,7 +30,7 @@ export default function StormAlertBanner({ region = 'samui' }: { region?: 'samui
       // If alert clears, let the slide-up animation run before hiding
       if (!json.isAlert) {
         setVisible(false);
-      } else if (!dismissed) {
+      } else if (!dismissedRef.current) {
         setVisible(true);
       }
     } catch {
@@ -39,8 +47,16 @@ export default function StormAlertBanner({ region = 'samui' }: { region?: 'samui
 
   // Re-show banner if a new alert comes in after dismissal
   useEffect(() => {
-    if (data?.isAlert) setDismissed(false);
+    if (data?.isAlert) {
+      setDismissed(false);
+      dismissedRef.current = false;
+    }
   }, [data?.scenario]);
+
+  const bannerActive = Boolean(data?.isAlert && visible && !dismissed);
+  useEffect(() => {
+    onActiveChange?.(bannerActive);
+  }, [bannerActive, onActiveChange]);
 
   const isStorm = data?.scenario === 'storm_incoming';
   const isAllAlarm = data?.scenario === 'all_alarm';
@@ -137,7 +153,11 @@ export default function StormAlertBanner({ region = 'samui' }: { region?: 'samui
           {/* Dismiss */}
           <button
             aria-label="Dismiss alert"
-            onClick={() => { setVisible(false); setDismissed(true); }}
+            onClick={() => {
+              setVisible(false);
+              setDismissed(true);
+              dismissedRef.current = true;
+            }}
             className="ml-1 rounded-lg bg-black/10 px-2 py-1.5 text-base font-bold text-black/50 hover:bg-black/25 hover:text-black transition-colors"
           >
             ✕

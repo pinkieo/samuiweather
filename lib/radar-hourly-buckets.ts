@@ -1,0 +1,66 @@
+export type RadarFrameLike = { path: string; time: number };
+
+/** `YYYY-MM-DDTHH` in Asia/Bangkok for grouping. */
+export function hourBucketKeyBangkok(utcSec: number): string {
+  const s = new Date(utcSec * 1000).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' });
+  return s.slice(0, 13).replace(' ', 'T');
+}
+
+/** Start of current clock-hour in Bangkok, as UTC unix seconds. */
+export function bangkokWindowHourStarts(utcNowSec: number, past: number, future: number): number[] {
+  const d = new Date(utcNowSec * 1000);
+  const p = new Intl.DateTimeFormat('en', {
+    timeZone:    'Asia/Bangkok',
+    year:        'numeric',
+    month:       '2-digit',
+    day:         '2-digit',
+    hour:        '2-digit',
+    hour12:      false,
+  }).formatToParts(d);
+  const get = (t: Intl.DateTimeFormatPartTypes) => p.find((x) => x.type === t)?.value ?? '0';
+  const pad = (n: string) => n.padStart(2, '0');
+  const iso = `${get('year')}-${pad(get('month'))}-${pad(get('day'))}T${pad(get('hour'))}:00:00+07:00`;
+  const anchorSec = Math.floor(new Date(iso).getTime() / 1000);
+  const out: number[] = [];
+  for (let i = -past; i <= future; i++) out.push(anchorSec + i * 3600);
+  return out;
+}
+
+export function mergeRadarFrames(past: RadarFrameLike[], nowcast: RadarFrameLike[]): RadarFrameLike[] {
+  const byTime = new Map<number, RadarFrameLike>();
+  for (const f of past) {
+    if (f?.path && Number.isFinite(f.time)) byTime.set(f.time, f);
+  }
+  for (const f of nowcast) {
+    if (f?.path && Number.isFinite(f.time)) byTime.set(f.time, f);
+  }
+  return [...byTime.values()].sort((a, b) => a.time - b.time);
+}
+
+export type HourBucketRadar = {
+  hourStartUtc: number;
+  key: string;
+  /** 0 = dry / no echo, 1 = echo at pin+ring, null = no scan in this hour */
+  level: 0 | 1 | null;
+};
+
+export function buildHourlyRadarBuckets(
+  hourStarts: number[],
+  frames: RadarFrameLike[],
+  sampleByFrameTime: Map<number, 0 | 1>,
+): HourBucketRadar[] {
+  return hourStarts.map((hourStartUtc) => {
+    const key = hourBucketKeyBangkok(hourStartUtc);
+    const hourEnd = hourStartUtc + 3600;
+    let level: 0 | 1 | null = null;
+    for (const f of frames) {
+      if (f.time >= hourStartUtc && f.time < hourEnd) {
+        const s = sampleByFrameTime.get(f.time);
+        if (s == null) continue;
+        if (level === null) level = s;
+        else level = Math.max(level, s) as 0 | 1;
+      }
+    }
+    return { hourStartUtc, key, level };
+  });
+}

@@ -90,3 +90,22 @@ export function pickDailySamuiTip(): string {
   for (let i = 0; i < key.length; i++) s += key.charCodeAt(i);
   return SAMUI_DAILY_TIPS[s % SAMUI_DAILY_TIPS.length]!;
 }
+
+/** Krabi / Ao Nang / Andaman — same day-stable picker as {@link pickDailySamuiTip}. */
+export const KRABI_DAILY_TIPS: string[] = [
+  'Surat–Phang Nga mainland radar often leads hotel apps by 30–60 min — the storm banner is your early cue.',
+  'Longtail to Railay: plan for a wet landing at busy tide; dry-bag electronics and tip crew on return.',
+  'Ao Nang beach road is one-way in patches — scooters: watch for sudden merges near the mosque corner.',
+  'Phi Phi day trips: captains sometimes delay departures until a cleaner radar sweep — pack patience + sunscreen.',
+  'Cash still wins at smaller Railay restaurants; the nearest full ATMs are back in Ao Nang.',
+  'Tubkaek and Klong Muang trade walk-in crowds for distance — worth it on red-flag chop days.',
+  'Mosquito o’clock is dusk near mangrove edges — lightweight cover beats spraying the whole terrace.',
+  'Hong Island tours: tide gates the lagoon entrance; ask locally if kayaks are worth it today.',
+];
+
+export function pickDailyKrabiTip(): string {
+  const key = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  let s = 0;
+  for (let i = 0; i < key.length; i++) s += key.charCodeAt(i);
+  return KRABI_DAILY_TIPS[s % KRABI_DAILY_TIPS.length]!;
+}

@@ -21,6 +21,7 @@ import WebcamGrid from './WebcamGrid';
 import MetarCard from './MetarCard';
 import EcowittPlaceholder from './EcowittPlaceholder';
 import StormAlertBanner from './StormAlertBanner';
+import RadarHourlyTimeline from './RadarHourlyTimeline';
 import { getPoiById, type IslandPoi } from '../lib/island-pois';
 import PoiIntelligenceCard from './PoiIntelligenceCard';
 import {
@@ -196,6 +197,8 @@ export default function MapViewer() {
   const [radarEcho, setRadarEcho] = useState<'unknown' | 'none' | 'precip'>('unknown');
   /** Region airport METAR dominant layer — softens Spire cloud % when sky is clear/few. */
   const [metarSkyCover, setMetarSkyCover] = useState<MetarDominantCover>(null);
+  /** Storm strip is `fixed` + high z-index — pad the drawer so region tabs stay reachable. */
+  const [stormBannerActive, setStormBannerActive] = useState(false);
 
   // Dashboard collapse — closed on mobile by default, open on desktop
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
@@ -552,7 +555,10 @@ export default function MapViewer() {
     <div className="relative box-border h-full min-h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#020617]">
 
       {/* Storm / METAR alert — fixed top (Samui or Krabi conflict product) */}
-      <StormAlertBanner region={region.isSamuiProduct ? 'samui' : 'krabi'} />
+      <StormAlertBanner
+        region={region.isSamuiProduct ? 'samui' : 'krabi'}
+        onActiveChange={setStormBannerActive}
+      />
 
       {/* ── Base map: satellite + radar + POIs ─ */}
       <div className="absolute inset-0 z-0 min-h-0">
@@ -576,12 +582,25 @@ export default function MapViewer() {
           }
           mapScaleContextLabel={region.isSamuiProduct ? 'island' : 'coast'}
         />
+
+        {/* Buienradar-style hourly strip — RainViewer scans bucketed per Bangkok hour */}
+        <div className="pointer-events-none absolute bottom-[7.25rem] left-1/2 z-[18] w-[min(96vw,40rem)] -translate-x-1/2 px-2 sm:bottom-[7.75rem]">
+          <RadarHourlyTimeline
+            key={dashboardRegionId}
+            lat={region.lat}
+            lon={region.lon}
+            product={region.isSamuiProduct ? 'samui' : 'krabi'}
+          />
+        </div>
       </div>
 
       {/* POI detail — to the right of top-left drawer on desktop */}
       {selectedMapPoi && (
         <div
-          className="pointer-events-none fixed inset-x-0 top-0 z-[60] flex justify-center px-3 pt-14 sm:inset-x-auto sm:left-[calc(1rem+28rem+0.75rem)] sm:right-4 sm:justify-start sm:px-0 sm:pt-16"
+          className={[
+            'pointer-events-none fixed inset-x-0 top-0 z-[60] flex justify-center px-3 sm:inset-x-auto sm:left-[calc(1rem+28rem+0.75rem)] sm:right-4 sm:justify-start sm:px-0',
+            stormBannerActive ? 'pt-28 sm:pt-32' : 'pt-14 sm:pt-16',
+          ].join(' ')}
           aria-live="polite"
         >
           <div className="pointer-events-auto w-full max-w-[min(22rem,100%-1.5rem)] sm:max-w-[22rem]">
@@ -594,7 +613,12 @@ export default function MapViewer() {
       )}
 
       {/* ── Weather drawer — above map layer (z-0); Sammi HUD is inside map but drawer must stay clickable ─ */}
-      <div className="absolute left-0 top-0 z-30 w-full max-w-md px-3 pt-3 sm:left-4 sm:top-4 sm:px-0 sm:pt-0">
+      <div
+        className={[
+          'absolute left-0 top-0 z-30 w-full max-w-md px-3 sm:left-4 sm:top-4 sm:px-0',
+          stormBannerActive ? 'pt-14 sm:pt-[4.5rem]' : 'pt-3 sm:pt-0',
+        ].join(' ')}
+      >
 
         {/* Region tabs — Samui vs Krabi test */}
         <div className="mb-2 flex rounded-2xl border border-white/10 bg-slate-950 p-1 shadow-lg">

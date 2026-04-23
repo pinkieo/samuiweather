@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """
-Koh Samui hybrid Spire ingest (hourly cron):
+Koh Samui Spire ingest (hourly cron) — aligned with Next.js `lib/spire.ts` getForecastMergedAt.
+
+  Contract / 15-day spine (Spire ProSea Point): the long horizon uses time_bundle `6_hourly_15day`
+  with forecast_hours=360. Plain `6_hourly` or `medium_range_std_freq` alone typically caps ~7 days —
+  see `.cursor/skills/samui-concierge/SKILL.md` ("Spire forecast — 15-day Point API").
+
+Pipeline:
   1. RPC archive_expired_forecasts(p_location_id) — keep weather_forecast clean
-  2. Spire OPF + Standard point → merge on valid_time
+  2. Spire /forecast/point: prefer combined `hourly,3_hourly,6_hourly_15day` @ 360h; else tier-merge (6_hourly_15day + 3h + 1h).
+     Parallel: /forecast/point/optimized (OPF) hourly ~72h — POP/thunder/fog overlay op zelfde valid_time (`lib/spire.ts` sync)
   3. RainViewer tile sample at pin (same z7/512 scheme as the app)
   4. beach_score (clouds/thunder/ceiling + temp bonus; −3 when radar shows rain)
   5. upsert weather_forecast (incl. radar_status)
@@ -13,9 +20,17 @@ Env (.env / .env.local):
   SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
 
 Optional:
-  WEATHER_LOCATION_ID  (default: samui_opf_hybrid)
-  FORECAST_HOURS        (default: 240 ~10 days hourly)
-  DRY_RUN=1             (no Supabase writes)
+  WEATHER_LOCATION_ID   (default: samui_opf_hybrid)
+  SPIRE_FORECAST_BUNDLES (overrides first bundle try; matches app env)
+  SPIRE_FORECAST_PRODUCT (e.g. sof-d), SPIRE_FORECAST_UNIT_SYSTEM (e.g. si) — Point query params if required
+  SAMUI_LAT / SAMUI_LON
+  DRY_RUN=1              (no Supabase writes)
+  TEST_15DAY_SEA=1       (only Spire tier test: Singapore sea 1.25°N 103.80°E; no DB writes)
+  SPIRE_OPF_ENABLED=0    (skip /forecast/point/optimized probability overlay)
+  SPIRE_OPF_LOCATION     (default: custom:PR_W1XNKK0; else SPIRE_OPTIMIZED_POINT_LOCATION)
+  SPIRE_OPF_FORECAST_HOURS (default 72) · SPIRE_OPF_BUNDLES (else basic,thunderstorm → basic)
+
+Note: FORECAST_HOURS is ignored — horizons are fixed by the tier list above.
 """
 
 from __future__ import annotations
@@ -44,9 +59,10 @@ _maybe_reexec_windows_venv()
 import json
 import math
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 from zoneinfo import ZoneInfo
 
 try:
@@ -80,10 +96,21 @@ except ImportError:
 
 ICT = ZoneInfo("Asia/Bangkok")
 SPIRE_BASE = "https://api.wx.spire.com"
-OPF_LOCATION = "custom:PR_W1XNKK0"
-SAMUI_LAT = 9.5120
-SAMUI_LON = 100.0136
+# Match `lib/spire.ts` SAMUI_CENTER / weather_clock.py
+SAMUI_LAT = 9.5127
+SAMUI_LON = 100.0137
 USER_AGENT = "SamuiWeatherEngine/1.0"
+DEFAULT_OPF_LOCATION = "custom:PR_W1XNKK0"
+
+FORECAST_BUNDLES_VACATION = "basic,maritime-atmos"
+SPIRE_CONTRACT_TIER_PRIORITY: Dict[str, int] = {
+    "medium_range": 0,
+    "extended_15d": 0,
+    "6_hourly_15day": 1,
+    "6_hourly": 1,
+    "3_hourly": 2,
+    "hourly": 3,
+}
 
 # Same grid as lib/rainviewer-tile-sample.ts (native overlay)
 RADAR_TILE_Z = 7
@@ -137,6 +164,465 @@ def normalize_time_key(iso: str) -> str:
         return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     except Exception:
         return iso
+
+
+def spire_bundle_chain() -> List[str]:
+    """Same order as `bundleChain()` in lib/spire.ts."""
+    env_b = (os.environ.get("SPIRE_FORECAST_BUNDLES") or "").strip()
+    chain = [
+        env_b,
+        "basic,maritime-atmos,clouds,thunderstorm",
+        FORECAST_BUNDLES_VACATION,
+        "basic",
+    ]
+    seen: set[str] = set()
+    out: List[str] = []
+    for b in chain:
+        if b and b not in seen:
+            seen.add(b)
+            out.append(b)
+    return out
+
+
+def valid_time_key_from_entry(entry: Dict[str, Any]) -> str:
+    times = entry.get("times") or {}
+    if not isinstance(times, dict):
+        return ""
+    vt = times.get("valid_time")
+    if not vt:
+        return ""
+    return normalize_time_key(str(vt))
+
+
+def compute_spire_point_data_stats(
+    entries: List[Dict[str, Any]],
+) -> Tuple[int, float, Optional[str], Optional[str]]:
+    """Row count + span (hours) + first/last valid_time — mirrors lib/spire computeSpirePointDataStats."""
+    if not entries:
+        return 0, 0.0, None, None
+    stamps: List[Tuple[str, float]] = []
+    for e in entries:
+        k = valid_time_key_from_entry(e)
+        if not k:
+            continue
+        try:
+            dt = datetime.fromisoformat(k.replace("Z", "+00:00"))
+            stamps.append((k, dt.timestamp()))
+        except Exception:
+            continue
+    if not stamps:
+        return len(entries), 0.0, None, None
+    stamps.sort(key=lambda x: x[1])
+    span_h = (stamps[-1][1] - stamps[0][1]) / 3600.0
+    return len(entries), span_h, stamps[0][0], stamps[-1][0]
+
+
+def fetch_point_contract(
+    token: str,
+    lat: float,
+    lon: float,
+    bundles: str,
+    time_bundle: str,
+    forecast_hours: int,
+    timeout: int = 90,
+) -> List[Dict[str, Any]]:
+    """GET /forecast/point — returns Spire `data` rows or []."""
+    params: Dict[str, str] = {
+        "lat": str(lat),
+        "lon": str(lon),
+        "bundles": bundles,
+        "time_bundle": time_bundle,
+        "forecast_hours": str(int(forecast_hours)),
+    }
+    prod = (os.environ.get("SPIRE_FORECAST_PRODUCT") or "").strip()
+    if prod:
+        params["product"] = prod
+    units = (os.environ.get("SPIRE_FORECAST_UNIT_SYSTEM") or "").strip()
+    if units:
+        params["unit_system"] = units
+    try:
+        r = requests.get(
+            f"{SPIRE_BASE}/forecast/point",
+            params=params,
+            headers={"spire-api-key": token, "User-Agent": USER_AGENT},
+            timeout=timeout,
+        )
+        if not r.ok:
+            return []
+        j = r.json()
+        if not isinstance(j, dict):
+            return []
+        data = j.get("data")
+        if not isinstance(data, list):
+            return []
+        return [cast(Dict[str, Any], x) for x in data if isinstance(x, dict)]
+    except Exception:
+        return []
+
+
+def try_fetch_first_bundle(
+    token: str,
+    lat: float,
+    lon: float,
+    time_bundle: str,
+    forecast_hours: int,
+) -> List[Dict[str, Any]]:
+    for bundles in spire_bundle_chain():
+        data = fetch_point_contract(token, lat, lon, bundles, time_bundle, forecast_hours)
+        if data:
+            return data
+    return []
+
+
+def normalize_prob_percent(x: float) -> float:
+    """Spire may return 0–1 or 0–100; store/display as 0–100."""
+    xf = float(x)
+    if 0 <= xf <= 1.0:
+        return round(xf * 100.0, 2)
+    return round(max(0.0, min(100.0, xf)), 2)
+
+
+def as_probability_percent(x: Optional[float]) -> float:
+    if x is None:
+        return 0.0
+    return normalize_prob_percent(x)
+
+
+def opf_location_from_env() -> str:
+    for key in (
+        "SPIRE_OPF_LOCATION",
+        "SPIRE_OPTIMIZED_POINT_LOCATION",
+        "SPIRE_OPTIMIZED_LOCATION",
+    ):
+        v = (os.environ.get(key) or "").strip()
+        if v:
+            return v
+    return DEFAULT_OPF_LOCATION
+
+
+def fetch_opf_optimized_hourly(
+    token: str,
+    location: str,
+    forecast_hours: int = 72,
+) -> List[Dict[str, Any]]:
+    """GET /forecast/point/optimized — hourly rows; try basic,thunderstorm then basic."""
+    env_b = (os.environ.get("SPIRE_OPF_BUNDLES") or "").strip()
+    bundle_chain = [b for b in (env_b, "basic,thunderstorm", "basic") if b]
+    seen: set[str] = set()
+    prod = (os.environ.get("SPIRE_FORECAST_PRODUCT") or "").strip()
+    units = (os.environ.get("SPIRE_FORECAST_UNIT_SYSTEM") or "").strip()
+    for bundles in bundle_chain:
+        if bundles in seen:
+            continue
+        seen.add(bundles)
+        params: Dict[str, str] = {
+            "location": location.strip(),
+            "bundles": bundles,
+            "time_bundle": "hourly",
+            "forecast_hours": str(int(forecast_hours)),
+        }
+        if prod:
+            params["product"] = prod
+        if units:
+            params["unit_system"] = units
+        try:
+            r = requests.get(
+                f"{SPIRE_BASE}/forecast/point/optimized",
+                params=params,
+                headers={"spire-api-key": token, "User-Agent": USER_AGENT},
+                timeout=90,
+            )
+            if not r.ok:
+                continue
+            j = r.json()
+            if not isinstance(j, dict):
+                continue
+            data = j.get("data")
+            if not isinstance(data, list) or not data:
+                continue
+            return [cast(Dict[str, Any], x) for x in data if isinstance(x, dict)]
+        except Exception:
+            continue
+    return []
+
+
+def extract_opf_probabilities_from_values(vals: Dict[str, Any]) -> Dict[str, float]:
+    out: Dict[str, float] = {}
+    pop = pick_num(
+        vals,
+        (
+            "probability_of_precipitation_1hr",
+            "probability_of_precipitation",
+            "pop",
+        ),
+    )
+    if pop is not None:
+        out["probability_of_precipitation_1hr"] = normalize_prob_percent(pop)
+    p24 = pick_num(vals, ("probability_of_precipitation_24hr",))
+    if p24 is not None:
+        out["probability_of_precipitation_24hr"] = normalize_prob_percent(p24)
+    th = pick_num(vals, ("probability_of_thunderstorm",))
+    if th is not None:
+        out["probability_of_thunderstorm"] = normalize_prob_percent(th)
+    fg = pick_num(vals, ("probability_of_fog", "fog_probability"))
+    if fg is not None:
+        out["probability_of_fog"] = normalize_prob_percent(fg)
+    return out
+
+
+def build_opf_overlay_map(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    out: Dict[str, Dict[str, float]] = {}
+    for e in entries:
+        k = valid_time_key_from_entry(e)
+        if not k:
+            continue
+        vals = e.get("values")
+        if not isinstance(vals, dict):
+            continue
+        probs = extract_opf_probabilities_from_values(vals)
+        if probs:
+            out[normalize_time_key(k)] = probs
+    return out
+
+
+def overlay_opf_probabilities(
+    parsed_rows: List[Dict[str, Any]],
+    opf_map: Dict[str, Dict[str, float]],
+) -> None:
+    if not opf_map:
+        return
+    n = 0
+    for m in parsed_rows:
+        k = normalize_time_key(str(m["valid_time"]))
+        op = opf_map.get(k)
+        if not op:
+            continue
+        vals = m.get("values")
+        if not isinstance(vals, dict):
+            vals = {}
+            m["values"] = vals
+        for pk, pv in op.items():
+            vals[pk] = pv
+        n += 1
+    print(f"[OPF] Probability overlay op {n} timesteps", file=sys.stderr)
+
+
+def merge_spire_contract_tiers(
+    layers: List[Tuple[str, List[Dict[str, Any]]]],
+) -> List[Dict[str, Any]]:
+    """Coarse tiers first; same valid_time → higher SPIRE_CONTRACT_TIER_PRIORITY wins."""
+    sorted_layers = sorted(
+        layers,
+        key=lambda x: SPIRE_CONTRACT_TIER_PRIORITY.get(x[0], 0),
+    )
+    best: Dict[str, Tuple[Dict[str, Any], int]] = {}
+    for tier, entries in sorted_layers:
+        p = SPIRE_CONTRACT_TIER_PRIORITY.get(tier, 0)
+        for e in entries:
+            k = valid_time_key_from_entry(e)
+            if not k:
+                continue
+            cur = best.get(k)
+            if cur is None or p >= cur[1]:
+                best[k] = (e, p)
+    return [best[k][0] for k in sorted(best.keys())]
+
+
+def fetch_long_spine_layer(
+    token: str,
+    lat: float,
+    lon: float,
+    forecast_hours: int = 360,
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """6_hourly_15day eerst (Spire ProSea); fallback 6_hourly → medium_range_std_freq."""
+    for label, tb in (
+        ("6_hourly_15day", "6_hourly_15day"),
+        ("6_hourly", "6_hourly"),
+        ("medium_range", "medium_range_std_freq"),
+    ):
+        data = try_fetch_first_bundle(token, lat, lon, tb, forecast_hours)
+        if data:
+            return label, data
+    return "6_hourly_15day", []
+
+
+def fetch_samui_15day_standard(
+    token: str,
+    lat: float,
+    lon: float,
+) -> List[Dict[str, Any]]:
+    """
+    Tier-merge /forecast/point: 6_hourly_15day (fallbacks) + 3_hourly + hourly.
+    Gebruik `fetch_samui_point_forecast` voor gecombineerde time_bundle eerst.
+    """
+    print(
+        "=== Fetching Point (tier merge: 6_hourly_15day spine + 3h/1h) ===",
+        file=sys.stderr,
+    )
+    layers: List[Tuple[str, List[Dict[str, Any]]]] = []
+    long_fh = 360
+    label, long_data = fetch_long_spine_layer(token, lat, lon, long_fh)
+    print(f"Fetching {label} → {long_fh}h (long spine)", file=sys.stderr)
+    if long_data:
+        _n, span_h, vmin, vmax = compute_spire_point_data_stats(long_data)
+        print(
+            f"  ✓ {len(long_data)} rows | span≈{span_h / 24.0:.1f}d | {vmin} … {vmax}",
+            file=sys.stderr,
+        )
+    else:
+        print("  ✗ long spine: empty", file=sys.stderr)
+    layers.append((label, long_data))
+
+    for label2, time_bundle, fh in (
+        ("3_hourly", "3_hourly", 120),
+        ("hourly", "hourly", 48),
+    ):
+        print(f"Fetching {label2} → {fh}h ({time_bundle})", file=sys.stderr)
+        try:
+            data = try_fetch_first_bundle(token, lat, lon, time_bundle, fh)
+        except Exception as e:
+            print(f"  ✗ {label2} error: {e}", file=sys.stderr)
+            data = []
+        if data:
+            vts = [valid_time_key_from_entry(r) for r in data]
+            vts = [v for v in vts if v]
+            vmax = max(vts) if vts else None
+            print(f"  ✓ {len(data)} rows | max valid_time: {vmax}", file=sys.stderr)
+        else:
+            print(f"  ✗ {label2}: empty", file=sys.stderr)
+        layers.append((label2, data))
+
+    merged = merge_spire_contract_tiers(layers)
+    if merged:
+        stats = compute_spire_point_data_stats(merged)
+        print(
+            f"✅ Merged: {len(merged)} rows | span≈{stats[1]:.1f}h "
+            f"({stats[2]} … {stats[3]})",
+            file=sys.stderr,
+        )
+    else:
+        print("❌ Geen data na merge", file=sys.stderr)
+    return merged
+
+
+def fetch_samui_point_forecast(
+    token: str,
+    lat: float,
+    lon: float,
+) -> List[Dict[str, Any]]:
+    """
+    Probeer één call met Gerald-style time_bundle; anders tier-merge.
+    OPF-probabilities komen apart (overlay), niet in deze call.
+    """
+    print(
+        "=== Point forecast: combined time_bundle → fallback tier merge ===",
+        file=sys.stderr,
+    )
+    combined_tb = "hourly,3_hourly,6_hourly_15day"
+    combined = try_fetch_first_bundle(token, lat, lon, combined_tb, 360)
+    if combined:
+        _n, span_h, vmin, vmax = compute_spire_point_data_stats(combined)
+        if span_h >= 200:
+            print(
+                f"  ✓ combined {combined_tb}: {len(combined)} rows | "
+                f"span≈{span_h:.0f}h | {vmin} … {vmax}",
+                file=sys.stderr,
+            )
+            return combined
+        print(
+            f"  (combined span {span_h:.0f}h < 200h — tier merge)",
+            file=sys.stderr,
+        )
+    else:
+        print("  (combined leeg — tier merge)", file=sys.stderr)
+    return fetch_samui_15day_standard(token, lat, lon)
+
+
+def build_opf_overlay_map_from_token(token: str) -> Dict[str, Dict[str, float]]:
+    if os.environ.get("SPIRE_OPF_ENABLED", "1").lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return {}
+    loc = opf_location_from_env()
+    if not loc:
+        return {}
+    try:
+        fh = int((os.environ.get("SPIRE_OPF_FORECAST_HOURS") or "72").strip())
+    except ValueError:
+        fh = 72
+    fh = min(max(fh, 24), 120)
+    raw = fetch_opf_optimized_hourly(token, loc, fh)
+    if not raw:
+        print(f"[OPF] Geen data voor {loc!r} ({fh}h)", file=sys.stderr)
+        return {}
+    m = build_opf_overlay_map(raw)
+    print(
+        f"[OPF] {len(raw)} optimized rijen → {len(m)} timesteps met probabilities",
+        file=sys.stderr,
+    )
+    return m
+
+
+def test_15day_sea_location(token: str) -> List[Dict[str, Any]]:
+    """
+    Maritieme sanity-check: Point API op open zee ten zuiden van Singapore.
+    Zelfde tiers/merge als productie; geen Supabase (alleen als run() TEST_15DAY_SEA=1).
+    """
+    lat, lon = 1.25, 103.80
+    print(
+        f"=== Test 15-day STANDARD Point op zee bij Singapore ({lat}, {lon}) ===",
+        file=sys.stderr,
+    )
+    long_fh = 360
+    layers: List[Tuple[str, List[Dict[str, Any]]]] = []
+    label, long_data = fetch_long_spine_layer(token, lat, lon, long_fh)
+    print(f"Fetching {label} → {long_fh}h (long spine)", file=sys.stderr)
+    if long_data:
+        _n, span_h, vmin, vmax = compute_spire_point_data_stats(long_data)
+        print(
+            f"  ✓ {len(long_data)} rows | span ≈ {span_h / 24.0:.1f} dagen | "
+            f"{vmin} … {vmax}",
+            file=sys.stderr,
+        )
+    else:
+        print("  ✗ long spine: empty", file=sys.stderr)
+    layers.append((label, long_data))
+
+    for label2, time_bundle, fh in (
+        ("3_hourly", "3_hourly", 120),
+        ("hourly", "hourly", 48),
+    ):
+        print(f"Fetching {label2} → {fh}h ({time_bundle})", file=sys.stderr)
+        try:
+            data = try_fetch_first_bundle(token, lat, lon, time_bundle, fh)
+        except Exception as e:
+            print(f"  ✗ {label2} error: {e}", file=sys.stderr)
+            data = []
+        if data:
+            _n, span_h, vmin, vmax = compute_spire_point_data_stats(data)
+            print(
+                f"  ✓ {len(data)} rows | span ≈ {span_h / 24.0:.1f} dagen | "
+                f"{vmin} … {vmax}",
+                file=sys.stderr,
+            )
+        else:
+            print(f"  ✗ {label2}: empty", file=sys.stderr)
+        layers.append((label2, data))
+
+    merged = merge_spire_contract_tiers(layers)
+    if merged:
+        _n, span_h, fvt, lvt = compute_spire_point_data_stats(merged)
+        print(
+            f"\n✅ FINAL MERGED: {len(merged)} rows | span ≈ {span_h / 24.0:.1f} dagen "
+            f"({span_h:.0f}h) | {fvt} … {lvt}",
+            file=sys.stderr,
+        )
+    else:
+        print("\n❌ Geen data na merge", file=sys.stderr)
+    return merged
 
 
 def lat_lon_to_tile_fraction(
@@ -289,76 +775,6 @@ def parse_spire_rows(payload: Any) -> List[Dict[str, Any]]:
     return out
 
 
-def merge_forecasts(
-    opf: Dict[str, Any], std: Dict[str, Any]
-) -> List[Dict[str, Any]]:
-    op_rows = {
-        normalize_time_key(r["valid_time"]): r for r in parse_spire_rows(opf)
-    }
-    st_rows = {
-        normalize_time_key(r["valid_time"]): r for r in parse_spire_rows(std)
-    }
-    keys = sorted(set(op_rows.keys()) | set(st_rows.keys()))
-
-    opf_priority = (
-        "air_temperature",
-        "wind_speed",
-        "wind_direction",
-        "wind_gust",
-        "relative_humidity",
-        "total_cloud_cover",
-        "cloud_cover",
-        "precipitation_rate",
-        "probability_of_precipitation",
-        "probability_of_precipitation_1hr",
-        "probability_of_precipitation_24hr",
-        "probability_of_thunderstorm",
-        "visibility",
-        "ceiling",
-    )
-    standard_extra = (
-        "low_cloud_cover",
-        "cloud_cover_low",
-        "low_level_cloud_cover",
-        "medium_cloud_cover",
-        "mid_cloud_cover",
-        "cloud_cover_mid",
-        "mid_level_cloud_cover",
-        "high_cloud_cover",
-        "cloud_cover_high",
-        "high_level_cloud_cover",
-        "cape",
-        "CAPE",
-        "convective_available_potential_energy",
-        "lifted_index",
-        "lifted_index_500",
-    )
-
-    merged: List[Dict[str, Any]] = []
-    for vk in keys:
-        op = op_rows.get(vk) or {}
-        st = st_rows.get(vk) or {}
-        ov = dict(op.get("values") or {})
-        sv = dict(st.get("values") or {})
-        combined = {**sv, **ov}
-        for key in opf_priority:
-            if key in ov:
-                combined[key] = ov[key]
-        for key in standard_extra:
-            if key in sv:
-                combined[key] = sv[key]
-
-        issuance = op.get("issuance_time") or st.get("issuance_time")
-        merged.append(
-            {
-                "valid_time": vk,
-                "issuance_time": issuance,
-                "values": combined,
-            }
-        )
-    return merged
-
-
 def pct_cloud(v: Dict[str, Any], *keys: str) -> float:
     x = pick_num(v, keys)
     if x is None:
@@ -386,7 +802,7 @@ def calculate_beach_score(
     )
     s -= (low / 100.0) * 2.5
 
-    p_th = pick_num(values, ("probability_of_thunderstorm",)) or 0.0
+    p_th = as_probability_percent(pick_num(values, ("probability_of_thunderstorm",)))
     if p_th > 20.0:
         s -= 1.75
 
@@ -401,6 +817,16 @@ def calculate_beach_score(
         s -= 3.0
 
     return max(0.0, min(10.0, round(s, 2)))
+
+
+def pick_prob_pct(
+    v: Dict[str, Any],
+    keys: Tuple[str, ...],
+) -> Optional[float]:
+    x = pick_num(v, keys)
+    if x is None:
+        return None
+    return normalize_prob_percent(float(x))
 
 
 def flatten_for_db(
@@ -476,17 +902,25 @@ def flatten_for_db(
             ("cape", "CAPE", "convective_available_potential_energy"),
         ),
         "lifted_index": pick_num(v, ("lifted_index", "lifted_index_500")),
-        "probability_of_precipitation_1hr": pick_num(
+        "probability_of_precipitation_1hr": pick_prob_pct(
             v,
-            ("probability_of_precipitation_1hr",),
+            (
+                "probability_of_precipitation_1hr",
+                "probability_of_precipitation",
+                "pop",
+            ),
         ),
-        "probability_of_precipitation_24hr": pick_num(
+        "probability_of_precipitation_24hr": pick_prob_pct(
             v,
             ("probability_of_precipitation_24hr",),
         ),
-        "probability_of_thunderstorm": pick_num(
+        "probability_of_thunderstorm": pick_prob_pct(
             v,
             ("probability_of_thunderstorm",),
+        ),
+        "probability_of_fog": pick_prob_pct(
+            v,
+            ("probability_of_fog", "fog_probability"),
         ),
         "precipitation_rate": pick_num(v, ("precipitation_rate",)),
         "relative_humidity": pick_num(v, ("relative_humidity",)),
@@ -508,41 +942,6 @@ def coerce_whole_floats_for_postgres(row: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(v, float) and v.is_integer():
             out[key] = int(v)
     return out
-
-
-def fetch_opf(token: str, hours: int) -> Dict[str, Any]:
-    params = {
-        "location": OPF_LOCATION,
-        "bundles": "basic",
-        "time_bundle": "hourly",
-        "forecast_hours": str(hours),
-    }
-    r = requests.get(
-        f"{SPIRE_BASE}/forecast/point/optimized",
-        params=params,
-        headers={"spire-api-key": token, "User-Agent": USER_AGENT},
-        timeout=90,
-    )
-    r.raise_for_status()
-    return r.json()
-
-
-def fetch_standard(token: str, hours: int) -> Dict[str, Any]:
-    params = {
-        "lat": str(SAMUI_LAT),
-        "lon": str(SAMUI_LON),
-        "bundles": "clouds,thunderstorm",
-        "time_bundle": "hourly",
-        "forecast_hours": str(hours),
-    }
-    r = requests.get(
-        f"{SPIRE_BASE}/forecast/point",
-        params=params,
-        headers={"spire-api-key": token, "User-Agent": USER_AGENT},
-        timeout=90,
-    )
-    r.raise_for_status()
-    return r.json()
 
 
 def get_supabase() -> Client:
@@ -567,8 +966,16 @@ def run() -> int:
         print("Missing SPIRE_API_TOKEN", file=sys.stderr)
         return 1
 
+    if os.environ.get("TEST_15DAY_SEA", "").lower() in ("1", "true", "yes"):
+        test_15day_sea_location(token)
+        return 0
+
     location_id = (os.environ.get("WEATHER_LOCATION_ID") or "samui_opf_hybrid").strip()
-    hours = int(os.environ.get("FORECAST_HOURS") or "240")
+    if os.environ.get("FORECAST_HOURS"):
+        print(
+            "[NOTE] FORECAST_HOURS is ignored; horizons follow lib/spire.ts (360 + 120 + 48, long spine 6_hourly_15day).",
+            file=sys.stderr,
+        )
     try:
         lat = float(os.environ.get("SAMUI_LAT") or str(SAMUI_LAT))
         lon = float(os.environ.get("SAMUI_LON") or str(SAMUI_LON))
@@ -599,44 +1006,44 @@ def run() -> int:
                 file=sys.stderr,
             )
 
-    opf: Dict[str, Any] = {}
-    std: Dict[str, Any] = {}
-    opf_err: Optional[str] = None
-    std_err: Optional[str] = None
-
-    try:
-        opf = fetch_opf(token, hours)
-    except Exception as e:
-        opf_err = str(e)
-        print(f"[WARN] OPF failed: {opf_err}", file=sys.stderr)
-
-    try:
-        std = fetch_standard(token, hours)
-    except Exception as e:
-        std_err = str(e)
-        print(f"[WARN] Standard point failed: {std_err}", file=sys.stderr)
-
-    if not opf and not std:
-        print("[ERROR] Both API calls failed.", file=sys.stderr)
-        if opf_err:
-            traceback.print_exc()
-        return 1
-
     echo = fetch_rainviewer_echo_sample(lat, lon)
     radar_status, radar_rain = echo_sample_to_radar_fields(echo)
     print(f"RainViewer sample: {echo} -> radar_status={radar_status}")
 
-    merged = merge_forecasts(opf or {"data": []}, std or {"data": []})
-    if not merged:
-        print("[ERROR] No merged rows (empty data from Spire).", file=sys.stderr)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fut_point = ex.submit(fetch_samui_point_forecast, token, lat, lon)
+            fut_opf = ex.submit(build_opf_overlay_map_from_token, token)
+            merged_raw = fut_point.result()
+            opf_overlay = fut_opf.result()
+    except Exception as e:
+        print(f"[ERROR] Spire contract merge failed: {e}", file=sys.stderr)
+        traceback.print_exc()
         return 1
+
+    if not merged_raw:
+        print("[ERROR] Spire contract merge returned no rows.", file=sys.stderr)
+        return 1
+
+    merged = parse_spire_rows({"data": merged_raw})
+    if not merged:
+        print("[ERROR] No rows after parse_spire_rows.", file=sys.stderr)
+        return 1
+
+    overlay_opf_probabilities(merged, opf_overlay)
+
+    _n, span_h, first_vt, last_vt = compute_spire_point_data_stats(merged_raw)
+    print(
+        f"Spire contract merge: {len(merged)} rows, span≈{span_h:.1f}h "
+        f"({first_vt} … {last_vt})."
+    )
 
     rows_out: List[Dict[str, Any]] = []
     for m in merged:
         flat = flatten_for_db(location_id, m, radar_status, radar_rain)
         rows_out.append(flat)
 
-    print(f"Merged {len(rows_out)} hourly rows (forecast_hours={hours}).")
+    print(f"Upsert-ready {len(rows_out)} rows (aligned with lib/spire.ts).")
     if dry:
         print(json.dumps(rows_out[:3], indent=2, default=str))
         print("... DRY_RUN: skip Supabase upsert.")

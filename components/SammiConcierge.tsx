@@ -5,6 +5,7 @@ import type { SammiChatResponse } from '../app/api/sammi/chat/route';
 import {
   formatTomorrowOneLiner,
   getTomorrowForecastRow,
+  pickDailyKrabiTip,
   pickDailySamuiTip,
 } from '../lib/samui-concierge-intel';
 import { calculateBeachSunScore } from '../lib/beachSunScore';
@@ -97,10 +98,16 @@ function compass16(deg: number): string {
   return DIRS[idx] ?? 'N';
 }
 
-function getDailySteer(rows: SamuiWeatherForecastRow[]): DailySteer {
+function getDailySteer(
+  rows: SamuiWeatherForecastRow[],
+  productRegion: 'samui' | 'krabi',
+): DailySteer {
   if (rows.length === 0) {
     return {
-      text:     'Forecast still loading — open the side panel in a moment, or ask below for island routing.',
+      text:
+        productRegion === 'krabi'
+          ? 'Forecast still loading — open the side panel in a moment, or ask below for Krabi / Andaman routing.'
+          : 'Forecast still loading — open the side panel in a moment, or ask below for island routing.',
       category: 'clear',
       icon:     '✅',
     };
@@ -110,10 +117,86 @@ function getDailySteer(rows: SamuiWeatherForecastRow[]): DailySteer {
   const soon = rows.slice(1, 3);
 
   const { hour, day } = bangkokHourAndWeekday();
-  const eve     = hour >= 17;
+  const eve           = hour >= 17;
   const isMarketNight = [1, 3, 5].includes(day) && eve; // Mon, Wed, Fri
   const isFriday      = day === 5 && eve;
-  const dayNames      = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const dayNames      = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  if (productRegion === 'krabi') {
+    // 1 — Active heavy rain
+    if ((now?.precipRate ?? 0) > 2) {
+      return {
+        text:     'Active rain in the model strip. Seek cover along Ao Nang beach road, hotel lobbies, or the main village — longtail runs may pause. Use the radar overlay for mainland cells tracking toward the coast.',
+        category: 'weather', icon: '⛈️',
+      };
+    }
+
+    // 2 — Rain building within 2 hours
+    if (soon.some(r => (r?.precipRate ?? 0) > 1.5)) {
+      return {
+        text:     'Precipitation building within ~2h in the forecast. Secure pool gear and plan around Railay / island hops — skippers often wait for a clearer radar sweep.',
+        category: 'weather', icon: '🌧️',
+      };
+    }
+
+    // 3 — Wind advisory (NE/E → Ao Nang bay choppy)
+    if (now != null && now.windSpeed > 9.3) {
+      const wc = compass16(now.windDir ?? 0);
+      if (['NE', 'ENE', 'E', 'ESE'].includes(wc)) {
+        return {
+          text:     'NE/E wind — Ao Nang bay gets choppy fast. Calmer options: Railay West lee, Long Beach toward the headland, or a pool day. Check Phra Nang before committing to a longtail.',
+          category: 'weather', icon: '💨',
+        };
+      }
+    }
+
+    // 4 — Friday evening (Ao Nang strip)
+    if (isFriday) {
+      return {
+        text:     'Friday evening: Ao Nang strip and beach road are busy — arrive early for dinner, watch scooter traffic in the one-way maze, and keep an eye on radar if you booked a night boat.',
+        category: 'event', icon: '🏮',
+      };
+    }
+
+    // 5 — Mon / Wed — generic evening Andaman
+    if (isMarketNight) {
+      return {
+        text:     `Evening on the Andaman coast (${dayNames[day]}) — night markets pop up in patches; ask locally for tonight's stall row. Stay radar-aware if mainland cells train west.`,
+        category: 'event', icon: '🏮',
+      };
+    }
+
+    // 6 — Morning window
+    if (hour >= 5 && hour < 10) {
+      return {
+        text:     'Morning window: Railay / Phra Nang before the day-trip crush; Long Beach (Ao Nang) for a quiet swim. Beat heat haze for Phi Phi viewpoint shots if that\'s on your list.',
+        category: 'beach', icon: '🌅',
+      };
+    }
+
+    // 7 — Peak beach window
+    if (hour >= 10 && hour < 16) {
+      return {
+        text:     'Peak beach window: Railay East for boats, Railay West for swim + shade. Tubkaek / Klong Muang for quieter sand if Ao Nang feels crowded — mind the tide on Long Beach.',
+        category: 'beach', icon: '🏖️',
+      };
+    }
+
+    // 8 — Sunset window
+    if (eve) {
+      return {
+        text:     'Sunset window (~18:30 ICT): Railay West and Phra Nang catch the best glow; Long Beach / your pin toward the headland if you want fewer boats in frame. Ask below for tonight\'s mainland radar trend.',
+        category: 'sunset', icon: '🌇',
+      };
+    }
+
+    return {
+      text:     'No active weather alerts on this strip. Ao Nang · Railay · Long Beach all operational — ask below for boat-day timing vs radar.',
+      category: 'clear', icon: '✅',
+    };
+  }
+
+  // ─── Koh Samui product ───────────────────────────────────────────────────
 
   // 1 — Active heavy rain
   if ((now?.precipRate ?? 0) > 2) return {
@@ -270,7 +353,10 @@ export default function SammiConcierge({
   }, [conflictRegion]);
 
   const tomorrowRow = useMemo(() => getTomorrowForecastRow(forecastRows), [forecastRows]);
-  const islandTip    = useMemo(() => pickDailySamuiTip(), []);
+  const microTip = useMemo(
+    () => (conflictRegion === 'krabi' ? pickDailyKrabiTip() : pickDailySamuiTip()),
+    [conflictRegion],
+  );
   const regionBeachLabel =
     beachRegionLabel ?? (conflictRegion === 'krabi' ? 'Ao Nang' : 'Chaweng');
 
@@ -344,18 +430,23 @@ export default function SammiConcierge({
   const cfg       = moodCfg[sammiMood];
   let steer: DailySteer;
   try {
-    steer = getDailySteer(forecastRows);
+    steer = getDailySteer(forecastRows, conflictRegion);
   } catch {
     steer = {
-      text:     'No active weather alerts. Choeng Mon and Chaweng both operational. Ask below for specific tactical advice.',
+      text:
+        conflictRegion === 'krabi'
+          ? 'No active weather alerts on this strip. Ao Nang · Railay · Long Beach all operational — ask below for boat-day timing vs radar.'
+          : 'No active weather alerts. Choeng Mon and Chaweng both operational. Ask below for specific tactical advice.',
       category: 'clear',
       icon:     '✅',
     };
   }
   const rawSteerText = typeof steer.text === 'string' ? steer.text : String(steer.text ?? '');
-  const steerText =
-    rawSteerText.trim() ||
-    'No active weather alerts. Choeng Mon and Chaweng both operational. Ask below for specific tactical advice.';
+  const steerFallback =
+    conflictRegion === 'krabi'
+      ? 'No active weather alerts on this strip. Ao Nang · Railay · Long Beach all operational — ask below for boat-day timing vs radar.'
+      : 'No active weather alerts. Choeng Mon and Chaweng both operational. Ask below for specific tactical advice.';
+  const steerText = rawSteerText.trim() || steerFallback;
   const now       = forecastRows[0];
 
   return (
@@ -383,6 +474,11 @@ export default function SammiConcierge({
                   <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60">
                     {(now.precipRate ?? 0) > 0 ? `${Number(now.precipRate ?? 0).toFixed(1)} mm/h` : 'No rain'}
                   </span>
+                  {(now.pop ?? 0) > 0 && (
+                    <span className="rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold text-sky-300/95">
+                      {Math.round(now.pop)}% rain chance
+                    </span>
+                  )}
                   <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60">
                     {compass16(now.windDir ?? 0)} {formatWindMs(now.windSpeed)} m/s
                   </span>
@@ -409,9 +505,9 @@ export default function SammiConcierge({
 
               <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
                 <p className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-white/50">
-                  Island tip
+                  {conflictRegion === 'krabi' ? 'Coast tip' : 'Island tip'}
                 </p>
-                <p className="text-sm leading-snug text-white/85">{islandTip}</p>
+                <p className="text-sm leading-snug text-white/85">{microTip}</p>
               </div>
             </div>
           </div>

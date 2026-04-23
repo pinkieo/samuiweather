@@ -28,6 +28,29 @@ description: >-
 **Never** use OpenWeather, OpenMeteo, or any other forecast source.
 **Never** call RainViewer tiles directly from the browser — always go through the proxy.
 
+## 🌤️ Spire forecast — 15-day Point API (ProSea / contract)
+
+**Long horizon is not** `medium_range_std_freq` or plain `6_hourly` alone for us — those responses were ~7 days. Spire support specifies the **15-day spine** on standard `/forecast/point` as:
+
+- `time_bundle`: **`6_hourly_15day`**
+- `forecast_hours`: **360** (with finer tiers merged on top)
+
+**Implementation (keep in sync):**
+
+- App merge: `lib/spire.ts` → `getForecastMergedAt` — tries **combined** `time_bundle=hourly,3_hourly,6_hourly_15day` @ 360h when span ≥ ~200h; else tier-merge (`6_hourly_15day` → `6_hourly` → `medium_range_std_freq` + `3_hourly` + `hourly`). Then **OPF overlay**: parallel `/forecast/point/optimized` hourly (~72h) merges POP/thunder/fog onto matching `valid_time` (`SPIRE_OPF_*` env — see below).
+- Cron ingest: `weather_engine_hourly.py` → same combined-first + tier fallback + parallel OPF `overlay_opf_probabilities` before `flatten_for_db`.
+- Sammi SQL: **`supabase/013_sammi_forecast_views.sql`** — `sammi_forecast` + `sammi_daily_forecast` (English reliability `high`/`medium`/`low`, columns aligned for app). Older `010`–`012` files are superseded; run `013` after `weather_forecast` exists.
+
+**Optional query params** (per Spire example; set only if your account requires them — URLs built when env is non-empty):
+
+- `SPIRE_FORECAST_PRODUCT` — e.g. `sof-d`
+- `SPIRE_FORECAST_UNIT_SYSTEM` — e.g. `si`
+- `SPIRE_FORECAST_BUNDLES` — first bundle string tried (full maritime stack if needed)
+
+**OPF** (`/forecast/point/optimized`): POP / thunder / fog on matching `valid_time`. Code tries **`basic,thunderstorm`** then **`basic`** (override `SPIRE_OPF_BUNDLES`). Not Spire “confidence” — phrase by **reliability** below.
+
+**Sammi % plan** (`sammi_forecast`): **hoog** ≤48h from issuance — exact % in `kans_*_sammi`. **medium** 48–120h — % when present; else range in UI/LLM. **laag** >120h — hide hard % (`kans_*_sammi` NULL); qualitative + CAPE trend. Raw `kans_*` stays for charts.
+
 ## 🤖 Sammi's Persona Rules
 
 Sammi is a witty, protective, high-end Island Concierge for Koh Samui.
@@ -76,6 +99,13 @@ island_embeddings (
 ```
 NEXT_PUBLIC_MAPBOX_TOKEN   ← Mapbox public token
 SPIRE_API_TOKEN            ← SPIRE Weather API (server-only)
+SPIRE_FORECAST_BUNDLES     ← optional; first bundle try for Point (matches Python ingest)
+SPIRE_FORECAST_PRODUCT     ← optional; e.g. sof-d (ProSea Point)
+SPIRE_FORECAST_UNIT_SYSTEM ← optional; e.g. si
+SPIRE_OPF_LOCATION       ← optional; optimized point id (default custom:PR_W1XNKK0)
+SPIRE_OPF_BUNDLES        ← optional; else basic,thunderstorm → basic
+SPIRE_OPF_FORECAST_HOURS ← optional; default 72
+SPIRE_OPF_ENABLED        ← optional; 0 = skip OPF overlay
 SUPABASE_URL               ← https://tftkciljzqbiozqfdziv.supabase.co
 SUPABASE_SERVICE_ROLE_KEY  ← sb_secret_... (server-only, never expose)
 OPENAI_API_KEY             ← sk-proj-... (server-only)

@@ -1,9 +1,14 @@
-# Koh Samui — hybrid Spire ingest elk uur (OPF + clouds/thunderstorm → Supabase).
+# Koh Samui — Spire ingest elk uur (zelfde contract-merge als lib/spire.ts → Supabase).
+# Lange horizon: time_bundle 6_hourly_15day @ 360h (+ 3h/1h); zie .cursor/skills/samui-concierge/SKILL.md
+#
 # Vereiste repository secrets (Settings -> Secrets and variables -> Actions):
 #   SPIRE_API_TOKEN  (of SPIRE_API_KEY als fallback)
 #   SUPABASE_URL
 #   SUPABASE_SERVICE_ROLE_KEY  (of SUPABASE_KEY als fallback)
-# Optioneel: WEATHER_LOCATION_ID, FORECAST_HOURS, SAMUI_LAT, SAMUI_LON
+# Optioneel — repository *variables* (Settings -> Secrets and variables -> Actions -> Variables):
+#   WEATHER_LOCATION_ID, SAMUI_LAT, SAMUI_LON
+#   SPIRE_FORECAST_BUNDLES, SPIRE_FORECAST_PRODUCT, SPIRE_FORECAST_UNIT_SYSTEM
+#   SPIRE_OPF_LOCATION, SPIRE_OPF_BUNDLES, SPIRE_OPF_FORECAST_HOURS, SPIRE_OPF_ENABLED (=0 schakelt OPF uit)
 #
 # Handmatig testen: Actions -> Weather hourly ingest -> Run workflow
 
@@ -31,7 +36,7 @@ jobs:
       # If this step is missing in the Actions log, you are not running this workflow file from GitHub.
       - name: Entrypoint check
         run: |
-          echo "Samui hourly ingest - ENTRYPOINT=weather_engine_hourly.py REV=2026-04-19"
+          echo "Samui hourly ingest - ENTRYPOINT=weather_engine_hourly.py REV=2026-04-20-opf-sammi-view"
           test -f weather_engine_hourly.py
           echo "OK: weather_engine_hourly.py is in the repo checkout."
 
@@ -55,6 +60,16 @@ jobs:
           SPIRE_API_TOKEN: ${{ secrets.SPIRE_API_TOKEN || secrets.SPIRE_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_KEY }}
+          WEATHER_LOCATION_ID: ${{ vars.WEATHER_LOCATION_ID }}
+          SAMUI_LAT: ${{ vars.SAMUI_LAT }}
+          SAMUI_LON: ${{ vars.SAMUI_LON }}
+          SPIRE_FORECAST_BUNDLES: ${{ vars.SPIRE_FORECAST_BUNDLES }}
+          SPIRE_FORECAST_PRODUCT: ${{ vars.SPIRE_FORECAST_PRODUCT }}
+          SPIRE_FORECAST_UNIT_SYSTEM: ${{ vars.SPIRE_FORECAST_UNIT_SYSTEM }}
+          SPIRE_OPF_LOCATION: ${{ vars.SPIRE_OPF_LOCATION }}
+          SPIRE_OPF_BUNDLES: ${{ vars.SPIRE_OPF_BUNDLES }}
+          SPIRE_OPF_FORECAST_HOURS: ${{ vars.SPIRE_OPF_FORECAST_HOURS }}
+          SPIRE_OPF_ENABLED: ${{ vars.SPIRE_OPF_ENABLED }}
         run: |
           set -euo pipefail
           if [ ! -f weather_engine_hourly.py ]; then
