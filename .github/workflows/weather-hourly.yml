@@ -9,7 +9,6 @@
 #   WEATHER_LOCATION_ID, SAMUI_LAT, SAMUI_LON
 #   SPIRE_FORECAST_BUNDLES, SPIRE_FORECAST_PRODUCT, SPIRE_FORECAST_UNIT_SYSTEM
 #   SPIRE_OPF_LOCATION, SPIRE_OPF_BUNDLES, SPIRE_OPF_FORECAST_HOURS, SPIRE_OPF_ENABLED (=0 schakelt OPF uit)
-#   WEATHER_UPSERT_OMIT_FOG: zet op 0 in Variables nadat `supabase/014_weather_forecast_probability_of_fog_if_missing.sql` is uitgevoerd
 #
 # Handmatig testen: Actions -> Weather hourly ingest -> Run workflow
 
@@ -37,7 +36,7 @@ jobs:
       # If this step is missing in the Actions log, you are not running this workflow file from GitHub.
       - name: Entrypoint check
         run: |
-          echo "Samui hourly ingest - ENTRYPOINT=weather_engine_hourly.py REV=2026-04-24-fog-omit+retry"
+          echo "Samui hourly ingest - ENTRYPOINT=weather_engine_hourly.py REV=2026-04-24-no-fog-column-key"
           test -f weather_engine_hourly.py
           echo "OK: weather_engine_hourly.py is in the repo checkout."
 
@@ -71,9 +70,6 @@ jobs:
           SPIRE_OPF_BUNDLES: ${{ vars.SPIRE_OPF_BUNDLES }}
           SPIRE_OPF_FORECAST_HOURS: ${{ vars.SPIRE_OPF_FORECAST_HOURS }}
           SPIRE_OPF_ENABLED: ${{ vars.SPIRE_OPF_ENABLED }}
-          # Standaard fog-kolom weglaten totdat 014 in Supabase is gedraaid. Zet repository Variable
-          # WEATHER_UPSERT_OMIT_FOG=0 (letterlijk) om weer volledig te upsertten na migratie.
-          WEATHER_UPSERT_OMIT_FOG: ${{ vars.WEATHER_UPSERT_OMIT_FOG == '0' && '0' || '1' }}
         run: |
           set -euo pipefail
           if [ ! -f weather_engine_hourly.py ]; then

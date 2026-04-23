@@ -29,9 +29,9 @@ Optional:
   SPIRE_OPF_ENABLED=0    (skip /forecast/point/optimized probability overlay)
   SPIRE_OPF_LOCATION     (default: custom:PR_W1XNKK0; else SPIRE_OPTIMIZED_POINT_LOCATION)
   SPIRE_OPF_FORECAST_HOURS (default 72) · SPIRE_OPF_BUNDLES (else basic,thunderstorm → basic)
-  WEATHER_UPSERT_OMIT_FOG=1
-                        (always omit probability_of_fog in upsert until
-                         supabase/014_weather_forecast_probability_of_fog_if_missing.sql is applied)
+
+Fog probability is **not** written as a top-level `weather_forecast` column in this engine (many DBs
+pre-date that column). It remains inside `values_json` — see `supabase/010` / `013` `COALESCE` for Sammi.
 
 Note: FORECAST_HOURS is ignored — horizons are fixed by the tier list above.
 """
@@ -921,10 +921,8 @@ def flatten_for_db(
             v,
             ("probability_of_thunderstorm",),
         ),
-        "probability_of_fog": pick_prob_pct(
-            v,
-            ("probability_of_fog", "fog_probability"),
-        ),
+        # No top-level `probability_of_fog` — PostgREST errors if the column is missing. Fog OPF
+        # stays in `values_json` (v); run supabase/014 and add a column + optional key here if needed.
         "precipitation_rate": pick_num(v, ("precipitation_rate",)),
         "relative_humidity": pick_num(v, ("relative_humidity",)),
         "values_json": v,
@@ -960,24 +958,6 @@ def _exception_text(exc: BaseException) -> str:
         if hasattr(exc, name):
             parts.append(str(getattr(exc, name) or ""))
     return "\n".join(parts)
-
-
-def _is_missing_probability_of_fog_column(exc: BaseException) -> bool:
-    """True when PostgREST rejects the row because `probability_of_fog` is not in the table."""
-    t = _exception_text(exc).lower()
-    if "probability_of_fog" not in t:
-        return False
-    return any(
-        s in t
-        for s in (
-            "could not find",
-            "schema cache",
-            "pgrst",
-            "unknown column",
-            "column of",
-            "does not exist",
-        )
-    )
 
 
 def get_supabase() -> Client:
@@ -1088,63 +1068,23 @@ def run() -> int:
     assert sb is not None
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    omit_fog = os.environ.get("WEATHER_UPSERT_OMIT_FOG", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-    if omit_fog:
-        print(
-            "[NOTE] WEATHER_UPSERT_OMIT_FOG: omitting probability_of_fog from all rows.",
-            file=sys.stderr,
-        )
-
-    payload = []
+    payload: List[Dict[str, Any]] = []
     for r in rows_out:
         row = coerce_whole_floats_for_postgres(dict(r))
-        if omit_fog:
-            row.pop("probability_of_fog", None)
         row["updated_at"] = now_iso
         payload.append(row)
 
-    def _try_upsert(rows: list) -> bool:
+    try:
         sb.table("weather_forecast").upsert(
-            rows,
+            payload,
             on_conflict="location_id,valid_time_utc",
         ).execute()
-        return True
-
-    try:
-        _try_upsert(payload)
         print(f"Upserted {len(payload)} rows into weather_forecast.")
     except Exception as e:
-        if not omit_fog and _is_missing_probability_of_fog_column(e):
-            print(
-                "[WARN] Retrying without probability_of_fog (column missing in DB). "
-                "Run: supabase/014_weather_forecast_probability_of_fog_if_missing.sql",
-                file=sys.stderr,
-            )
-            for row in payload:
-                row.pop("probability_of_fog", None)
-            try:
-                _try_upsert(payload)
-                print(
-                    f"Upserted {len(payload)} rows into weather_forecast "
-                    "(fog % omitted; apply 014 in Supabase to store OPF fog)."
-                )
-            except Exception as e2:
-                print(
-                    f"[ERROR] Upsert still failed after dropping probability_of_fog: {e2}",
-                    file=sys.stderr,
-                )
-                print(_exception_text(e2), file=sys.stderr)
-                traceback.print_exc()
-                return 1
-        else:
-            print(f"[ERROR] Upsert failed: {e}", file=sys.stderr)
-            print(_exception_text(e), file=sys.stderr)
-            traceback.print_exc()
-            return 1
+        print(f"[ERROR] Upsert failed: {e}", file=sys.stderr)
+        print(_exception_text(e), file=sys.stderr)
+        traceback.print_exc()
+        return 1
 
     return 0
 
