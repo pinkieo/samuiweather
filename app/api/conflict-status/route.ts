@@ -9,6 +9,9 @@ import {
 import {
   fetchLatestRainViewerFramePath,
   mergeLandRadarVerdict,
+  mergeLandRadarVerdictKrabi,
+  type RadarEchoTier,
+  sampleKrabiRadarAtPin,
   sampleRainViewerPrecipNearPin,
 } from '@/lib/rainviewer-server-sample';
 import {
@@ -38,6 +41,15 @@ export interface ConflictStatusResponse {
   isAlert:      boolean;
   fetchedAt:    number;
   error?:       string;
+  /**
+   * Krabi: Doppler strength at the property disc (~10 km perimeter), when `isAlert` / `rain_alert`
+   * is driven by local echo.
+   */
+  echoTier?:        RadarEchoTier | null;
+  /** Krabi: radius of sampling disc (from perimeter) in km */
+  echoSampleRadiusKm?:  number;
+  /** Krabi: configured loop length used for the disc (e.g. 10) */
+  echoSamplePerimeterKm?: number;
 }
 
 async function buildAirportSnapshot(): Promise<AirportSnapshot | null> {
@@ -118,17 +130,32 @@ export async function GET(req: NextRequest) {
 
     const now = forecastRows[0];
     const pin = region === 'krabi' ? KRABI_FORECAST_POINT : SAMUI_CENTER;
-    let tileSample: 'none' | 'precip' | 'unknown' = 'unknown';
+    const spireRadar = getRadarStatus(now.precipRate);
+    let echoTier: RadarEchoTier | null = null;
+    let echoSampleRadiusKm: number | undefined;
+    let echoSamplePerimeterKm: number | undefined;
+
+    let radar: ReturnType<typeof getRadarStatus> = spireRadar;
     if (framePath) {
-      tileSample = await sampleRainViewerPrecipNearPin(
-        pin.lat,
-        pin.lon,
-        framePath,
-        ac.signal,
-        region === 'krabi' ? 'krabi' : 'samui',
-      );
+      if (region === 'krabi') {
+        const k = await sampleKrabiRadarAtPin(pin.lat, pin.lon, framePath, ac.signal);
+        if (k.kind === 'echo') {
+          echoTier = k.tier;
+          echoSampleRadiusKm = k.radiusKm;
+          echoSamplePerimeterKm = k.perimeterKm;
+        }
+        radar = mergeLandRadarVerdictKrabi(spireRadar, k);
+      } else {
+        const tileSample = await sampleRainViewerPrecipNearPin(
+          pin.lat,
+          pin.lon,
+          framePath,
+          ac.signal,
+          'samui',
+        );
+        radar = mergeLandRadarVerdict(spireRadar, tileSample);
+      }
     }
-    const radar = mergeLandRadarVerdict(getRadarStatus(now.precipRate), tileSample);
 
     let conflictOpts: ResolveWeatherConflictOptions | undefined;
     let airport: AirportSnapshot | null;
@@ -155,10 +182,13 @@ export async function GET(req: NextRequest) {
       conflictOpts,
     );
 
+    // Samui: no full-screen strip for model-vs-radar mismatch on **weak** `light_rain` only.
+    // Krabi: pin disc has explicit `echoTier` — even **light** local echo can show a qualified banner.
     const isAlert =
       conflict.scenario === 'storm_incoming' ||
       conflict.scenario === 'all_alarm' ||
-      conflict.scenario === 'rain_alert' ||
+      (conflict.scenario === 'rain_alert' &&
+        (radar !== 'light_rain' || (region === 'krabi' && echoTier != null))) ||
       (region === 'krabi' && conflict.scenario === 'upstream_metar_rain');
 
     return NextResponse.json(
@@ -169,6 +199,13 @@ export async function GET(req: NextRequest) {
         statusBoard:  conflict.statusBoard,
         isAlert,
         fetchedAt:    Math.floor(Date.now() / 1000),
+        ...(region === 'krabi'
+          ? {
+              echoTier:              echoTier ?? null,
+              echoSampleRadiusKm,
+              echoSamplePerimeterKm,
+            }
+          : {}),
       } satisfies ConflictStatusResponse,
       { headers: noStore },
     );

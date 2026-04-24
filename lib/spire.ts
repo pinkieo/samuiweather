@@ -295,6 +295,16 @@ export interface SamuiWeatherForecastRow {
   dcape?: number | null;
   /** Alleen index 0 + WAQI ok */
   station?: string | null;
+  /**
+   * Uurlijks van Supabase `sammi_forecast` (zelfde `time` ↔ `valid_time_utc`) — leeg als cron nog niet draaide
+   * of `location_id` niet matcht. `kans_*` = NULL wanneer SQL `reliability = low`.
+   */
+  sammi?: {
+    kansRegenPctSammi: number | null;
+    kansOnweerPctSammi: number | null;
+    kansMistPctSammi: number | null;
+    reliability: 'high' | 'medium' | 'low';
+  };
 }
 
 export function getAQIDescription(aqi: number | undefined | null): string {

@@ -3,6 +3,7 @@
 import { Sun, Wind } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { formatTempC, type SamuiWeatherForecastRow } from '../lib/spire';
+import { rainChancePercentForRow } from '../lib/sammi-views';
 import { getSunInfo } from '../lib/sun';
 import WindCompass from './WindCompass';
 
@@ -223,10 +224,7 @@ export default function HourlyForecast({ rows, selectedIndex, onHourSelect }: Ho
             const expanded = isExpandedSlot(i);
             const expandedHeaderLabel = isSameBangkokHourAsNow(row.time) ? 'NOW' : timeStr;
 
-            let pop = row.pop;
-            if (!pop && row.precipRate > 0) {
-              pop = Math.min(100, Math.round(row.precipRate * 20) + 20);
-            }
+            const pop = rainChancePercentForRow(row);
             const showPop = pop >= 10;
 
             const sun = getSunInfo(d);
@@ -374,10 +372,7 @@ export function HourlyStripForCalendarDay({
           timeZone: 'Asia/Bangkok',
         });
 
-        let pop = row.pop;
-        if (!pop && row.precipRate > 0) {
-          pop = Math.min(100, Math.round(row.precipRate * 20) + 20);
-        }
+        const pop = rainChancePercentForRow(row);
         const showPop = pop >= 10;
 
         const sun = getSunInfo(d);

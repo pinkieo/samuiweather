@@ -9,6 +9,10 @@ local.env
 out/
 .vercel
 
+# Python
+__pycache__/
+*.pyc
+
 # misc
 *.tsbuildinfo
 

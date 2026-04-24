@@ -51,7 +51,7 @@ export default function StormAlertBanner({
       setDismissed(false);
       dismissedRef.current = false;
     }
-  }, [data?.scenario]);
+  }, [data?.scenario, data?.echoTier]);
 
   const bannerActive = Boolean(data?.isAlert && visible && !dismissed);
   useEffect(() => {
@@ -64,24 +64,42 @@ export default function StormAlertBanner({
   const isRainAlert = data?.scenario === 'rain_alert';
   if (!data?.isAlert) return null;
 
+  const echoTier = data?.echoTier;
+  const echoTierLabel =
+    echoTier != null
+      ? ({ light: 'Light', medium: 'Medium', heavy: 'Heavy', storm: 'Storm' } as const)[echoTier]
+      : null;
+  const echoZone =
+    data?.echoSamplePerimeterKm != null && data?.echoSampleRadiusKm != null
+      ? `~${data.echoSamplePerimeterKm} km loop at pin (r ≈ ${data.echoSampleRadiusKm.toFixed(1)} km)`
+      : null;
+
   const label = isStorm
-    ? 'Storm cell detected · Mainland Radar'
+    ? region === 'krabi' && echoTierLabel
+      ? `Storm alert · Doppler: ${echoTierLabel} at pin`
+      : 'Storm cell detected · Mainland Radar'
     : isAllAlarm
     ? 'All sources confirm severe weather'
     : isUpstream
     ? 'METAR upstream signal · Krabi + Phuket'
     : isRainAlert
-    ? 'Rain on mainland radar'
+    ? region === 'krabi' && echoTierLabel
+      ? `Doppler: ${echoTierLabel} — local rain signal`
+      : 'Rain on mainland radar'
     : 'Weather alert';
 
   const subLabel = isStorm
     ? region === 'krabi'
-      ? 'Significant cell on the mainland sweep — track for Krabi / Andaman coast'
+      ? (echoZone
+        ? `Significant cell — ${echoZone} · SPIRE + METAR cross-check`
+        : 'Significant cell on the mainland sweep — track for Krabi / Andaman coast')
       : 'Significant precipitation cell tracking towards Koh Samui'
     : isUpstream
     ? 'METAR at Phuket or Krabi reports precipitation while radar and satellites still look dry'
     : isRainAlert
-    ? 'Mainland radar shows precipitation — SPIRE and METAR still cross-checked'
+    ? region === 'krabi' && echoZone
+      ? `${echoZone} — models may still look dry; check strip + METAR`
+      : 'Mainland radar shows precipitation — SPIRE and METAR still cross-checked'
     : 'Orbital · Mainland Radar · Airport sensors all in agreement';
 
   return (

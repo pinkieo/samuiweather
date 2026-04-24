@@ -5,13 +5,23 @@
 
 import { inflateSync } from 'node:zlib';
 import {
+  echoPixelStrength01,
   latLonToRainviewerTileFraction,
   pixelLooksLikeRainEcho,
   RAINVIEWER_NATIVE_Z,
+  webMercatorMetersPerPixel,
 } from './rainviewer-tile-math';
 import type { RadarStatus } from './sammi-post-generator';
 
 export type TilePrecipSample = 'none' | 'precip' | 'unknown';
+
+/** Krabi: max echo strength in a disc around the pin, mapped to copy + {@link mergeLandRadarVerdictKrabi}. */
+export type RadarEchoTier = 'light' | 'medium' | 'heavy' | 'storm';
+
+export type KrabiPinEcho =
+  | { kind: 'none' }
+  | { kind: 'unknown' }
+  | { kind: 'echo'; tier: RadarEchoTier; maxStrength01: number; radiusKm: number; perimeterKm: number };
 
 function readU32BE(u8: Uint8Array, o: number): number {
   return (
@@ -181,6 +191,95 @@ function scanNeighbourhoodForEcho(
   return false;
 }
 
+/** Perimeter ≈ 10 km → circle radius = C / (2π) ≈ 1.59 km (Ao Nang pin sampling disc). */
+export const KRABI_PIN_CIRCUMFERENCE_KM = 10 as const;
+
+function ringRadiusMFromPerimeterKm(perimeterKm: number): number {
+  return (perimeterKm * 1000) / (2 * Math.PI);
+}
+
+function echoTierFromMaxStrength01(s: number): RadarEchoTier {
+  if (s < 0.2) return 'light';
+  if (s < 0.38) return 'medium';
+  if (s < 0.58) return 'heavy';
+  return 'storm';
+}
+
+/**
+ * Max echo strength in a circle (pixel disc) on one decoded tile. Returns `null` if no echo.
+ */
+function scanDiscMaxEchoStrength01(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  fx: number,
+  fy: number,
+  half: number,
+): number | null {
+  const r2 = half * half;
+  let maxS = 0;
+  let any = false;
+  for (let dy = -half; dy <= half; dy++) {
+    for (let dx = -half; dx <= half; dx++) {
+      if (dx * dx + dy * dy > r2) continue;
+      const ix = Math.round(fx + dx);
+      const iy = Math.round(fy + dy);
+      if (ix < 0 || iy < 0 || ix >= width || iy >= height) continue;
+      const o = (iy * width + ix) * 4;
+      const s = echoPixelStrength01(rgba[o]!, rgba[o + 1]!, rgba[o + 2]!, rgba[o + 3]!);
+      if (s > 0) {
+        any = true;
+        if (s > maxS) maxS = s;
+      }
+    }
+  }
+  return any ? maxS : null;
+}
+
+/**
+ * Krabi: one tile, Doppler in a disc around the pin with perimeter ≈ {@link KRABI_PIN_CIRCUMFERENCE_KM} km.
+ * No multi-tile sweep — only echo in this “local” ring counts for conflict / banner.
+ */
+export async function sampleKrabiRadarAtPin(
+  lat: number,
+  lon: number,
+  framePath: string,
+  signal: AbortSignal | undefined,
+  perimeterKm: number = KRABI_PIN_CIRCUMFERENCE_KM,
+): Promise<KrabiPinEcho> {
+  const clean = framePath.replace(/^\//, '');
+  const mpp = webMercatorMetersPerPixel(lat, RAINVIEWER_NATIVE_Z, 512);
+  const radiusM = ringRadiusMFromPerimeterKm(perimeterKm);
+  const half = Math.max(1, Math.ceil((radiusM / mpp) * 1.25));
+
+  const { xTile, yTile, fx, fy } = latLonToRainviewerTileFraction(lat, lon, RAINVIEWER_NATIVE_Z);
+  const url = `https://tilecache.rainviewer.com/${clean}/512/${RAINVIEWER_NATIVE_Z}/${xTile}/${yTile}/2/1_1.png`;
+  try {
+    const res = await fetch(url, {
+      signal,
+      headers: { 'User-Agent': 'SamuiWeatherDashboard/1.0' },
+      cache: 'no-store',
+    });
+    if (!res.ok) return { kind: 'unknown' };
+    const buf = new Uint8Array(await res.arrayBuffer());
+    const decoded = decodeRainviewerPngToRgba(buf);
+    if (!decoded) return { kind: 'unknown' };
+    const { width, height, rgba } = decoded;
+    const maxS = scanDiscMaxEchoStrength01(rgba, width, height, fx, fy, half);
+    if (maxS == null) return { kind: 'none' };
+    return {
+      kind: 'echo',
+      tier: echoTierFromMaxStrength01(maxS),
+      maxStrength01: maxS,
+      radiusKm: radiusM / 1000,
+      perimeterKm,
+    };
+  } catch {
+    if (signal?.aborted) return { kind: 'unknown' };
+    return { kind: 'unknown' };
+  }
+}
+
 /**
  * Fetch the 512×z7 tile and sample a small neighbourhood at lat/lon (RainViewer scheme 2).
  */
@@ -299,7 +398,8 @@ export async function sampleRainViewerPrecipNearPin(
 
 /**
  * Merge SPIRE-derived “radar” (legacy) with a real tile sample.
- * If the tile shows precip while SPIRE is dry, upgrade to at least `rain` so {@link resolveWeatherConflict} can fire `rain_alert` / `storm_incoming`.
+ * If the tile shows precip while SPIRE is dry, upgrade to `light_rain` so {@link resolveWeatherConflict} can
+ * note a mismatch without claiming a full “active rain” band; see route `isAlert` rules.
  */
 export function mergeLandRadarVerdict(
   spirePrecipRadar: RadarStatus,
@@ -310,5 +410,29 @@ export function mergeLandRadarVerdict(
   if (spirePrecipRadar === 'storm') return 'storm';
   if (spirePrecipRadar === 'rain') return 'rain';
   if (spirePrecipRadar === 'light_rain') return 'light_rain';
-  return 'rain';
+  /**
+   * Doppler in view but models dry — treat as **light scatter** only. Classifying as full `rain`
+   * was firing “rain alert” for offshore specks or sea clutter while the pin stayed clear.
+   * @see `sampleRainViewerTileAtLocation` (pin-tight) vs `sampleRainViewerPrecipNearPin` (wide ring).
+   */
+  return 'light_rain';
+}
+
+/**
+ * Map Krabi pin-echo + SPIRE to {@link RadarStatus} (4-way) for `resolveWeatherConflict`.
+ */
+export function mergeLandRadarVerdictKrabi(
+  spirePrecipRadar: RadarStatus,
+  pin: KrabiPinEcho,
+): RadarStatus {
+  if (pin.kind === 'unknown') return spirePrecipRadar;
+  if (pin.kind === 'none') return spirePrecipRadar;
+  if (spirePrecipRadar === 'storm') return 'storm';
+  if (spirePrecipRadar === 'rain') return 'rain';
+  if (spirePrecipRadar === 'light_rain') return 'light_rain';
+  const t = pin.tier;
+  if (t === 'light') return 'light_rain';
+  if (t === 'medium' || t === 'heavy') return 'rain';
+  if (t === 'storm') return 'storm';
+  return spirePrecipRadar;
 }

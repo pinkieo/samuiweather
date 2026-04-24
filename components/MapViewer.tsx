@@ -34,6 +34,8 @@ import type { MetarApiResponse } from '../app/api/metar/route';
 import { dominantCoverFromMetarClouds, type MetarDominantCover } from '../lib/sky-display';
 import { sampleRadarEchoAtLocation } from '../lib/rainviewer-tile-sample';
 import { useRadarFeed } from './RadarFramesProvider';
+import { mergeSamuiHourlyIntoRows } from '../lib/merge-sammi-forecast';
+import type { SammiDailyForecastViewRow, SammiForecastViewRow } from '../lib/sammi-views';
 
 const SamuiExploreMap = dynamic(() => import('./SamuiExploreMap'), {
   ssr: false,
@@ -192,6 +194,12 @@ export default function MapViewer() {
   const [forecastError, setForecastError]   = useState<string | null>(null);
   /** Nearest-hour Meteoblue snapshot — merged into first Spire row as “live” conditions. */
   const [mbState, setMbState] = useState<MeteoblueClientState>({ status: 'loading' });
+  /** Server-side `sammi_forecast` / `sammi_daily_forecast` (kans_*, advice, reliability). */
+  const [sammiHourlyRows, setSammiHourlyRows] = useState<SammiForecastViewRow[]>([]);
+  const [sammiDailyByIsoDay, setSammiDailyByIsoDay] = useState<Record<
+    string,
+    SammiDailyForecastViewRow
+  > | null>(null);
   /** Globale RainViewer feed (root provider) — niet afhankelijk van kaart-mount. */
   const radarFeed = useRadarFeed();
   const [radarEcho, setRadarEcho] = useState<'unknown' | 'none' | 'precip'>('unknown');
@@ -363,6 +371,57 @@ export default function MapViewer() {
     };
   }, [dashboardRegionId, region.lat, region.lon]);
 
+  /** Supabase Sammi-views: parallel met Spire, alleen wanneer `region.weatherLocationId` is gezet. */
+  useEffect(() => {
+    if (!region.weatherLocationId) {
+      setSammiHourlyRows([]);
+      setSammiDailyByIsoDay(null);
+      return;
+    }
+    const loc = encodeURIComponent(region.weatherLocationId);
+    const q = `?location_id=${loc}`;
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 20000);
+    const run = async () => {
+      try {
+        const [hRes, dRes] = await Promise.all([
+          fetch(`/api/weather/sammi-forecast${q}`, { signal: ac.signal, cache: 'no-store' }),
+          fetch(`/api/weather/sammi-daily${q}`, { signal: ac.signal, cache: 'no-store' }),
+        ]);
+        if (hRes.ok) {
+          const hJson = (await hRes.json()) as { rows?: SammiForecastViewRow[] | null };
+          setSammiHourlyRows(Array.isArray(hJson.rows) ? hJson.rows : []);
+        } else {
+          setSammiHourlyRows([]);
+        }
+        if (dRes.ok) {
+          const dJson = (await dRes.json()) as { rows?: SammiDailyForecastViewRow[] | null };
+          const by: Record<string, SammiDailyForecastViewRow> = {};
+          for (const r of Array.isArray(dJson.rows) ? dJson.rows : []) {
+            if (!r) continue;
+            const raw = (r as { forecast_date?: string }).forecast_date;
+            const k = typeof raw === 'string' ? raw.slice(0, 10) : '';
+            if (k) by[k] = r;
+          }
+          setSammiDailyByIsoDay(Object.keys(by).length > 0 ? by : null);
+        } else {
+          setSammiDailyByIsoDay(null);
+        }
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') return;
+        setSammiHourlyRows([]);
+        setSammiDailyByIsoDay(null);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    void run();
+    return () => {
+      clearTimeout(timer);
+      ac.abort();
+    };
+  }, [region.weatherLocationId, dashboardRegionId]);
+
   useEffect(() => {
     if (forecastRows.length === 0) return;
     setSelectedIndex(i => Math.min(i, forecastRows.length - 1));
@@ -497,10 +556,15 @@ export default function MapViewer() {
     };
   }, [radarFeed.latestFrame, radarFeed.status, region.lat, region.lon]);
 
+  const spireWithSammi = useMemo(
+    () => mergeSamuiHourlyIntoRows(forecastRows, sammiHourlyRows),
+    [forecastRows, sammiHourlyRows],
+  );
+
   const displayForecastRows = useMemo(() => {
     const snap = mbState.status === 'ok' ? mbState.snap : null;
-    return applyMeteoblueLiveToFirstRow(forecastRows, snap);
-  }, [forecastRows, mbState]);
+    return applyMeteoblueLiveToFirstRow(spireWithSammi, snap);
+  }, [spireWithSammi, mbState]);
 
   const radarLeadsOverDryModels = useMemo(() => {
     if (radarEcho !== 'precip' || selectedIndex !== 0 || forecastRows.length === 0) return false;
@@ -788,6 +852,7 @@ export default function MapViewer() {
                   sunLongitude={region.lon}
                   radarLeadsOverDryModels={radarLeadsOverDryModels}
                   metarSkyCover={metarSkyCover}
+                  sammiDailyByIsoDay={sammiDailyByIsoDay}
                 />
 
                 <div className="mb-3 mt-4">

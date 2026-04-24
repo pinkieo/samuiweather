@@ -10,6 +10,7 @@ import {
   effectiveCloudCoverDisplay,
   type MetarDominantCover,
 } from '../lib/sky-display';
+import type { SammiDailyForecastViewRow } from '../lib/sammi-views';
 import {
   beachScoreVerdictClasses,
   calculateBeachSunScore,
@@ -105,6 +106,8 @@ export type VacationDashboardProps = {
   radarLeadsOverDryModels?: boolean;
   /** VTSM / VTSG dominant layer — softens model cloud % when METAR is clear/few. */
   metarSkyCover?: MetarDominantCover;
+  /** Key = Bangkok calendar `YYYY-MM-DD` (from `sammi_daily_forecast.forecast_date`). */
+  sammiDailyByIsoDay?: Record<string, SammiDailyForecastViewRow> | null;
 };
 
 // ─── Verdict logic ────────────────────────────────────────────────────────────
@@ -408,6 +411,7 @@ export default function VacationDashboard({
   sunLongitude = SAMUI_CENTER.lon,
   radarLeadsOverDryModels = false,
   metarSkyCover = null,
+  sammiDailyByIsoDay = null,
 }: VacationDashboardProps) {
   const row = rows[selectedIndex] ?? rows[0];
   if (!row) return null;
@@ -476,7 +480,11 @@ export default function VacationDashboard({
       </div>
 
       {/* ── 2. Daily outlook (scrollable, up to 15 days when Spire returns 360h) ──────────────── */}
-      <DailyForecast rows={rows} onDayClick={onSelectedIndexChange} />
+      <DailyForecast
+        rows={rows}
+        onDayClick={onSelectedIndexChange}
+        sammiDailyByIsoDay={sammiDailyByIsoDay ?? undefined}
+      />
 
       {/* ── 3. Beach Sun Score + Verdict Hero ─────────────────────────── */}
       <div className="flex flex-col items-center gap-3">

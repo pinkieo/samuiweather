@@ -30,6 +30,10 @@ export interface DashboardRegion {
   /** Show Koh Samui POI markers + Sammi airport intel */
   isSamuiProduct: boolean;
   /**
+   * `weather_forecast` / `sammi_*` `location_id` in Supabase (server-side API). `null` = geen Sammi-DB koppeling.
+   */
+  weatherLocationId: string | null;
+  /**
    * Home / station pin(s) at true WGS84 (map `initial*` still uses lat/lon + offsets).
    * Samui: Villa Mayula + Baan Ton Kluay (Ecowitt); Krabi: single Baan Mook Taley.
    */
@@ -80,6 +84,8 @@ export const DASHBOARD_REGIONS: Record<DashboardRegionId, DashboardRegion> = {
     lngOffset: -0.034,
     latOffset: -0.02,
     isSamuiProduct: true,
+    /** Default: zie `WEATHER_LOCATION_ID` / engine ingest voor `weather_forecast`. */
+    weatherLocationId: 'samui_opf_hybrid',
     homePins: [
       {
         lat: VILLA_MAYULA_WGS84.lat,
@@ -108,6 +114,8 @@ export const DASHBOARD_REGIONS: Record<DashboardRegionId, DashboardRegion> = {
     lngOffset: 0,
     latOffset: 0,
     isSamuiProduct: false,
+    /** Geen `sammi_*` row voor Krabi totdat er een aparte `location_id` in de DB is. */
+    weatherLocationId: null,
     homePins: [
       {
         lat: BAAN_MOOK_TALEY_WGS84.lat,

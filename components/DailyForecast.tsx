@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { formatTempC, formatWindMs, type SamuiWeatherForecastRow } from '../lib/spire';
 import { getSunInfo } from '../lib/sun';
+import type { SammiDailyForecastViewRow } from '../lib/sammi-views';
 import { HourlyScrollStrip, HourlyStripForCalendarDay } from './HourlyForecast';
 
 /** Cap daily strip at 15 calendar days (matches ~360h Spire target when available). */
@@ -48,6 +49,8 @@ export interface TodayCardInsight {
 interface DailyForecastProps {
   rows: SamuiWeatherForecastRow[];
   onDayClick?: (spireIndex: number) => void;
+  /** Bangkok `YYYY-MM-DD` → daily Sammi (advice, reliability, kans_*). */
+  sammiDailyByIsoDay?: Record<string, SammiDailyForecastViewRow> | null;
 }
 
 export interface DailyData {
@@ -195,6 +198,47 @@ function buildTimeHintLaterToday(firstSigHourBangkok: number): string {
 /**
  * @see TodayCardInsight — builds tourist-facing copy + fields for the Daily “Today” card.
  */
+/**
+ * Today card from `sammi_daily_forecast` (English copy + SQL reliability).
+ */
+function buildTodayCardInsightFromSammiDaily(
+  d: SammiDailyForecastViewRow,
+): TodayCardInsight {
+  const rRain =
+    d.kans_regen_pct_sammi != null && Number.isFinite(Number(d.kans_regen_pct_sammi))
+      ? Number(d.kans_regen_pct_sammi)
+      : 0;
+  const rThunder =
+    d.kans_onweer_pct_sammi != null && Number.isFinite(Number(d.kans_onweer_pct_sammi))
+      ? Number(d.kans_onweer_pct_sammi)
+      : 0;
+  const sqlRel = d.reliability;
+  const reliability: TodayReliability =
+    sqlRel === 'low' ? 'trend' : sqlRel === 'medium' ? 'medium' : 'high';
+
+  let mood: TodayMood = 'beach';
+  let today_icon = '☀️';
+  if (rThunder >= 30) {
+    mood = 'storm';
+    today_icon = '⛈️';
+  } else if (rRain >= 50) {
+    mood = 'rain';
+    today_icon = '🌧️';
+  } else if (rRain >= 25 || rThunder >= 15) {
+    mood = rRain > 40 ? 'unsettled' : 'mixed';
+    today_icon = '🌦️';
+  }
+
+  return {
+    today_icon,
+    today_advice: d.sammi_advice?.trim() || 'See hourly for timing.',
+    time_hint: 'All day (Sammi daily summary)',
+    mood,
+    reliability,
+    chance_of_rain_pct: rRain >= MIN_CHANCE_TO_SHOW ? Math.round(rRain) : 0,
+  };
+}
+
 export function buildTodayCardInsightForRows(
   allRows: SamuiWeatherForecastRow[],
   now: Date = new Date(),
@@ -375,7 +419,7 @@ function getIconLegacy(day: DailyData, forceMoon = false) {
   return Icon;
 }
 
-export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) {
+export default function DailyForecast({ rows, onDayClick, sammiDailyByIsoDay }: DailyForecastProps) {
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
 
   const dailyMap = new Map<string, DailyData>();
@@ -434,7 +478,11 @@ export default function DailyForecast({ rows, onDayClick }: DailyForecastProps) 
   }
 
   const todayKeyLive = bangkokDateKey(new Date());
-  const fullInsight = buildTodayCardInsightForRows(rows, new Date());
+  const bangkokTodayIso = new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+  const sammiDay = sammiDailyByIsoDay?.[bangkokTodayIso] ?? null;
+  const fullInsight: TodayCardInsight | null = sammiDay
+    ? buildTodayCardInsightFromSammiDaily(sammiDay)
+    : buildTodayCardInsightForRows(rows, new Date());
   if (fullInsight) {
     const d = dailyMap.get(todayKeyLive);
     if (d) d.today_insight = fullInsight;

@@ -28,3 +28,29 @@ export function pixelLooksLikeRainEcho(r: number, g: number, b: number, a: numbe
   if (sum > 735 && Math.max(r, g, b) - Math.min(r, g, b) < 18) return false;
   return true;
 }
+
+/**
+ * Web Mercator ground resolution (m/px) at `lat` for a map tile of `tilePx` pixels, zoom `z`
+ * (RainViewer uses 512@z7, same as this project’s `latLonToRainviewerTileFraction`).
+ */
+export function webMercatorMetersPerPixel(
+  lat: number,
+  z: number,
+  tilePx: number = RAINVIEWER_TILE_PX,
+): number {
+  const cos = Math.cos((lat * Math.PI) / 180);
+  return (cos * 2 * Math.PI * 6378137) / (tilePx * 2 ** z);
+}
+
+/**
+ * Rough 0–1 “strength” of an echo pixel (higher = stronger / warmer colours in RainViewer’s palette).
+ */
+export function echoPixelStrength01(r: number, g: number, b: number, a: number): number {
+  if (!pixelLooksLikeRainEcho(r, g, b, a)) return 0;
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const sat = (maxC - minC) / 255;
+  const dark = 1 - (r + g + b) / (3 * 255);
+  const warmBoost = r > 110 && r > g + 8 && r > b + 8 ? 0.18 : 0;
+  return Math.min(1, sat * 0.45 + dark * 1.1 + warmBoost);
+}

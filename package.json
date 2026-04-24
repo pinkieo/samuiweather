@@ -5,6 +5,7 @@
     "dev": "next dev",
     "dev:clean": "npm run clean && next dev",
     "build": "next build",
+    "vercel:build": "next build",
     "start": "next start",
     "lint": "next lint",
     "embed": "npx tsx scripts/embed-reddit.ts",
@@ -13,7 +14,8 @@
     "radar:fixture": "npx tsx scripts/snapshot-radar-frames.ts && node -e \"require('fs').copyFileSync('public/radar-practice.json','public/radar-practice.fixture.json')\"",
     "reddit:fetch": "npx tsx scripts/reddit-samui-fetch.ts",
     "reddit:daily-topic": "npx tsx scripts/daily-sammi-topic-cli.ts",
-    "weather:hourly": "python weather_engine_hourly.py"
+    "weather:hourly": "python weather_engine_hourly.py",
+    "db:sammi": "powershell -ExecutionPolicy Bypass -File ./scripts/run-sammi-sql.ps1"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
@@ -28,6 +30,9 @@
     "react-dom": "^19.0.0",
     "react-map-gl": "^8.1.1",
     "suncalc": "^1.9.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -30,8 +30,9 @@ Optional:
   SPIRE_OPF_LOCATION     (default: custom:PR_W1XNKK0; else SPIRE_OPTIMIZED_POINT_LOCATION)
   SPIRE_OPF_FORECAST_HOURS (default 72) · SPIRE_OPF_BUNDLES (else basic,thunderstorm → basic)
 
-Fog probability is **not** written as a top-level `weather_forecast` column in this engine (many DBs
-pre-date that column). It remains inside `values_json` — see `supabase/010` / `013` `COALESCE` for Sammi.
+`probability_of_fog` is written as a top-level column when present (OPF) — requires
+`supabase/014_weather_forecast_probability_of_fog_if_missing.sql` in Supabase; it also
+remains in `values_json` for backward compatibility and view COALESCE.
 
 Note: FORECAST_HOURS is ignored — horizons are fixed by the tier list above.
 """
@@ -96,6 +97,14 @@ try:
     from PIL import Image
 except ImportError:
     Image = None  # type: ignore
+
+# Windows consoles often use cp1252; avoid UnicodeEncodeError on Spire log lines (≈, …, ✓, etc.).
+if os.name == "nt":
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 ICT = ZoneInfo("Asia/Bangkok")
 SPIRE_BASE = "https://api.wx.spire.com"
@@ -700,8 +709,10 @@ def fetch_rainviewer_echo_sample(lat: float, lon: float) -> RainEchoSample:
             _rainviewer_log("No usable radar.past frame path in weather-maps.json.")
             return "unknown"
         x_tile, y_tile, fx, fy = lat_lon_to_tile_fraction(lat, lon, RADAR_TILE_Z)
+        # path is already e.g. v2/radar/{frameId} (from weather-maps `path`, leading / stripped) —
+        # do not prefix v2/radar/ again (would 400 on tilecache).
         url = (
-            f"https://tilecache.rainviewer.com/v2/radar/{path}/512/"
+            f"https://tilecache.rainviewer.com/{path}/512/"
             f"{RADAR_TILE_Z}/{x_tile}/{y_tile}/2/1_1.png"
         )
         tr = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
@@ -921,8 +932,10 @@ def flatten_for_db(
             v,
             ("probability_of_thunderstorm",),
         ),
-        # No top-level `probability_of_fog` — PostgREST errors if the column is missing. Fog OPF
-        # stays in `values_json` (v); run supabase/014 and add a column + optional key here if needed.
+        "probability_of_fog": pick_prob_pct(
+            v,
+            ("probability_of_fog", "fog_probability"),
+        ),
         "precipitation_rate": pick_num(v, ("precipitation_rate",)),
         "relative_humidity": pick_num(v, ("relative_humidity",)),
         "values_json": v,
@@ -943,22 +956,6 @@ def coerce_whole_floats_for_postgres(row: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(v, float) and v.is_integer():
             out[key] = int(v)
     return out
-
-
-# PostgREST rejects keys that are not real DB columns. Keep in sync with supabase/007+009/014.
-# Fog lives in `values_json` only until `probability_of_fog` is added by migration 014+.
-_UNSAFE_TOPLEVEL_FOR_UPSERT: frozenset[str] = frozenset(
-    {
-        "probability_of_fog",
-    }
-)
-
-
-def _strip_unsafe_upsert_keys(rows: List[Dict[str, Any]]) -> None:
-    """Remove keys PostgREST will not accept (unknown columns). In-place; call right before upsert."""
-    for row in rows:
-        for k in _UNSAFE_TOPLEVEL_FOR_UPSERT:
-            row.pop(k, None)
 
 
 def _exception_text(exc: BaseException) -> str:
@@ -992,9 +989,8 @@ def get_supabase() -> Client:
 
 def run() -> int:
     load_env()
-    # If this line is missing in GitHub Actions logs, the job is not running this file revision.
     print(
-        "weather_engine_hourly.py ingest_build=fog-col-stripped-v2",
+        "weather_engine_hourly.py ingest_build=probability_of_fog-column-014+",
         file=sys.stderr,
     )
     dry = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
@@ -1039,7 +1035,8 @@ def run() -> int:
         except Exception as e:
             print(
                 f"[WARN] archive_expired_forecasts RPC failed "
-                f"(run supabase/007 + 008 SQL?): {e}",
+                f"(e.g. run supabase/015_weather_history_valid_time_ict_for_archive.sql "
+                f"in Supabase SQL Editor, or full 007+008+010): {e}",
                 file=sys.stderr,
             )
 
@@ -1094,8 +1091,6 @@ def run() -> int:
         row = coerce_whole_floats_for_postgres(dict(r))
         row["updated_at"] = now_iso
         payload.append(row)
-
-    _strip_unsafe_upsert_keys(payload)
 
     try:
         sb.table("weather_forecast").upsert(
