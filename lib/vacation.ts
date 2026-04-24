@@ -1,4 +1,4 @@
-/** Vakantie-/strandlogica: advies op basis van Spire-waarden (wind m/s, UV, mm/h). */
+/** Beach / holiday helpers from Spire (wind m/s, UV, mm/h). */
 
 export type BeachAdvice = {
   label: string;
@@ -6,7 +6,7 @@ export type BeachAdvice = {
   msg: string;
 };
 
-/** `wind` in knopen, `uv` UV-index (null als niet beschikbaar), `rainMmH` neerslagtempo mm/h. */
+/** `wind` in knots, `uv` UV index (null if unavailable), `rainMmH` rain rate mm/h. */
 export function getBeachAdvice(
   wind: number,
   uv: number | null | undefined,
@@ -15,36 +15,36 @@ export function getBeachAdvice(
 ): BeachAdvice {
   if (rainMmH > 0.5) {
     return {
-      label: 'Regenkap',
+      label: 'Rain',
       color: 'text-blue-400',
-      msg: 'Tropische bui verwacht',
+      msg: 'Tropical shower possible',
     };
   }
   if (wind > 15) {
     return {
-      label: 'Hoge golven',
+      label: 'Rough surf',
       color: 'text-orange-400',
-      msg: 'Rode vlag op Chaweng?',
+      msg: 'Check the beach flag on busy strips',
     };
   }
   if ((uv != null && uv > 10) || temp > 34) {
     return {
-      label: 'Gevaarlijk heet',
+      label: 'Extreme heat',
       color: 'text-rose-500',
-      msg: 'Pas op: Extreem heet. Zoek de schaduw op!',
+      msg: 'Extreme heat — stay in the shade when you can',
     };
   }
   if (uv != null && uv > 8) {
     return {
-      label: 'Factor 50+',
+      label: 'SPF 50+',
       color: 'text-rose-500',
-      msg: 'Extreem sterke zon',
+      msg: 'Very strong sun',
     };
   }
   return {
-    label: 'Top stranddag',
+    label: 'Beach day',
     color: 'text-emerald-400',
-    msg: 'Perfect voor Silver Beach',
+    msg: 'Nice conditions for the sand',
   };
 }
 

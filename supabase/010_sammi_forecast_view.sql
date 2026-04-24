@@ -96,17 +96,17 @@ SELECT
   s.reliability,
   CASE
     WHEN s.reliability = 'laag' AND COALESCE(s.cape, 0) > 2000 THEN
-      'Verder in de week kans op buien, vooral rond het middaguur · Mid-week PM convection trend'
+      'Mid-week PM convection trend — showers possible, especially around midday'
     WHEN s.reliability = 'laag' THEN
-      'Verder in de week alleen trend (geen harde %) · Further out: qualitative trend only'
+      'Further out: qualitative trend only (no hard %)'
     WHEN COALESCE(s.kans_onweer_pct, 0) > 30 OR COALESCE(s.cape, 0) > 2000 THEN
-      'Onweer mogelijk – blijf alert · Thunder possible — stay alert'
+      'Thunder possible — stay alert'
     WHEN COALESCE(s.kans_regen_pct, 0) > 40 THEN
-      'Kans op bui, vooral middag · Shower chance, especially afternoon'
+      'Shower chance, especially in the afternoon'
     WHEN COALESCE(s.kans_mist_pct, 0) > 20 THEN
-      'Mist mogelijk · Fog possible'
+      'Fog possible'
     ELSE
-      'Goede beach condities · Good beach conditions'
+      'Good beach conditions'
   END AS samui_advice
 FROM (
   SELECT

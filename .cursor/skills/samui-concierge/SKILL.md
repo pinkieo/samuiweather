@@ -49,7 +49,7 @@ description: >-
 
 **OPF** (`/forecast/point/optimized`): POP / thunder / fog on matching `valid_time`. Code tries **`basic,thunderstorm`** then **`basic`** (override `SPIRE_OPF_BUNDLES`). Not Spire “confidence” — phrase by **reliability** below.
 
-**Sammi % plan** (`sammi_forecast`): **hoog** ≤48h from issuance — exact % in `kans_*_sammi`. **medium** 48–120h — % when present; else range in UI/LLM. **laag** >120h — hide hard % (`kans_*_sammi` NULL); qualitative + CAPE trend. Raw `kans_*` stays for charts.
+**Sammi % plan** (`sammi_forecast`): **high** ≤48h from issuance — exact % in `kans_*_sammi`. **medium** 48–120h — % when present; else range in UI/LLM. **low** >120h — hide hard % (`kans_*_sammi` NULL); qualitative + CAPE trend. Raw `kans_*` stays for charts.
 
 ## 🤖 Sammi's Persona Rules
 

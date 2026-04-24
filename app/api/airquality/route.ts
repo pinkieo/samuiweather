@@ -36,8 +36,8 @@ export async function GET(request: Request) {
   console.log('[airquality] token aanwezig:', !!token);
 
   if (!token) {
-    console.error('[airquality] NEXT_PUBLIC_AQICN_TOKEN ontbreekt in .env.local');
-    return NextResponse.json({ error: 'NEXT_PUBLIC_AQICN_TOKEN niet ingesteld' }, { status: 500 });
+    console.error('[airquality] NEXT_PUBLIC_AQICN_TOKEN is missing in .env.local');
+    return NextResponse.json({ error: 'NEXT_PUBLIC_AQICN_TOKEN is not set' }, { status: 500 });
   }
 
   const { lat, lon } = parseLatLon(request);

@@ -260,7 +260,14 @@ function getDailySteer(
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
-function Avatar({ sammiMood }: { sammiMood: SammiMood }) {
+function Avatar({
+  sammiMood,
+  showLabels = true,
+}: {
+  sammiMood: SammiMood;
+  /** When false, only the portrait ring (title lives in the panel header). */
+  showLabels?: boolean;
+}) {
   const cfg = moodCfg[sammiMood];
   const [imgFailed, setImgFailed] = useState(false);
   return (
@@ -282,8 +289,12 @@ function Avatar({ sammiMood }: { sammiMood: SammiMood }) {
         )}
         <span className={`absolute bottom-0.5 right-0.5 h-2.5 w-2.5 rounded-full border-2 border-slate-900 ${cfg.dot} animate-pulse`} />
       </div>
-      <p className="text-[10px] font-black uppercase tracking-widest text-white/80">SAMMI</p>
-      <p className={`text-[9px] font-bold uppercase tracking-wider ${cfg.accent}`}>Weather expert</p>
+      {showLabels ? (
+        <>
+          <p className="text-[10px] font-black uppercase tracking-widest text-white/80">SAMMI</p>
+          <p className={`text-[9px] font-bold uppercase tracking-wider ${cfg.accent}`}>Weather expert</p>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -460,8 +471,11 @@ export default function SammiConcierge({
           className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2.5 [scrollbar-gutter:stable]"
         >
           <div className="flex items-start gap-3">
-            <Avatar sammiMood={sammiMood} />
+            <Avatar sammiMood={sammiMood} showLabels={false} />
             <div className="min-w-0 flex-1 space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-[0.14em] text-cyan-300/95">
+                SAMMI Weather Expert
+              </p>
               {now && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-widest ${cfg.badge}`}>
@@ -472,7 +486,7 @@ export default function SammiConcierge({
                     {formatTempC(now.temp)}°C
                   </span>
                   <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60">
-                    {(now.precipRate ?? 0) > 0 ? `${Number(now.precipRate ?? 0).toFixed(1)} mm/h` : 'No rain'}
+                    {(now.precipRate ?? 0) > 0 ? `${Number(now.precipRate ?? 0).toFixed(1)} mm/h` : 'no rain'}
                   </span>
                   {(now.pop ?? 0) > 0 && (
                     <span className="rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold text-sky-300/95">
@@ -486,16 +500,16 @@ export default function SammiConcierge({
               )}
 
               <div className={`min-h-[4rem] rounded-xl border px-3 py-2.5 ${cfg.bubble}`}>
-                <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  {steer.icon} Daily Steer
+                <p className="mb-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-300">
+                  {steer.icon} DAILY STEER
                 </p>
                 <p className="text-sm font-medium leading-relaxed text-white">{steerText}</p>
               </div>
 
               {tomorrowRow && (
                 <div className="rounded-xl border border-cyan-500/20 bg-cyan-950/25 px-3 py-2">
-                  <p className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-cyan-300/90">
-                    Tomorrow (ICT) · ~noon snapshot
+                  <p className="mb-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-cyan-300/90">
+                    TOMORROW (ICT) - NOON SNAPSHOT
                   </p>
                   <p className="text-sm font-medium leading-snug text-white/95">
                     {formatTomorrowOneLiner(tomorrowRow)}
@@ -504,8 +518,8 @@ export default function SammiConcierge({
               )}
 
               <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
-                <p className="mb-0.5 text-[10px] font-black uppercase tracking-widest text-white/50">
-                  {conflictRegion === 'krabi' ? 'Coast tip' : 'Island tip'}
+                <p className="mb-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-white/55">
+                  {conflictRegion === 'krabi' ? 'COAST TIP' : 'ISLAND TIP'}
                 </p>
                 <p className="text-sm leading-snug text-white/85">{microTip}</p>
               </div>

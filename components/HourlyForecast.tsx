@@ -9,14 +9,14 @@ import WindCompass from './WindCompass';
 
 interface HourlyForecastProps {
   rows: SamuiWeatherForecastRow[];
-  /** Index in `rows` — matches Sammi / Weather Now. Tegel met deze index krijgt de uitgebreide layout. */
+  /** Index in `rows` — matches Sammi / Weather Now. The tile with this index gets the expanded layout. */
   selectedIndex?: number;
   onHourSelect?: (indexInRows: number) => void;
 }
 
 const TZ = 'Asia/Bangkok';
 
-/** Meteorologische windrichting (0–360°) → kompaslabel (zelfde 16-sectoren als elders). */
+/** Meteorological wind direction (0–360°) → compass label (same 16 sectors as elsewhere). */
 const WIND_DIR_LABELS = [
   'N',
   'NNE',
@@ -59,7 +59,7 @@ function bangkokDateKey(iso: string): string {
   }
 }
 
-/** Bangkok datum+tijdsuur — voor “is dit het huidige uur?” */
+/** Bangkok date+hour — for “is this the current hour?” */
 function bangkokHourKey(input: Date | string): string {
   const d = typeof input === 'string' ? new Date(input) : input;
   if (Number.isNaN(d.getTime())) return '';
@@ -77,7 +77,7 @@ function isSameBangkokHourAsNow(iso: string): boolean {
   return bangkokHourKey(iso) === bangkokHourKey(new Date());
 }
 
-/** Hourly steps for the current calendar day (Bangkok), met originele index in `rows` voor selectedIndex-sync. */
+/** Hourly steps for the current calendar day (Bangkok), with original index in `rows` for selectedIndex sync. */
 function todayHourlyWithIndices(
   rows: SamuiWeatherForecastRow[],
 ): { row: SamuiWeatherForecastRow; index: number }[] {

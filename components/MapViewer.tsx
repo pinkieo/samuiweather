@@ -30,12 +30,17 @@ import {
   type DashboardRegionId,
   getDashboardRegion,
 } from '../lib/dashboard-regions';
+import { HOLIDAY_MAP_FOOTER_LINE } from '../lib/holiday-now-hints';
 import type { MetarApiResponse } from '../app/api/metar/route';
 import { dominantCoverFromMetarClouds, type MetarDominantCover } from '../lib/sky-display';
 import { sampleRadarEchoAtLocation } from '../lib/rainviewer-tile-sample';
 import { useRadarFeed } from './RadarFramesProvider';
 import { mergeSamuiHourlyIntoRows } from '../lib/merge-sammi-forecast';
 import type { SammiDailyForecastViewRow, SammiForecastViewRow } from '../lib/sammi-views';
+import {
+  blendReferenceNowcastIntoFirstRow,
+  type ReferenceNowcastSnapshot,
+} from '../lib/forecast-reference';
 
 const SamuiExploreMap = dynamic(() => import('./SamuiExploreMap'), {
   ssr: false,
@@ -115,69 +120,11 @@ function forecastCacheTsKey(regionId: DashboardRegionId): string {
   return `samui-spire-forecast-v2-${regionId}-ts`;
 }
 
-type MeteoblueLiveSnapshot = {
-  tempC: number | null;
-  windSpeedMs: number;
-  windDirDeg: number;
-  /** Nearest 1h slot, mm in that hour — shown as mm/h alongside Spire. */
-  precipMm: number;
-};
-
-/** Nearest-hour Meteoblue “now” over eerste Spire-stap: betere actuele bui/temp dan alleen modelgrid. */
-function applyMeteoblueLiveToFirstRow(
-  rows: SamuiWeatherForecastRow[],
-  snap: MeteoblueLiveSnapshot | null,
-): SamuiWeatherForecastRow[] {
-  if (!snap || rows.length === 0) return rows;
-  const r0 = { ...rows[0] };
-  if (snap.tempC != null && Number.isFinite(snap.tempC)) {
-    r0.temp = snap.tempC;
-    r0.feelsLike = snap.tempC;
-  }
-  r0.windSpeed = snap.windSpeedMs;
-  r0.windDir = snap.windDirDeg;
-  r0.precipRate = Math.max(0, snap.precipMm);
-  if (snap.precipMm > 0.08) {
-    r0.pop = Math.max(r0.pop, Math.min(92, Math.round(45 + snap.precipMm * 25)));
-  }
-  return [r0, ...rows.slice(1)];
-}
-
-/** meteoblue live line (data from parent — één fetch voor strip + dashboard blend). */
-function MeteoblueModelStrip({
-  label,
-}: {
-  label: string;
-}) {
-  return (
-    <div className="pointer-events-none absolute left-3 top-[5.75rem] z-[8] max-w-[min(100%-1.5rem,22rem)] rounded-full border border-white/10 bg-slate-950 px-3 py-1.5 text-[9px] font-semibold text-slate-300 shadow-xl sm:left-[calc(1rem+28rem+0.75rem)] sm:top-4">
-      {label}
-    </div>
-  );
-}
-
-function formatMeteoblueStripLabel(
-  enabled: boolean,
-  ok: boolean,
-  snap: MeteoblueLiveSnapshot | null,
-): string {
-  if (!enabled) return 'meteoblue: add METEOBLUE_API_KEY';
-  if (!ok || !snap) return 'meteoblue: unavailable';
-  const wMs = snap.windSpeedMs.toFixed(1);
-  const t = snap.tempC != null ? `${snap.tempC}°C` : '—';
-  const wd = DIRS[Math.round(snap.windDirDeg / 22.5) % 16];
-  const rain =
-    snap.precipMm > 0.02
-      ? ` · 🌧 ${snap.precipMm.toFixed(2)} mm/h`
-      : ' · dry';
-  return `live meteoblue · ${t}${rain} · ${wd} ${wMs} m/s`;
-}
-
-type MeteoblueClientState =
+type ReferenceGridClientState =
   | { status: 'loading' }
   | { status: 'disabled' }
   | { status: 'error' }
-  | { status: 'ok'; snap: MeteoblueLiveSnapshot };
+  | { status: 'ok'; snap: ReferenceNowcastSnapshot };
 
 export default function MapViewer() {
   const [dashboardRegionId, setDashboardRegionId] = useState<DashboardRegionId>(
@@ -192,15 +139,15 @@ export default function MapViewer() {
   const [tideRaw, setTideRaw]             = useState<unknown>(null);
   const [forecastStatus, setForecastStatus] = useState<'loading' | 'ok' | 'error'>('loading');
   const [forecastError, setForecastError]   = useState<string | null>(null);
-  /** Nearest-hour Meteoblue snapshot — merged into first Spire row as “live” conditions. */
-  const [mbState, setMbState] = useState<MeteoblueClientState>({ status: 'loading' });
+  /** Nearest-hour local grid for row-0 blend only; hourly strip + DB Sammi = Spire. */
+  const [mbState, setMbState] = useState<ReferenceGridClientState>({ status: 'loading' });
   /** Server-side `sammi_forecast` / `sammi_daily_forecast` (kans_*, advice, reliability). */
   const [sammiHourlyRows, setSammiHourlyRows] = useState<SammiForecastViewRow[]>([]);
   const [sammiDailyByIsoDay, setSammiDailyByIsoDay] = useState<Record<
     string,
     SammiDailyForecastViewRow
   > | null>(null);
-  /** Globale RainViewer feed (root provider) — niet afhankelijk van kaart-mount. */
+  /** Global RainViewer feed (root provider) — independent of map mount. */
   const radarFeed = useRadarFeed();
   const [radarEcho, setRadarEcho] = useState<'unknown' | 'none' | 'precip'>('unknown');
   /** Region airport METAR dominant layer — softens Spire cloud % when sky is clear/few. */
@@ -371,7 +318,7 @@ export default function MapViewer() {
     };
   }, [dashboardRegionId, region.lat, region.lon]);
 
-  /** Supabase Sammi-views: parallel met Spire, alleen wanneer `region.weatherLocationId` is gezet. */
+  /** Supabase Sammi views: parallel to Spire only when `region.weatherLocationId` is set. */
   useEffect(() => {
     if (!region.weatherLocationId) {
       setSammiHourlyRows([]);
@@ -483,7 +430,7 @@ export default function MapViewer() {
       .catch(() => setMetarSkyCover(null));
   }, [dashboardRegionId]);
 
-  // ── Meteoblue live hour (temp / wind / rain) — blend into row 0 for Krabi & Samui ─
+  // ── Local 1h grid (private route) — blend into row 0; strip stays Spire-led ─
   useEffect(() => {
     let cancelled = false;
     const run = () => {
@@ -537,7 +484,7 @@ export default function MapViewer() {
     };
   }, [region.lat, region.lon]);
 
-  // ── RainViewer tile at pin: echo vs dry Spire / Meteoblue (路径 uit globale feed, niet uit kaart) ─
+  // ── RainViewer tile at pin: echo vs dry model row 0 (from global feed, not from map sampling) ─
   useEffect(() => {
     const path = radarFeed.latestFrame?.path;
     if (!path) {
@@ -563,7 +510,7 @@ export default function MapViewer() {
 
   const displayForecastRows = useMemo(() => {
     const snap = mbState.status === 'ok' ? mbState.snap : null;
-    return applyMeteoblueLiveToFirstRow(spireWithSammi, snap);
+    return blendReferenceNowcastIntoFirstRow(spireWithSammi, snap);
   }, [spireWithSammi, mbState]);
 
   const radarLeadsOverDryModels = useMemo(() => {
@@ -576,13 +523,6 @@ export default function MapViewer() {
   }, [radarEcho, selectedIndex, forecastRows, mbState]);
 
   const weather = displayForecastRows[selectedIndex] ?? null;
-
-  const meteoblueStripLabel = useMemo(() => {
-    if (mbState.status === 'loading') return 'meteoblue: loading…';
-    if (mbState.status === 'disabled') return 'meteoblue: add METEOBLUE_API_KEY';
-    if (mbState.status === 'error') return 'meteoblue: unavailable';
-    return formatMeteoblueStripLabel(true, true, mbState.snap);
-  }, [mbState]);
 
   const handleMapFlyTo = (locationId: string) => {
     const p = getPoiById(locationId);
@@ -635,7 +575,6 @@ export default function MapViewer() {
 
       {/* ── Base map: satellite + radar + POIs ─ */}
       <div className="absolute inset-0 z-0 min-h-0">
-        <MeteoblueModelStrip label={meteoblueStripLabel} />
         <SamuiExploreMap
           key={dashboardRegionId}
           flyToRequest={flyToRequest}
@@ -655,6 +594,7 @@ export default function MapViewer() {
           }
           mapScaleContextLabel={region.isSamuiProduct ? 'island' : 'coast'}
           radarScrub={radarScrubFrame}
+          mapFooterHolidayLine={HOLIDAY_MAP_FOOTER_LINE}
         />
 
         {/* Buienradar-style hourly strip — tap hour → map shows that scan; Live = newest */}
@@ -697,7 +637,7 @@ export default function MapViewer() {
       >
 
         {/* Region tabs — Samui vs Krabi test */}
-        <div className="mb-2 flex rounded-2xl border border-white/10 bg-slate-950 p-1 shadow-lg">
+        <div className="mb-2 flex rounded-2xl border border-white/10 bg-slate-950/90 p-1 shadow-lg backdrop-blur-md">
           {DASHBOARD_REGION_TAB_ORDER.map((id) => {
             const r = getDashboardRegion(id);
             const active = dashboardRegionId === id;
@@ -728,11 +668,11 @@ export default function MapViewer() {
           className={[
             'flex w-full items-center justify-between gap-3 px-5 py-3 text-white',
             'shadow-2xl transition-all duration-300',
-            'border border-white/10',
+            'border border-cyan-500/15 backdrop-blur-xl',
             isDashboardOpen
               ? 'rounded-t-3xl border-b-0'
               : 'rounded-3xl border-b border-white/10',
-            'bg-slate-950',
+            'bg-slate-950/85',
           ].join(' ')}
         >
           <div className="flex min-w-0 items-center gap-3">
@@ -775,7 +715,7 @@ export default function MapViewer() {
         <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isDashboardOpen ? 'max-h-[82vh]' : 'max-h-0'}`}>
           <div
             ref={drawerBodyScrollRef}
-            className={`max-h-[78vh] overflow-y-auto rounded-b-3xl border border-t-0 border-white/10 bg-slate-950 p-5 text-white shadow-2xl transition-colors duration-700`}
+            className="max-h-[78vh] overflow-y-auto rounded-b-3xl border border-t-0 border-cyan-500/10 bg-slate-950/90 p-5 text-white shadow-2xl backdrop-blur-xl ring-1 ring-cyan-500/5 transition-colors duration-700"
           >
 
             {/* Scroll anchor for storm banner */}
@@ -822,24 +762,9 @@ export default function MapViewer() {
               <>
                 {radarLeadsOverDryModels && (
                   <div className="mb-3 rounded-xl border border-sky-500/45 bg-sky-950/55 px-3 py-2 text-[10px] leading-snug text-sky-50/95">
-                    <span className="font-bold text-sky-300">Radar-led · precipitation at this pin</span>{' '}
-                    Latest RainViewer scan sees echo here while Spire / Meteoblue still read dry — we surface that as
-                    the lead signal for active showers. Seek shelter if it matches what you see outside.
-                  </div>
-                )}
-                {mbState.status === 'ok' && (
-                  <div
-                    className={`mb-3 rounded-xl border px-3 py-2 text-[10px] leading-snug ${
-                      mbState.snap.precipMm > 0.02
-                        ? 'border-cyan-500/30 bg-cyan-950/35 text-cyan-100/95'
-                        : 'border-white/10 bg-white/5 text-slate-400'
-                    }`}
-                  >
-                    <span className={mbState.snap.precipMm > 0.02 ? 'font-bold text-cyan-300' : 'font-semibold text-slate-300'}>
-                      Live · Meteoblue
-                    </span>{' '}
-                    Nearest hour blended into the first row (rain {mbState.snap.precipMm.toFixed(2)} mm/h). Hourly strip =
-                    Spire. Radar overlay = best cue for active showers.
+                    <span className="font-bold text-sky-300">Rain on the map right now</span>{' '}
+                    The radar shows wet weather here even though the first hour in the list still looks dry — watch the sky
+                    and find cover if you need to.
                   </div>
                 )}
                 <VacationDashboard
@@ -853,6 +778,7 @@ export default function MapViewer() {
                   radarLeadsOverDryModels={radarLeadsOverDryModels}
                   metarSkyCover={metarSkyCover}
                   sammiDailyByIsoDay={sammiDailyByIsoDay}
+                  productRegion={region.isSamuiProduct ? 'samui' : 'krabi'}
                 />
 
                 <div className="mb-3 mt-4">

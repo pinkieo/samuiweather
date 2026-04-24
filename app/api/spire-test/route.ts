@@ -6,12 +6,12 @@ import {
   spireGetJson,
 } from '../../../lib/spire';
 
-/** Snelle healthcheck; nieuwe integratie: gebruik GET /api/spire/forecast-point */
+/** Quick health check; prefer GET /api/spire/forecast-point for real integration tests. */
 export async function GET() {
   const token = getSpireApiToken();
   if (!token) {
     return NextResponse.json(
-      { status: 'Error', message: 'SPIRE_API_TOKEN ontbreekt' },
+      { status: 'Error', message: 'SPIRE_API_TOKEN is missing' },
       { status: 500 },
     );
   }
@@ -26,7 +26,7 @@ export async function GET() {
       return NextResponse.json(
         {
           status: 'Error',
-          message: 'Spire weigert de verbinding',
+          message: 'Spire refused the connection',
           details: data,
           hint,
         },
@@ -36,15 +36,15 @@ export async function GET() {
 
     const payload = data as { data?: unknown[] };
     return NextResponse.json({
-      status: 'Succes!',
-      message: 'Verbonden met Spire Global',
+      status: 'OK',
+      message: 'Connected to Spire Global',
       sampleData: Array.isArray(payload.data) ? payload.data[0] : undefined,
     });
   } catch (error) {
     return NextResponse.json(
       {
         status: 'Server Error',
-        error: error instanceof Error ? error.message : 'Onbekende fout',
+        error: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 },
     );

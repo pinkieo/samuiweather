@@ -38,8 +38,8 @@ export async function GET(request: Request) {
   console.log('[uvindex] key aanwezig:', !!key);
 
   if (!key) {
-    console.error('[uvindex] NEXT_PUBLIC_OPENUV_API_KEY ontbreekt in .env.local');
-    return NextResponse.json({ error: 'NEXT_PUBLIC_OPENUV_API_KEY niet ingesteld' }, { status: 500 });
+    console.error('[uvindex] NEXT_PUBLIC_OPENUV_API_KEY is missing in .env.local');
+    return NextResponse.json({ error: 'NEXT_PUBLIC_OPENUV_API_KEY is not set' }, { status: 500 });
   }
 
   const { lat, lon } = parseLatLon(request);
@@ -76,7 +76,7 @@ export async function GET(request: Request) {
     console.log('[uvindex] response keys:', Object.keys(json));
 
     if (json.error) throw new Error(`OpenUV API fout: ${json.error}`);
-    if (!json.result) throw new Error('OpenUV: geen result in response');
+    if (!json.result) throw new Error('OpenUV: no result in response');
 
     const r = json.result;
     const burnMinutes = r.safe_exposure_time?.st2 ?? null;

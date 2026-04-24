@@ -14,6 +14,9 @@ ALTER TABLE public.weather_history ADD COLUMN IF NOT EXISTS high_cloud_cover dou
 ALTER TABLE public.weather_history ADD COLUMN IF NOT EXISTS ceiling_m double precision;
 ALTER TABLE public.weather_history ADD COLUMN IF NOT EXISTS cape double precision;
 ALTER TABLE public.weather_history ADD COLUMN IF NOT EXISTS lifted_index double precision;
+ALTER TABLE public.weather_history ADD COLUMN IF NOT EXISTS pwat double precision;
+ALTER TABLE public.weather_history ADD COLUMN IF NOT EXISTS dcape double precision;
+ALTER TABLE public.weather_history ADD COLUMN IF NOT EXISTS cin double precision;
 ALTER TABLE public.weather_history ADD COLUMN IF NOT EXISTS probability_of_precipitation_1hr double precision;
 ALTER TABLE public.weather_history ADD COLUMN IF NOT EXISTS probability_of_precipitation_24hr double precision;
 ALTER TABLE public.weather_history ADD COLUMN IF NOT EXISTS probability_of_thunderstorm double precision;

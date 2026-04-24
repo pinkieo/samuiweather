@@ -30,7 +30,7 @@ export interface DashboardRegion {
   /** Show Koh Samui POI markers + Sammi airport intel */
   isSamuiProduct: boolean;
   /**
-   * `weather_forecast` / `sammi_*` `location_id` in Supabase (server-side API). `null` = geen Sammi-DB koppeling.
+   * `weather_forecast` / `sammi_*` `location_id` in Supabase (server-side API). `null` = no Sammi DB link.
    */
   weatherLocationId: string | null;
   /**
@@ -48,7 +48,7 @@ export const BAAN_MOOK_TALEY_AIRBNB_URL =
   'https://abnb.me/K6ysWW5z4U' as const;
 
 /**
- * Baan Mook Taley — Long Beach, Ao Nang, Krabi (national park kust); pin + Spire/tides.
+ * Baan Mook Taley — Long Beach, Ao Nang, Krabi (national park coast); pin + Spire/tides.
  */
 export const BAAN_MOOK_TALEY_WGS84 = {
   lat: 8.04561,
@@ -84,7 +84,7 @@ export const DASHBOARD_REGIONS: Record<DashboardRegionId, DashboardRegion> = {
     lngOffset: -0.034,
     latOffset: -0.02,
     isSamuiProduct: true,
-    /** Default: zie `WEATHER_LOCATION_ID` / engine ingest voor `weather_forecast`. */
+    /** Default: see `WEATHER_LOCATION_ID` / engine ingest for `weather_forecast`. */
     weatherLocationId: 'samui_opf_hybrid',
     homePins: [
       {
@@ -110,11 +110,11 @@ export const DASHBOARD_REGIONS: Record<DashboardRegionId, DashboardRegion> = {
     lat: BAAN_MOOK_TALEY_WGS84.lat,
     lon: BAAN_MOOK_TALEY_WGS84.lon,
     mapZoom: 9,
-    /** Center on property / beach (no drawer nudge — zoom shows strand). */
+    /** Center on property / beach (no drawer nudge — zoom shows the shore). */
     lngOffset: 0,
     latOffset: 0,
     isSamuiProduct: false,
-    /** Geen `sammi_*` row voor Krabi totdat er een aparte `location_id` in de DB is. */
+    /** No `sammi_*` row for Krabi until a separate `location_id` exists in the DB. */
     weatherLocationId: null,
     homePins: [
       {
@@ -137,4 +137,45 @@ export const DASHBOARD_REGION_TAB_ORDER: DashboardRegionId[] = [
 
 export function getDashboardRegion(id: DashboardRegionId): DashboardRegion {
   return DASHBOARD_REGIONS[id];
+}
+
+/**
+ * “Now · this hour” — short lines for the drawer; no model jargon. {@link getHolidayNowBasePanel}
+ * picks Samui (local tuning / `weatherLocationId` or `isSamuiProduct`) vs other spots (e.g. Krabi)
+ * the same way as the old blend copy.
+ *
+ * **Extending later:** new islands (Phuket, Koh Lanta, …) = new `DashboardRegionId` + entry in
+ * `DASHBOARD_REGIONS`; optional `weatherLocationId` drives which of the two phrasings is used.
+ * Extra “shower / thunder” lines are computed in `getHolidayNowAmenityHints` (`lib/holiday-now-hints.ts`).
+ */
+export type HolidayNowPanel = {
+  title: string;
+  lines: readonly [string, string];
+};
+
+/**
+ * True when the product has a Supabase/OPF path for that place (Samui today) — warmer “dry and warm”
+ * line. Krabi: no `weatherLocationId` yet → “models show dry conditions” line.
+ */
+function regionUsesOpfStyleBlend(r: DashboardRegion): boolean {
+  return Boolean(r.weatherLocationId) || r.isSamuiProduct;
+}
+
+export function getHolidayNowBasePanel(region: DashboardRegion): HolidayNowPanel {
+  if (regionUsesOpfStyleBlend(region)) {
+    return {
+      title: 'Now · this hour',
+      lines: [
+        "Right now it's dry and warm.",
+        'The time bar below shows the forecast for the coming hours.',
+      ],
+    };
+  }
+  return {
+    title: 'Now · this hour',
+    lines: [
+      'Right now: latest weather models show dry conditions.',
+      'The time bar below shows the forecast for the coming hours.',
+    ],
+  };
 }

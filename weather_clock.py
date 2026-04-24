@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Spire point forecast voor Koh Samui — tijdsopbouw volgens contract:
-  0–48 uur: hourly
-  48–120 uur: 3-hourly
-  120–360 uur (15 dagen): 6-hourly
+Spire point forecast for Koh Samui — time layout per contract:
+  0–48h: hourly
+  48–120h: 3-hourly
+  120–360h (15 days): 6-hourly
 
-Eén call met time_bundle=hourly en forecast_hours=360 levert typisch maar ~48 uur;
-we halen daarom drie responses op en mergen op valid_time (fijnere resolutie wint).
+A single call with time_bundle=hourly and forecast_hours=360 often returns only ~48h;
+we therefore fetch three responses and merge on valid_time (finer resolution wins).
 
-Spire-queryparam: time_bundle = hourly | 3_hourly | 6_hourly (underscore; niet "6hourly").
+Spire query param: time_bundle = hourly | 3_hourly | 6_hourly (underscore; not "6hourly").
 """
 
 from __future__ import annotations
@@ -28,14 +28,14 @@ load_dotenv(".env.local", override=True)
 
 SPIRE_POINT = "https://api.wx.spire.com/forecast/point"
 
-# Koh Samui (gevraagd)
+# Koh Samui (default pin)
 DEFAULT_LAT = 9.5127
 DEFAULT_LON = 100.0137
 
-# Bundles: uitbreidbaar via env (clouds/thunderstorm alleen als je token die toestaat)
+# Bundles: extend via env (clouds/thunderstorm only if your token allows)
 DEFAULT_BUNDLES = "basic,maritime-atmos"
 
-# Fijner interval = hoger prioriteitsgetal bij merge (zelfde valid_time)
+# Finer interval = higher merge priority (same valid_time)
 TIER_PRIORITY = {"6_hourly": 1, "3_hourly": 2, "hourly": 3}
 
 
@@ -119,13 +119,13 @@ def merge_tiered_forecasts(
     responses: List[Tuple[str, Dict[str, Any]]],
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
     """
-    Merge rows from coarse → fine: bij dezelfde valid_time wint de hoogste _priority.
+    Merge rows from coarse → fine: for the same valid_time, highest _priority wins.
     Returns (merged_rows_sorted, warnings).
     """
     warnings: List[str] = []
     best: Dict[str, Dict[str, Any]] = {}
 
-    # Verwerk van laag naar hoog priority zodat hourly als laatste wint
+    # Process low → high priority so hourly wins last
     ordered = sorted(
         responses,
         key=lambda x: min(TIER_PRIORITY.get(x[0], 0), 99),
@@ -161,8 +161,8 @@ def iter_rows_with_step_hours(
     merged: List[Dict[str, Any]],
 ) -> Iterable[Tuple[Dict[str, Any], float]]:
     """
-    Voor verwerking: elke rij + uren tot de volgende (laatste rij: inf).
-    Geen interpolatie — alleen de natuurlijke Spire-tijdstappen (1h / 3h / 6h).
+    For processing: each row + hours until the next (last row: inf).
+    No interpolation — only native Spire time steps (1h / 3h / 6h).
     """
     for i, row in enumerate(merged):
         if i + 1 < len(merged):
@@ -179,10 +179,10 @@ def run_clock(
     bundles: str = DEFAULT_BUNDLES,
 ) -> Dict[str, Any]:
     """
-    Contractmatige calls (parallel):
-      - hourly, 48 uur
-      - 3_hourly, 120 uur
-      - 6_hourly, 360 uur  ← 15-daagse dekking grof raster
+    Contract calls (parallel):
+      - hourly, 48h
+      - 3_hourly, 120h
+      - 6_hourly, 360h  ← 15-day coverage, coarse grid
     """
     jobs = [
         ("hourly", 48),
@@ -238,7 +238,7 @@ def run_clock(
 def main() -> int:
     token = (os.getenv("SPIRE_API_TOKEN") or os.getenv("SPIRE_API_KEY") or "").strip()
     if not token:
-        print("Zet SPIRE_API_TOKEN (of SPIRE_API_KEY) in .env", file=sys.stderr)
+        print("Set SPIRE_API_TOKEN (or SPIRE_API_KEY) in .env", file=sys.stderr)
         return 1
 
     lat = float(os.getenv("WEATHER_CLOCK_LAT") or DEFAULT_LAT)
@@ -247,7 +247,7 @@ def main() -> int:
 
     out = run_clock(token, lat=lat, lon=lon, bundles=bundles)
 
-    # JSON naar stdout (inclusief merged data); voor groot bestand optioneel alleen stats
+    # JSON to stdout (including merged data); optional stats-only for large output
     if os.getenv("WEATHER_CLOCK_STATS_ONLY", "").lower() in ("1", "true", "yes"):
         slim = {k: v for k, v in out.items() if k != "merged"}
         slim["merged_row_count"] = out["merged_row_count"]

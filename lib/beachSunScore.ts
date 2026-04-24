@@ -53,11 +53,13 @@ export function calculateBeachSunScore(row: SamuiWeatherForecastRow): BeachSunSc
   const mid = row.spireCloudMid ?? 0;
   const high = row.spireCloudHigh ?? 0;
   const total = row.cloudCover ?? 0;
-  const ceiling = row.cloudCeiling ?? 99999;
+  const ceiling = row.cloudCeiling ?? row.sammi?.ceilingM ?? 99999;
   const cape = row.cape ?? 0;
   const pwat = row.pwat ?? 0;
   const dcape = row.dcape ?? 0;
   const precipRate = row.precipRate ?? 0;
+  /** Spire first; else Sammi same-hour (view) when thunder bundle missing on the client row. */
+  const cinRaw = pickCinJkg(row);
 
   let score = 100;
 
@@ -69,35 +71,54 @@ export function calculateBeachSunScore(row: SamuiWeatherForecastRow): BeachSunSc
   if (ceiling < 1200) score -= 32;
   if (ceiling < 600) score -= 25;
 
-  if (cape > 2200 && pwat > 55) score -= 45;
-  if (dcape > 850) score -= 28;
+  /* Samui tropical guide: CAPE>2000 + PWAT>55 = strongly unstable; DCAPE>800 = strong gusts */
+  if (cape > 2000 && pwat > 55) score -= 45;
+  if (dcape > 800) score -= 28;
   if (precipRate > 0.4) score -= 35;
+
+  /**
+   * CIN (J/kg) is typically <= 0 in model output: closer to 0 = weaker “lid” (less inhibition),
+   * more negative = stronger cap. Product rule from concierge tuning:
+   * - Strong cap (e.g. < −50 J/kg): slightly worse score (gloomier or storm-on-break risk).
+   * - Weaker cap / near-neutral (−50 … 0): small bonus — “quieter” feel for a beach day.
+   */
+  if (cinRaw != null && Number.isFinite(cinRaw)) {
+    if (cinRaw < -50) score -= 8;
+    else if (cinRaw <= 0) score += 3;
+  }
 
   score = Math.max(5, Math.min(100, Math.round(score)));
 
   let label = '🏖️ Perfect Beach Day';
   let color: BeachSunColor = 'emerald';
-  let advice = 'Volledig strandweer – ga nu!';
+  let advice = 'Full beach weather — great time to go.';
 
   if (score >= 85) {
     // perfect
   } else if (score >= 70) {
     label = '🏝️ Good Beach Day';
-    advice = 'Goed strandweer, maar let op de namiddagbui.';
+    advice = 'Good beach conditions — watch for afternoon showers in the hourly strip.';
     color = 'lime';
   } else if (score >= 50) {
     label = '⛅ Mixed Conditions';
-    advice = 'Ochtend vaak beter dan middag – check hourly.';
+    advice = 'Morning often better than afternoon — check the hourly forecast.';
     color = 'amber';
   } else if (score >= 30) {
     label = '🌧️ Marginal';
-    advice = 'Paraplu mee en indoor alternatief klaar.';
+    advice = 'Bring a brolly and keep an indoor plan B.';
     color = 'orange';
   } else {
     label = '⛈️ Bad Beach Day';
-    advice = 'Beter indoor of overdekte activiteit.';
+    advice = 'Better to stay indoors or pick covered activities.';
     color = 'red';
   }
 
   return { score, label, color, advice, lowCloud: low, ceiling };
+}
+
+function pickCinJkg(row: SamuiWeatherForecastRow): number | null {
+  if (row.cin != null && Number.isFinite(row.cin)) return row.cin;
+  const s = row.sammi?.cinJkg;
+  if (s != null && Number.isFinite(s)) return s;
+  return null;
 }

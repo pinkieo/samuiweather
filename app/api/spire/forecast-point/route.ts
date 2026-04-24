@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   const token = getSpireApiToken();
   if (!token) {
     return NextResponse.json(
-      { status: 'Error', message: 'SPIRE_API_TOKEN ontbreekt' },
+      { status: 'Error', message: 'SPIRE_API_TOKEN is missing' },
       { status: 500 },
     );
   }
@@ -62,7 +62,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         status: 'Server Error',
-        error: error instanceof Error ? error.message : 'Onbekende fout',
+        error: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 },
     );

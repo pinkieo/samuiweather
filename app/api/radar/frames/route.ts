@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getRainViewerIngestProof } from '@/lib/rainviewer-ingest-proof';
 
 export const runtime = 'edge';
-/** Voorkom Data Cache van half/stale responses tijdens dev — altijd verse `weather-maps.json`. */
+/** Avoid half-stale cached responses in dev — always fresh `weather-maps.json`. */
 export const dynamic = 'force-dynamic';
 
 /** If upstream `past` is empty, use the last N scans (RainViewer ~10 min cadence). */
@@ -41,8 +41,8 @@ export async function GET() {
         : [];
     const list = Array.isArray(past) ? past : [];
     /**
-     * RainViewer levert `radar.past` al als ~2 uur historie (10‑min stappen). Niet nog eens tot 90 min
-     * knippen — dan mist de urenstrip het oudste ICT‑uur (klikbaar + kleur).
+     * RainViewer already delivers `radar.past` as ~2h history (10-min steps). Do not trim again
+     * to 90 min — the hourly strip would lose the oldest ICT hour (clickable + color).
      */
     const sortedPast = [...list].sort(
       (a: { time: number }, b: { time: number }) => a.time - b.time,

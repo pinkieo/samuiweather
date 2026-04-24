@@ -1,4 +1,4 @@
-/** Parse Spire tides JSON (v4: `values` = lijst van { name, value, … }) en trends. */
+/** Parse Spire tides JSON (v4: `values` = list of { name, value, … }) and trends. */
 
 type TidePoint = { t: number; h: number };
 
@@ -10,7 +10,7 @@ function numberFromRecord(o: Record<string, unknown>): number | undefined {
   return undefined;
 }
 
-/** Spire v4: `values[]` met `{ name, value }` of varianten per regio/bundel. */
+/** Spire v4: `values[]` with `{ name, value }` or per-region / per-bundle variants. */
 export function tideHeightFromValuesV4(values: unknown): number | undefined {
   if (values == null) return undefined;
 
@@ -162,8 +162,8 @@ export type TideTrend = 'rising' | 'falling' | 'steady' | 'unknown';
 type TideExtremum = { t: number; h: number; kind: 'high' | 'low' };
 
 /**
- * Lokale hoog/laag op het uur-grid. Optioneel: **prominentie** (m) om ruis te negeren —
- * anders ontstaan valse “laagwaters” 30–60 min na een piek (Spire-discretisatie).
+ * Local high/low on the hour grid. Optional: **prominence** (m) to filter noise —
+ * otherwise you get spurious “low water” 30–60 min after a peak (Spire discretization).
  */
 function enumerateTideExtrema(
   pts: TidePoint[],
@@ -187,7 +187,7 @@ function enumerateTideExtrema(
   return out;
 }
 
-/** Eerst strikter (minder valse extrema); daarna losser zodat vlak getij nog werkt. */
+/** Start stricter (fewer false extrema); then looser so flat tide still works. */
 function enumerateTideExtremaTiers(pts: TidePoint[]): TideExtremum[] {
   for (const minPm of [0.07, 0.045, 0.02, 0]) {
     const e = enumerateTideExtrema(pts, minPm);
@@ -196,14 +196,14 @@ function enumerateTideExtremaTiers(pts: TidePoint[]): TideExtremum[] {
   return [];
 }
 
-/** ~25 min rond hoog/laagwater = slack (segment-slope zou anders “eb” tonen terwijl je visueel nog bij de piek zit). */
+/** ~25 min around high/low water = slack (segment slope would otherwise show “ebbing” while you still look near the peak). */
 const TIDE_SLACK_MS = 25 * 60 * 1000;
 
 function tideTrendFromSegmentSlope(pts: TidePoint[], now: number): TideTrend {
   /**
-   * Halfopen intervallen [a,b) behalve het laatste segment [a,b]:
-   * zo valt `now` exact op een uur-grid na een hoogwater in het segment *na* de piek
-   * (dalend), niet in het segment ernaartoe (stijgend).
+   * Half-open intervals [a,b) except the last segment [a,b]:
+   * so `now` on an hour grid right after a high water falls in the segment *after* the peak
+   * (falling), not in the segment leading up to it (rising).
    */
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i];
@@ -236,8 +236,8 @@ function tideTrendFromSegmentSlope(pts: TidePoint[], now: number): TideTrend {
 }
 
 /**
- * Trend op basis van **fase tussen opeenvolgende hoog- en laagwaters** (niet alleen helling tussen twee uurpunkten).
- * Voorkomt “eb” vlak vóór een piek wanneer het segment al licht daalt terwijl je nog naar hoogwater toe zit.
+ * Trend from **phase between successive highs and lows** (not just slope between two hour samples).
+ * Avoids “ebbing” right before a peak when the segment already dips slightly while you are still building toward high water.
  */
 export function getTideTrend(raw: unknown): TideTrend {
   const pts = extractTidePoints(raw);
@@ -273,8 +273,8 @@ export function getTideTrend(raw: unknown): TideTrend {
 }
 
 /**
- * Waterstand op `atMs` (lineair tussen Spire-uurpunkten). Gebruik dit voor de UI — **niet** `data[0]`,
- * want het eerste punt is niet per se “nu”.
+ * Water level at `atMs` (linear between Spire hour samples). Use this for the UI — **not** `data[0]`,
+ * because the first point is not necessarily “now”.
  */
 export function getTideHeightAtNow(raw: unknown, atMs: number = Date.now()): number | null {
   const pts = extractTidePoints(raw);
@@ -300,14 +300,14 @@ export function getTideHeightAtNow(raw: unknown, atMs: number = Date.now()): num
 }
 
 /**
- * @deprecated Gebruik {@link getTideHeightAtNow} — eerste rij is niet het actuele tijdstip.
- * Blijft als alias voor oude callers.
+ * @deprecated Use {@link getTideHeightAtNow} — first row is not the current instant.
+ * Kept as an alias for older callers.
  */
 export function getFirstTideHeightM(raw: unknown): number | null {
   return getTideHeightAtNow(raw);
 }
 
-/** Advies voor strand (Chaweng/Lamai) op basis van getij-trend en actuele hoogte (m MSL). */
+/** Beach guidance (Chaweng/Lamai) from tide trend and current height (m MSL). */
 export type BeachAdviseStatus =
   | 'wide_beach'
   | 'beach_disappearing'
@@ -315,8 +315,8 @@ export type BeachAdviseStatus =
   | 'neutral';
 
 /**
- * Prioriteit: Deep Water (Top 5%) > Beach Disappearing (Top 15% + stijgend) > Wide Beach (< MSL + dalend).
- * Bij ontbrekende hoogte of trend die nodig is voor een regel: `neutral`.
+ * Priority: Deep Water (Top 5%) > Beach Disappearing (Top 15% + rising) > Wide Beach (< MSL + falling).
+ * If height or trend needed for a rule is missing: `neutral`.
  */
 export function getBeachAdvise(
   trend: TideTrend,
@@ -324,7 +324,7 @@ export function getBeachAdvise(
 ): BeachAdviseStatus {
   if (heightM == null || Number.isNaN(heightM)) return 'neutral';
 
-  // Dynamische drempels voor Samui (berekend over 30-daagse cyclus april 2026):
+  // Dynamic thresholds for Samui (from a 30-day cycle, April 2026):
   // Min: -0.51m | MSL: -0.01m | Max: 0.91m
   const THRESHOLD_DEEP_WATER = 0.64;         // Top 5%
   const THRESHOLD_BEACH_DISAPPEARING = 0.39; // Top 15%
@@ -368,7 +368,7 @@ export function getNextTideExtremum(raw: unknown): NextTideExtremum | null {
   const hNow = getTideHeightAtNow(raw, now);
 
   const ex = enumerateTideExtremaTiers(pts);
-  /** ~bovenkant getij; alleen hier: negeer “laag” die nauwelijks onder actuele piek zit (uur-grid ruis). */
+  /** ~top of tide; only here: ignore a “low” that barely dips under the current peak (hour-grid noise). */
   const HIGH_WATER_BAND_M = 0.52;
   const SHALLOW_DIP_M = 0.14;
 

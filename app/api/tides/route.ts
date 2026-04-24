@@ -73,7 +73,7 @@ export async function GET(request: Request) {
   return NextResponse.json(
     {
       error:
-        'SPIRE_API_TOKEN ontbreekt and Open-Meteo marine failed — no tide samples for this location',
+        'SPIRE_API_TOKEN is missing and Open-Meteo marine failed — no tide samples for this location',
     },
     { status: 502 },
   );

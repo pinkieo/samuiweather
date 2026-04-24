@@ -22,7 +22,7 @@ import { useHudThrottleMove } from '../lib/map-move-hud';
 const MAP_MAX_ZOOM = 20;
 
 /**
- * Exacte locatie Baan Mook Taley — Long Beach, Ao Nang, Krabi (national park kust).
+ * Exact Baan Mook Taley — Long Beach, Ao Nang, Krabi (national park coast).
  * Parent `initial*` props override when set (e.g. MapViewer region).
  */
 const INITIAL_LNG = 98.78503;
@@ -77,6 +77,11 @@ export interface SamuiExploreMapProps {
    * `null` = live (latest scan from feed).
    */
   radarScrub?: { path: string; time: number } | null;
+  /**
+   * Short tourist-friendly line: live rain on the map vs the forecast time bar
+   * (`HOLIDAY_MAP_FOOTER_LINE` from `lib/holiday-now-hints.ts`).
+   */
+  mapFooterHolidayLine: string;
 }
 
 /**
@@ -165,6 +170,7 @@ export default function SamuiExploreMap({
   homeLocationPins = null,
   mapScaleContextLabel = 'island',
   radarScrub = null,
+  mapFooterHolidayLine,
 }: SamuiExploreMapProps) {
   const mapRef = useRef<MapRef | null>(null);
   const startLng = initialLongitude ?? INITIAL_LNG;
@@ -289,7 +295,7 @@ export default function SamuiExploreMap({
 
   const activeRadarPath = radarScrub?.path ?? latestRadarFrame?.path ?? null;
 
-  /** Tijd van de scan die nu op de kaart ligt (scrub of live). */
+  /** Time of the scan currently shown on the map (scrub or live). */
   const activeScanClockLabel = useMemo(() => {
     const t = radarScrub?.time ?? latestRadarFrame?.time;
     if (!t) return null;
@@ -722,7 +728,7 @@ export default function SamuiExploreMap({
             }}
             onPointerDown={e => e.stopPropagation()}
             aria-expanded={sammiPanelOpen}
-            title={sammiPanelOpen ? 'Sammi chat inklappen' : 'Sammi chat uitklappen'}
+            title={sammiPanelOpen ? 'Hide SAMMI Weather Expert' : 'Open SAMMI Weather Expert'}
             className={[
               'touch-manipulation select-none flex w-full items-center justify-between gap-2 border border-white/15 bg-slate-950/90 px-2.5 text-left shadow-xl backdrop-blur-md transition-colors',
               sammiPanelOpen ? 'rounded-t-xl border-b-0 py-2' : 'rounded-xl py-2.5',
@@ -731,8 +737,8 @@ export default function SamuiExploreMap({
             {sammiPanelOpen ? (
               <>
                 <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-cyan-400">Sammi</p>
-                  <p className="text-[8px] font-semibold leading-tight text-slate-500">Concierge</p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.12em] text-cyan-300">SAMMI Weather Expert</p>
+                  <p className="text-[8px] font-semibold leading-tight text-slate-500">Tap to hide</p>
                 </div>
                 <span className="shrink-0 text-base leading-none text-slate-300" aria-hidden>
                   ▼
@@ -748,7 +754,10 @@ export default function SamuiExploreMap({
                     height={36}
                     className="h-9 w-9 shrink-0 rounded-full object-cover object-top ring-2 ring-cyan-500/35"
                   />
-                  <span className="truncate text-sm font-semibold tracking-tight text-white">Ask Sammi</span>
+                  <div className="min-w-0 text-left">
+                    <p className="truncate text-[11px] font-black uppercase tracking-wide text-white">SAMMI Weather Expert</p>
+                    <p className="truncate text-[8px] font-medium text-slate-500">Live · chat below</p>
+                  </div>
                 </div>
                 <span className="shrink-0 text-base leading-none text-slate-300" aria-hidden>
                   ▶
@@ -764,7 +773,7 @@ export default function SamuiExploreMap({
                 : 'pointer-events-none max-h-0 min-h-0 w-full overflow-hidden border-0 p-0 opacity-0 shadow-none'
             }
             aria-hidden={!sammiPanelOpen}
-            aria-label="Sammi concierge chat"
+            aria-label="SAMMI Weather Expert"
           />
         </div>
       </div>
@@ -776,16 +785,16 @@ export default function SamuiExploreMap({
             className="rounded-full border border-cyan-500/35 bg-cyan-500/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-cyan-200 shadow-lg backdrop-blur-md"
             title={
               radarScrub
-                ? `Scan ${activeScanClockLabel ?? '—'} (tijdlijn). Tik “Live” in de urenbalk voor de nieuwste sweep.`
+                ? `Scan ${activeScanClockLabel ?? '—'} (scrub). Tap “Live” in the hour bar for the newest sweep.`
                 : 'Latest RainViewer scan only — no animation loop. Map crossfades when a newer scan appears after refresh.'
             }
           >
-            🌧 Radar · {radarScrub ? 'tijdlijn' : 'live'}
+            🌧 Radar · {radarScrub ? 'scrub' : 'live'}
             {activeScanClockLabel ? ` · ${activeScanClockLabel}` : ''} · refresh{' '}
             {Math.round(radarDisplay.framesPollMs / 60000)}m · fade {radarDisplay.fadeTransitionMs}ms
           </div>
           <p className="rounded-lg border border-white/10 bg-slate-950/85 px-2 py-1 text-[8px] leading-snug text-slate-500 backdrop-blur-sm">
-            {`RainViewer ${RADAR_TILE_SIZE}px · z≤${RADAR_RASTER_MAX_ZOOM} native · TMD mosaic (e.g. Phuket, Surat Thani, Sathing Phra). Spire + meteoblue in panel.`}
+            {mapFooterHolidayLine}
           </p>
         </div>
       </div>

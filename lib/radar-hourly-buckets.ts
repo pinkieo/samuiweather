@@ -61,9 +61,9 @@ export function pickLatestFrameInHour(
 }
 
 /**
- * Frame voor kaart-scrub: eerst echte scan in het uur; voor **toekomstige** ICT-uren zonder hit
- * het nowcast-frame waarvan de tijd het dichtst bij het midden van dat uur ligt (RainViewer
- * cluster soms alle `time`-stempels in het huidige uur).
+ * Frame for map scrub: first real scan in the hour; for **future** ICT hours with no hit,
+ * use the nowcast frame whose time is closest to the middle of that hour (RainViewer
+ * sometimes clusters all `time` stamps in the current hour).
  */
 export function pickScrubFrameForHour(
   merged: RadarFrameLike[],

@@ -18,7 +18,7 @@ params = {
     "lat": 9.5120,
     "lon": 100.0136,
     "start_datetime": start_datetime,
-    "forecast_hours": 720, # 30 dagen
+    "forecast_hours": 720, # 30 days
 }
 
 headers = {
@@ -59,7 +59,7 @@ for row in rows:
         series_y.append(h)
 
 if not series_y:
-    print("Geen data gevonden!")
+    print("No data found.")
     exit(1)
 
 max_val = max(series_y)
@@ -76,10 +76,10 @@ p95_idx = int(len(series_y_sorted) * 0.95)
 p95_val = series_y_sorted[p95_idx]
 
 print(f"--- Samui Tides Analysis (30 days) ---")
-print(f"Aantal metingen: {len(series_y)} uur")
+print(f"Sample count: {len(series_y)} hours")
 print(f"Min: {min_val:.3f} m")
-print(f"Gemiddelde (MSL): {mean_val:.3f} m")
+print(f"Mean (MSL): {mean_val:.3f} m")
 print(f"Max: {max_val:.3f} m")
 print()
-print(f"Top 15% Drempel (Beach Disappearing): {p85_val:.3f} m")
-print(f"Top 5% Drempel (Deep Water): {p95_val:.3f} m")
+print(f"Top 15% threshold (beach disappearing): {p85_val:.3f} m")
+print(f"Top 5% threshold (deep water): {p95_val:.3f} m")

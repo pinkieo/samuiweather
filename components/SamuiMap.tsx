@@ -172,7 +172,7 @@ export default function SamuiMap() {
                   Weather
                 </p>
                 <p className="text-sm font-bold">
-                  {wxError ? 'Geen data' : weather ? 'Forecast' : 'Laden…'}
+                  {wxError ? 'No data' : weather ? 'Forecast' : 'Loading…'}
                 </p>
               </div>
             </div>

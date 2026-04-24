@@ -33,7 +33,7 @@ function bangkokDateKey(iso: string): string {
   }
 }
 
-/** Uur 0–23 in ICT voor dit forecast-moment (strand-venster / avond). */
+/** Hour 0–23 in ICT for this forecast moment (beach window / evening). */
 function bangkokHourFromIso(iso: string): number {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 12;
@@ -59,7 +59,7 @@ function bangkokTimeShort(iso: string): string {
   }
 }
 
-/** "Today" / "Tomorrow" / korte datum — zodat helder is welk moment het oordeel beschrijft. */
+/** "Today" / "Tomorrow" / short date — which moment the verdict describes. */
 function forecastDayContextLabel(iso: string): string {
   const rowKey = bangkokDateKey(iso);
   const todayKey = new Date().toLocaleDateString('en-US', {
@@ -100,7 +100,7 @@ export type VacationDashboardProps = {
   sunLatitude?: number;
   sunLongitude?: number;
   /**
-   * Latest-scan RainViewer echo at the property pin while Spire + Meteoblue “now” still look dry —
+   * Latest-scan RainViewer echo at the property pin while the lead hourly model still looks dry —
    * verdict + snapshot treat radar as leading for active convection.
    */
   radarLeadsOverDryModels?: boolean;
@@ -108,6 +108,8 @@ export type VacationDashboardProps = {
   metarSkyCover?: MetarDominantCover;
   /** Key = Bangkok calendar `YYYY-MM-DD` (from `sammi_daily_forecast.forecast_date`). */
   sammiDailyByIsoDay?: Record<string, SammiDailyForecastViewRow> | null;
+  /** Drives “Today” copy in the daily strip (heuristic Spire + Sammi daily hints). */
+  productRegion?: 'samui' | 'krabi';
 };
 
 // ─── Verdict logic ────────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ interface Verdict {
   dot: string;
 }
 
-/** Deterministische keuze: zelfde uur → zelfde zin, verschillende uren → mix. */
+/** Deterministic pick: same hour → same line, different hours → mix. */
 function pickVariant(seed: string, variants: readonly string[]): string {
   if (variants.length === 0) return '';
   let h = 2166136261;
@@ -133,8 +135,8 @@ function pickVariant(seed: string, variants: readonly string[]): string {
 }
 
 /**
- * ~20+ unieke avond-/nachtaanbevelingen, verdeeld over weertype en tijdvak.
- * (Zware bui / storm zit in eerdere takken boven deze functie.)
+ * ~20+ unique evening/night lines, split by weather type and time band.
+ * (Heavy rain / storm handled in earlier branches above.)
  */
 function buildEveningNightSub(
   row: SamuiWeatherForecastRow,
@@ -198,7 +200,7 @@ function buildEveningNightSub(
   ];
 
   const preDawn: readonly string[] = [
-    'Small hours — almost nobody on the strand; stick to hotel ground or lit paths you know.',
+    'Small hours — almost nobody on the beach; stick to hotel ground or lit paths you know.',
     'Before dawn — cool air; wrap lightly; cafés rarely open yet except hotels and petrol-station coffee.',
     'Early-dark body-clock — if you wander, tell someone; tides can surprise on black-sand bays.',
     'Pre-breakfast window — street kitchens wake around six; until then, room service or mini-bar.',
@@ -273,7 +275,7 @@ function getVerdict(
   if (opts?.radarLeadsOverDryModels && row.precipRate < 0.2) {
     return {
       label: '📡 Radar-led · rain at your pin',
-      sub: `${slot} · Spire and Meteoblue can stay dry while real showers move through — trust the live radar echo for what is overhead now.`,
+      sub: `${slot} · the hourly run can look dry while real showers pass overhead — trust the live radar echo for what is on you now`,
       bg: 'bg-sky-950/60',
       border: 'border-sky-400/45',
       text: 'text-sky-100',
@@ -284,7 +286,7 @@ function getVerdict(
   if (row.windSpeed > 9.3) {
     return {
       label: '💨 Wind Advisory · Choppy Seas',
-      sub: `${slot} · ${formatWindMs(row.windSpeed)} m/s wind · Beach Sun Score ${beach.score}/100 — consider sheltered beaches`,
+      sub: `${slot} · ${formatWindMs(row.windSpeed)} m/s wind · Beach score ${beach.score}/100 — consider sheltered beaches`,
       bg: 'bg-amber-950/60', border: 'border-amber-500/30', text: 'text-amber-200', dot: 'bg-amber-400',
     };
   }
@@ -294,7 +296,7 @@ function getVerdict(
     const v = fromScore();
     return {
       label: lateEvening ? '🌅 Evening · coast quiet' : '🌙 Night · coastal conditions',
-      sub: `${buildEveningNightSub(row, slot, { lateEvening, bkHour })} · Beach Sun Score ${beach.score}/100`,
+      sub: `${buildEveningNightSub(row, slot, { lateEvening, bkHour })} · Beach score ${beach.score}/100`,
       bg: v.bg,
       border: v.border,
       text: v.text,
@@ -302,7 +304,7 @@ function getVerdict(
     };
   }
 
-  /** Ochtend (na zonsopgang, vóór 08:00 ICT): zelfde ladder als overdag — gebruikers checken bij opstaan. */
+  /** Morning (after sunrise, before 08:00 ICT): same ladder as daytime — users check at wake-up. */
   if ((row.uvIndex != null && row.uvIndex > 10) || row.temp > 34) {
     const v = fromScore();
     return {
@@ -329,7 +331,7 @@ function getVerdict(
   return fromScore();
 }
 
-/** ICT uren 11–15: waar UV/temp het ergst is — ochtend kan “perfect” zijn terwijl ~13:00 brandt. */
+/** ICT hours 11–15: worst UV/temp — morning can look “perfect” while ~13:00 burns. */
 const PEAK_SOLAR_ICT_START = 11;
 const PEAK_SOLAR_ICT_END = 15;
 
@@ -362,7 +364,7 @@ function peakStressIsBrutal(peak: { uv: number | null; temp: number }): boolean 
 }
 
 /**
- * Voegt waarschuwing toe als dit uur nog relaxed oogt maar rond het middaguur UV/hitte pieken.
+ * Adds a hint when this hour still looks mild but midday UV/heat peaks later.
  */
 function augmentVerdictWithSolarPeakHint(
   verdict: Verdict,
@@ -412,6 +414,7 @@ export default function VacationDashboard({
   radarLeadsOverDryModels = false,
   metarSkyCover = null,
   sammiDailyByIsoDay = null,
+  productRegion = 'samui',
 }: VacationDashboardProps) {
   const row = rows[selectedIndex] ?? rows[0];
   if (!row) return null;
@@ -471,46 +474,50 @@ export default function VacationDashboard({
 
   return (
     <div className="mb-4 flex flex-col gap-3">
-      {/* ── 1. Today · hourly (first) ─────────────────────────────────── */}
+      {/* ── 1. Beach Score (top) ──────────────────────────────────────── */}
       <div>
-        <p className="mb-2 pl-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">
-          Today · hourly
+        <p className="mb-2 pl-1 text-[9px] font-black uppercase tracking-[0.14em] text-cyan-400">
+          BEACH SCORE
+        </p>
+        <div className="flex justify-center">
+          <div
+            role="img"
+            aria-label={`Beach score ${beachSun.score} out of 100`}
+            className={[
+              'relative flex h-28 w-28 shrink-0 items-center justify-center rounded-full',
+              'border-4 border-white/10 bg-gradient-to-br from-amber-400/20 via-white/5 to-sky-500/20',
+              'shadow-[0_0_40px_rgba(251,191,36,0.15)]',
+            ].join(' ')}
+          >
+            <Sun
+              className="absolute h-14 w-14 text-amber-300/50"
+              strokeWidth={1.25}
+              aria-hidden
+            />
+            <span className="relative z-[1] text-3xl font-black tabular-nums text-white">
+              {beachSun.score}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 2. Today · hourly ─────────────────────────────────────────── */}
+      <div>
+        <p className="mb-2 pl-1 text-[9px] font-black uppercase tracking-[0.14em] text-cyan-400">
+          TODAY - HOURLY
         </p>
         <HourlyForecast rows={rows} selectedIndex={selectedIndex} onHourSelect={onSelectedIndexChange} />
       </div>
 
-      {/* ── 2. Daily outlook (scrollable, up to 15 days when Spire returns 360h) ──────────────── */}
+      {/* ── 3. Daily outlook ──────────────────────────────────────────── */}
       <DailyForecast
         rows={rows}
         onDayClick={onSelectedIndexChange}
         sammiDailyByIsoDay={sammiDailyByIsoDay ?? undefined}
+        productRegion={productRegion}
       />
 
-      {/* ── 3. Beach Sun Score + Verdict Hero ─────────────────────────── */}
-      <div className="flex flex-col items-center gap-3">
-        <div
-          role="img"
-          aria-label={`Beach Sun Score ${beachSun.score} out of 100`}
-          className={[
-            'relative flex h-28 w-28 shrink-0 items-center justify-center rounded-full',
-            'border-4 border-white/10 bg-gradient-to-br from-amber-400/20 via-white/5 to-sky-500/20',
-            'shadow-[0_0_40px_rgba(251,191,36,0.15)]',
-          ].join(' ')}
-        >
-          <Sun
-            className="absolute h-14 w-14 text-amber-300/50"
-            strokeWidth={1.25}
-            aria-hidden
-          />
-          <span className="relative z-[1] text-3xl font-black tabular-nums text-white">
-            {beachSun.score}
-          </span>
-        </div>
-        <p className="text-center text-[10px] font-bold uppercase tracking-widest text-white/45">
-          Beach Sun Score
-        </p>
-      </div>
-
+      {/* ── 4. Verdict Hero ───────────────────────────────────────────── */}
       <div className={`rounded-3xl border ${verdict.border} ${verdict.bg} px-5 py-4 shadow-2xl`}>
         <div className="flex items-center gap-3">
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${verdict.dot} shadow-[0_0_8px_currentColor]`} />
@@ -520,7 +527,7 @@ export default function VacationDashboard({
         <p className="mt-2 text-[11px] leading-snug text-white/50 pl-[22px]">{beachSun.advice}</p>
       </div>
 
-      {/* ── 4. Weather Now + Beach Guide ────────────────────────────────── */}
+      {/* ── 5. Weather Now + Beach Guide ────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className={`rounded-3xl border border-white/10 p-5 shadow-2xl transition-colors duration-1000 ${bgClass}`}>
           <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">Weather snapshot</p>

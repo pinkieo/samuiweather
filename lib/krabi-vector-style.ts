@@ -3,8 +3,8 @@ import type { StyleSpecification } from 'maplibre-gl';
 const MAPTILER_KEY = (process.env.NEXT_PUBLIC_MAPTILER_KEY || process.env.NEXT_PUBLIC_MAPTILER_API_KEY || '').trim();
 
 /**
- * Pure OSM raster — iets **donkerder** muted grijs, zonder vector (labels blijven server‑Thai in tegels).
- * Zonder key: alleen dit. Met `NEXT_PUBLIC_MAPTILER_*`: gebruik `fetchExploreBasemapStyle` (Engels + Thai fallback).
+ * Pure OSM raster — slightly **darker** muted grey, no vector layer (labels stay server Thai in tiles).
+ * Without a MapTiler key: this only. With `NEXT_PUBLIC_MAPTILER_*`: use `fetchExploreBasemapStyle` (English + Thai fallback).
  */
 export const KRABI_TROPICAL_OS_FALLBACK: StyleSpecification = {
   version: 8,
@@ -39,8 +39,8 @@ export const KRABI_TROPICAL_OS_FALLBACK: StyleSpecification = {
 };
 
 /**
- * MapTiler Streets v2 + `language=en` — zelfde basemap voor **Krabi- en Samui-tab** in MapViewer.
- * `applyPreferredPlaceLabels` vult Thai/local aan waar geen Engels is.
+ * MapTiler Streets v2 + `language=en` — same basemap for **Krabi and Samui** tabs in MapViewer.
+ * `applyPreferredPlaceLabels` adds Thai/local labels where English is missing.
  */
 export async function fetchExploreBasemapStyle(): Promise<StyleSpecification> {
   if (!MAPTILER_KEY) return KRABI_TROPICAL_OS_FALLBACK;

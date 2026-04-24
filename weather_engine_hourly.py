@@ -9,7 +9,7 @@ Koh Samui Spire ingest (hourly cron) — aligned with Next.js `lib/spire.ts` get
 Pipeline:
   1. RPC archive_expired_forecasts(p_location_id) — keep weather_forecast clean
   2. Spire /forecast/point: prefer combined `hourly,3_hourly,6_hourly_15day` @ 360h; else tier-merge (6_hourly_15day + 3h + 1h).
-     Parallel: /forecast/point/optimized (OPF) hourly ~72h — POP/thunder/fog overlay op zelfde valid_time (`lib/spire.ts` sync)
+     Parallel: /forecast/point/optimized (OPF) hourly ~72h — POP/thunder/fog overlay on the same valid_time (see `lib/spire.ts`)
   3. RainViewer tile sample at pin (same z7/512 scheme as the app)
   4. beach_score (clouds/thunder/ceiling + temp bonus; −3 when radar shows rain)
   5. upsert weather_forecast (incl. radar_status)
@@ -33,6 +33,8 @@ Optional:
 `probability_of_fog` is written as a top-level column when present (OPF) — requires
 `supabase/014_weather_forecast_probability_of_fog_if_missing.sql` in Supabase; it also
 remains in `values_json` for backward compatibility and view COALESCE.
+`pwat`, `dcape`, `cin` are written as top-level columns when the thunderstorm bundle
+fills `values` — requires `supabase/020_weather_forecast_pwat_dcape_cin.sql`.
 
 Note: FORECAST_HOURS is ignored — horizons are fixed by the tier list above.
 """
@@ -465,7 +467,7 @@ def fetch_samui_15day_standard(
 ) -> List[Dict[str, Any]]:
     """
     Tier-merge /forecast/point: 6_hourly_15day (fallbacks) + 3_hourly + hourly.
-    Gebruik `fetch_samui_point_forecast` voor gecombineerde time_bundle eerst.
+    Prefer `fetch_samui_point_forecast` for the combined time_bundle first.
     """
     print(
         "=== Fetching Point (tier merge: 6_hourly_15day spine + 3h/1h) ===",
@@ -513,7 +515,7 @@ def fetch_samui_15day_standard(
             file=sys.stderr,
         )
     else:
-        print("❌ Geen data na merge", file=sys.stderr)
+        print("❌ No data after merge", file=sys.stderr)
     return merged
 
 
@@ -523,8 +525,8 @@ def fetch_samui_point_forecast(
     lon: float,
 ) -> List[Dict[str, Any]]:
     """
-    Probeer één call met Gerald-style time_bundle; anders tier-merge.
-    OPF-probabilities komen apart (overlay), niet in deze call.
+    Try one Gerald-style time_bundle call; otherwise tier-merge.
+    OPF probabilities come separately (overlay), not in this call.
     """
     print(
         "=== Point forecast: combined time_bundle → fallback tier merge ===",
@@ -546,7 +548,7 @@ def fetch_samui_point_forecast(
             file=sys.stderr,
         )
     else:
-        print("  (combined leeg — tier merge)", file=sys.stderr)
+        print("  (combined empty — tier merge)", file=sys.stderr)
     return fetch_samui_15day_standard(token, lat, lon)
 
 
@@ -568,11 +570,11 @@ def build_opf_overlay_map_from_token(token: str) -> Dict[str, Dict[str, float]]:
     fh = min(max(fh, 24), 120)
     raw = fetch_opf_optimized_hourly(token, loc, fh)
     if not raw:
-        print(f"[OPF] Geen data voor {loc!r} ({fh}h)", file=sys.stderr)
+        print(f"[OPF] No data for {loc!r} ({fh}h)", file=sys.stderr)
         return {}
     m = build_opf_overlay_map(raw)
     print(
-        f"[OPF] {len(raw)} optimized rijen → {len(m)} timesteps met probabilities",
+        f"[OPF] {len(raw)} optimized rows → {len(m)} timesteps with probabilities",
         file=sys.stderr,
     )
     return m
@@ -580,12 +582,12 @@ def build_opf_overlay_map_from_token(token: str) -> Dict[str, Dict[str, float]]:
 
 def test_15day_sea_location(token: str) -> List[Dict[str, Any]]:
     """
-    Maritieme sanity-check: Point API op open zee ten zuiden van Singapore.
-    Zelfde tiers/merge als productie; geen Supabase (alleen als run() TEST_15DAY_SEA=1).
+    Maritime sanity check: Point API on open sea south of Singapore.
+    Same tiers/merge as production; no Supabase (only when run() has TEST_15DAY_SEA=1).
     """
     lat, lon = 1.25, 103.80
     print(
-        f"=== Test 15-day STANDARD Point op zee bij Singapore ({lat}, {lon}) ===",
+        f"=== Test 15-day STANDARD Point at sea near Singapore ({lat}, {lon}) ===",
         file=sys.stderr,
     )
     long_fh = 360
@@ -595,7 +597,7 @@ def test_15day_sea_location(token: str) -> List[Dict[str, Any]]:
     if long_data:
         _n, span_h, vmin, vmax = compute_spire_point_data_stats(long_data)
         print(
-            f"  ✓ {len(long_data)} rows | span ≈ {span_h / 24.0:.1f} dagen | "
+            f"  ✓ {len(long_data)} rows | span ≈ {span_h / 24.0:.1f} days | "
             f"{vmin} … {vmax}",
             file=sys.stderr,
         )
@@ -616,7 +618,7 @@ def test_15day_sea_location(token: str) -> List[Dict[str, Any]]:
         if data:
             _n, span_h, vmin, vmax = compute_spire_point_data_stats(data)
             print(
-                f"  ✓ {len(data)} rows | span ≈ {span_h / 24.0:.1f} dagen | "
+                f"  ✓ {len(data)} rows | span ≈ {span_h / 24.0:.1f} days | "
                 f"{vmin} … {vmax}",
                 file=sys.stderr,
             )
@@ -628,12 +630,12 @@ def test_15day_sea_location(token: str) -> List[Dict[str, Any]]:
     if merged:
         _n, span_h, fvt, lvt = compute_spire_point_data_stats(merged)
         print(
-            f"\n✅ FINAL MERGED: {len(merged)} rows | span ≈ {span_h / 24.0:.1f} dagen "
+            f"\n✅ FINAL MERGED: {len(merged)} rows | span ≈ {span_h / 24.0:.1f} days "
             f"({span_h:.0f}h) | {fvt} … {lvt}",
             file=sys.stderr,
         )
     else:
-        print("\n❌ Geen data na merge", file=sys.stderr)
+        print("\n❌ No data after merge", file=sys.stderr)
     return merged
 
 
@@ -916,6 +918,23 @@ def flatten_for_db(
             ("cape", "CAPE", "convective_available_potential_energy"),
         ),
         "lifted_index": pick_num(v, ("lifted_index", "lifted_index_500")),
+        "pwat": pick_num(
+            v,
+            (
+                "precipitable_water",
+                "precipitable_water_entire_atmosphere",
+                "total_column_integrated_water_vapour",
+                "tcw",
+            ),
+        ),
+        "dcape": pick_num(
+            v,
+            ("downdraft_cape", "downdraft_CAPE", "dcape"),
+        ),
+        "cin": pick_num(
+            v,
+            ("convective_inhibition", "cin", "CIN"),
+        ),
         "probability_of_precipitation_1hr": pick_prob_pct(
             v,
             (

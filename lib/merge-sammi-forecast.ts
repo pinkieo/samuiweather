@@ -42,6 +42,14 @@ export function mergeSamuiHourlyIntoRows(
             ? Number(hit.kans_mist_pct_sammi)
             : null,
         reliability: r,
+        tropicalTier: hit.sammi_tropical_tier ?? null,
+        windTier: hit.sammi_wind_tier ?? null,
+        convectiveLine: hit.sammi_convective_line ?? null,
+        cinJkg: hit.cin != null && Number.isFinite(Number(hit.cin)) ? Number(hit.cin) : null,
+        ceilingM:
+          hit.ceiling_m != null && Number.isFinite(Number(hit.ceiling_m))
+            ? Number(hit.ceiling_m)
+            : null,
       },
     };
   });

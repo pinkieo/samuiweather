@@ -16,7 +16,7 @@ function getSupabase() {
 
 /**
  * GET ?location_id=…&limit=…
- * Returns `sammi_daily_forecast` (Bangkok day: kans_*, reliability, sammi_advice).
+ * Returns `sammi_daily_forecast` (kans, tiers, convective maxes, sammi_advice).
  */
 export async function GET(req: NextRequest) {
   const supabase = getSupabase();
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabase
     .from('sammi_daily_forecast')
     .select(
-      'location_id,forecast_date,avg_temp_c,max_temp_c,min_temp_c,kans_regen_pct_sammi,kans_onweer_pct_sammi,kans_mist_pct_sammi,reliability,sammi_advice',
+      'location_id,forecast_date,avg_temp_c,max_temp_c,min_temp_c,kans_regen_pct_sammi,kans_onweer_pct_sammi,kans_mist_pct_sammi,reliability,sammi_advice,conv_cape_max,conv_pwat_max,conv_cin_max,conv_dcape_max,conv_ceiling_min,sammi_tropical_tier,sammi_wind_tier',
     )
     .eq('location_id', locationId)
     .order('forecast_date', { ascending: true })

@@ -12,19 +12,19 @@ export async function GET() {
     clearTimeout(timer);
     if (finalForecast.length === 0) {
       return NextResponse.json(
-        { error: 'Geen forecastdata' },
+        { error: 'No forecast data' },
         { status: 502 },
       );
     }
     return NextResponse.json(finalForecast);
   } catch (error) {
     clearTimeout(timer);
-    const message = error instanceof Error ? error.message : 'Onbekende fout';
+    const message = error instanceof Error ? error.message : 'Unknown error';
     if (message.includes('SPIRE_API_TOKEN')) {
       return NextResponse.json({ error: message }, { status: 500 });
     }
     if (error instanceof Error && error.name === 'AbortError') {
-      return NextResponse.json({ error: 'Timeout: API reageert niet' }, { status: 504 });
+      return NextResponse.json({ error: 'Timeout: API did not respond' }, { status: 504 });
     }
     console.error('API Route Error:', error);
     return NextResponse.json({ error: 'Data fetch failed' }, { status: 500 });

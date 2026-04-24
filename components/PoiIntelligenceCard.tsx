@@ -6,13 +6,6 @@ import { formatTempC, formatWindMs, type SamuiWeatherForecastRow } from '../lib/
 
 const DIRS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 
-interface ModelCrossSnap {
-  tempC: number | null;
-  windSpeedMs: number | null;
-  windDirDeg: number | null;
-  precipMm: number | null;
-}
-
 export default function PoiIntelligenceCard({
   poi,
   onClose,
@@ -24,8 +17,6 @@ export default function PoiIntelligenceCard({
   className?: string;
 }) {
   const [spire, setSpire] = useState<SamuiWeatherForecastRow | null>(null);
-  const [modelCross, setModelCross] = useState<ModelCrossSnap | null>(null);
-  const [modelCrossOff, setModelCrossOff] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -34,25 +25,15 @@ export default function PoiIntelligenceCard({
 
     const q = `lat=${poi.lat}&lon=${poi.lon}`;
 
-    Promise.all([
-      fetch(`/api/weather/point?${q}`).then(r => (r.ok ? r.json() : null)),
-      fetch(`/api/meteoblue/point?${q}`).then(r => (r.ok ? r.json() : null)),
-    ])
-      .then(([sp, mb]) => {
+    fetch(`/api/weather/point?${q}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((sp) => {
         if (cancelled) return;
         setSpire(sp?.now ?? null);
-        if (mb?.ok && mb?.snapshot) {
-          setModelCross(mb.snapshot as ModelCrossSnap);
-          setModelCrossOff(false);
-        } else {
-          setModelCross(null);
-          setModelCrossOff(mb?.enabled === false);
-        }
       })
       .catch(() => {
         if (!cancelled) {
           setSpire(null);
-          setModelCross(null);
         }
       })
       .finally(() => {
@@ -66,10 +47,6 @@ export default function PoiIntelligenceCard({
 
   const spDir =
     spire != null ? DIRS[Math.round(spire.windDir / 22.5) % 16] : '—';
-  const mbDir =
-    modelCross?.windDirDeg != null
-      ? DIRS[Math.round(modelCross.windDirDeg / 22.5) % 16]
-      : '—';
 
   return (
     <div
@@ -110,53 +87,23 @@ export default function PoiIntelligenceCard({
           <p className="mb-2 text-[8px] font-black uppercase tracking-wider text-cyan-300/80">
             Live weather · this pin
           </p>
-          {loading && (
-            <p className="text-[10px] text-slate-500">Fetching Spire + meteoblue…</p>
-          )}
+          {loading && <p className="text-[10px] text-slate-500">Loading…</p>}
           {!loading && (
-            <div className="space-y-2">
-              <div>
-                <p className="text-[8px] font-bold uppercase tracking-wide text-white/35">
-                  Spire (lead)
+            <div>
+              <p className="text-[8px] font-bold uppercase tracking-wide text-white/35">
+                Lead forecast
+              </p>
+              {spire ? (
+                <p>
+                  {formatTempC(spire.temp)}°C ·{' '}
+                  {spire.precipRate > 0
+                    ? `${spire.precipRate.toFixed(1)} mm/h`
+                    : 'dry'}{' '}
+                  · {spDir} {formatWindMs(spire.windSpeed)} m/s
                 </p>
-                {spire ? (
-                  <p>
-                    {formatTempC(spire.temp)}°C ·{' '}
-                    {spire.precipRate > 0
-                      ? `${spire.precipRate.toFixed(1)} mm/h`
-                      : 'dry'}{' '}
-                    · {spDir} {formatWindMs(spire.windSpeed)} m/s
-                  </p>
-                ) : (
-                  <p className="text-slate-500">No Spire data</p>
-                )}
-              </div>
-              <div>
-                <p className="text-[8px] font-bold uppercase tracking-wide text-white/35">
-                  meteoblue (cross-check)
-                </p>
-                {modelCrossOff && (
-                  <p className="text-[10px] text-slate-500">
-                    Add <code className="text-cyan-400/90">METEOBLUE_API_KEY</code> for
-                    model cross-check.
-                  </p>
-                )}
-                {!modelCrossOff && modelCross && (
-                  <p>
-                    {modelCross.tempC != null ? `${modelCross.tempC}°C` : '—'} ·{' '}
-                    {modelCross.precipMm != null && modelCross.precipMm > 0
-                      ? `${modelCross.precipMm} mm`
-                      : 'dry'}{' '}
-                    ·{' '}
-                    {modelCross.windSpeedMs != null
-                      ? `${mbDir} ${modelCross.windSpeedMs.toFixed(1)} m/s`
-                      : '—'}
-                  </p>
-                )}
-                {!modelCrossOff && !modelCross && !loading && (
-                  <p className="text-slate-500">meteoblue unavailable</p>
-                )}
-              </div>
+              ) : (
+                <p className="text-slate-500">No data at this pin</p>
+              )}
             </div>
           )}
         </section>

@@ -1,62 +1,62 @@
-# Sammi AI - Project Skills & Architecture (V2)
+# Sammi AI - Project skills & architecture (V2)
 
-Dit document is de "Source of Truth" voor Cursor en de Sammi AI-architectuur.
+This document is the source of truth for Cursor and the Sammi AI architecture.
 
-## 🧠 Core Intelligence: Sammi AI
-- **Persona:** Intelligente, gevatte eiland-conciërge (Sammi).
-- **Technologie:** OpenAI GPT-4o + Supabase Vector Search (pgvector).
+## Core intelligence: Sammi AI
+- **Persona:** Smart, witty island concierge (Sammi).
+- **Technology:** OpenAI GPT-4o + Supabase vector search (pgvector).
 
-## 📡 Weer & Data Logica (HYBRIDE SYSTEEM)
+## Weather & data logic (hybrid system)
 
-Sammi maakt een strikt onderscheid tussen wat er *nu* gebeurt en wat er gaat *gebeuren*.
+Sammi keeps a clear split between what is happening *now* and what will *happen*.
 
-### 1. Real-Time Radar (Live Metingen)
-- **Bron:** Doppler Radar Station Surat Thani (TMD — Thai Meteorological Department).
-- **Doel:** Visualisatie van actuele neerslag op de Mapbox kaart.
-- **Logica:** Dit is de "Ground Truth". Als het station in Surat Thani buien detecteert boven Samui, dan regent het nu.
-- **Component:** `RadarOverlay.tsx`
+### 1. Real-time radar (live measurements)
+- **Source:** Doppler radar station Surat Thani (TMD — Thai Meteorological Department).
+- **Goal:** Show current rain on the Mapbox map.
+- **Logic:** This is the “ground truth” signal. If the station sees rain over Samui, it is raining there now.
+- **Component:** `RadarOverlay.tsx` (legacy name; see `SamuiExploreMap` / RainViewer in the app).
 
-### 2. Weersverwachting (Predictions & Forecasts)
-- **Bron:** **SPIRE Weather API.**
-- **Doel:** Alle toekomstige voorspellingen op het dashboard, chat-antwoorden over morgen/volgende week.
-- **Data Punten:** Windkracht, golfhoogte (Maritime), neerslagkans en temperatuur.
-- **Beleid:** Gebruik NOOIT OpenWeather voor voorspellingen. Alleen SPIRE satelliet-data.
+### 2. Weather forecast (predictions)
+- **Source:** **Spire Weather API.**
+- **Goal:** All future conditions on the dashboard, chat answers about tomorrow / next week.
+- **Data:** Wind, maritime, rain chance, temperature.
+- **Policy:** Do **not** use OpenWeather for forecasts. Spire (satellite) only.
 
-## 🛠️ Tech Stack
-| Component | Technologie |
+## Tech stack
+| Component | Technology |
 | :--- | :--- |
 | **Frontend** | Next.js 15 (App Router), Tailwind CSS |
-| **Backend** | Supabase (PostgreSQL + pgvector), API Routes |
+| **Backend** | Supabase (PostgreSQL + pgvector), API routes |
 | **Vector DB** | pgvector (OpenAI `text-embedding-3-small`, 1536 dims) |
-| **Weather API** | SPIRE (Forecasts) |
-| **Radar Feed** | Surat Thani Radar Station / TMD (Live) |
-| **Map Engine** | Mapbox GL JS |
+| **Weather API** | Spire (forecasts) |
+| **Radar feed** | Surat Thani / TMD via RainViewer (live) |
+| **Map engine** | MapLibre / Mapbox GL |
 | **Community** | Reddit API (r/kohsamui + r/weathersamui) |
-| **AI** | OpenAI GPT-4o-mini (chat), text-embedding-3-small (vectors) |
+| **AI** | OpenAI (chat) + `text-embedding-3-small` (vectors) |
 
-## 🤖 Automatisering
-- **Cron Jobs:** Dagelijkse sync van Reddit posts → Supabase embeddings.
-- **Endpoint:** `POST /api/cron/embed` (beveiligd met CRON_SECRET).
-- **Sync:** Reddit posts worden direct vectorized en opgeslagen voor instant chat-knowledge.
+## Automation
+- **Cron jobs:** Daily Reddit post sync → Supabase embeddings.
+- **Endpoint:** `POST /api/cron/embed` (secured with `CRON_SECRET`).
+- **Sync:** Posts are vectorized and stored for instant chat context.
 
-## 📁 Project Structuur
+## Project layout
 ```
 app/
   api/
-    radar/[...path]/   ← TMD radar proxy
-    reddit/            ← r/kohsamui feed voor Sammi bubble
-    sammi/chat/        ← Vector search + GPT antwoorden
-    spire/forecast/    ← Weersverwachting (SPIRE)
-    tides/             ← Getijden
-    airquality/        ← Luchtkwaliteit
+    radar/[...path]/   ← TMD / RainViewer radar proxy
+    reddit/            ← r/kohsamui feed for Sammi bubble
+    sammi/chat/        ← Vector search + GPT answers
+    spire/forecast/    ← Spire weather
+    tides/             ← Tides
+    airquality/        ← Air quality
     uvindex/           ← UV index
-    cron/embed/        ← Dagelijkse Reddit → Supabase sync
+    cron/embed/        ← Daily Reddit → Supabase
 components/
-  SammiConcierge.tsx   ← Avatar + chat UI + vector search
-  MapViewer.tsx        ← Mapbox kaart + radar overlay
+  SammiConcierge.tsx
+  MapViewer.tsx
   VacationDashboard.tsx
 scripts/
-  embed-reddit.ts      ← Handmatige embedding pipeline
+  embed-reddit.ts
 supabase/
   001_island_embeddings.sql
 ```

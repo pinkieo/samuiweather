@@ -22,14 +22,30 @@ const THUNDER_CAPE_JKG = 1000;
 /** Min POP% to show on the card (tourism-friendly — avoids “10%” noise). */
 const MIN_CHANCE_TO_SHOW = 15;
 
+/** “Right now” — lead hour must be calm before the card leans wet. */
+const LEAD_DRY_MAX_PRECIP_RATE = 0.2;
+const LEAD_DRY_MAX_RAIN_CHANCE = 20;
+/** Slightly after “now” so the current model step isn’t double-counted as “later”. */
+const LEAD_PAST_CUTOFF_MS = 20 * 60 * 1000;
+
 export type TodayMood = 'storm' | 'rain' | 'beach' | 'mixed' | 'unsettled';
 export type TodayReliability = 'high' | 'medium' | 'trend';
+
+/** Semantic key for the Today head icon; UI maps to emoji (e.g. sun + small rain). */
+export type TodayIconKey =
+  | 'sun'
+  | 'sun-with-rain'
+  | 'default';
 
 /**
  * All fields needed to render the calendar “Today” card with mood styling and tourist-friendly copy.
  */
 export interface TodayCardInsight {
   today_icon: string;
+  /**
+   * When set (e.g. `sun-with-rain`), the card shows a matched emoji pair instead of `today_icon` alone.
+   */
+  todayIconKey?: TodayIconKey;
   today_advice: string;
   /**
    * When the “story” of the day applies — under the main advice. Examples: “within the next
@@ -51,6 +67,8 @@ interface DailyForecastProps {
   onDayClick?: (spireIndex: number) => void;
   /** Bangkok `YYYY-MM-DD` → daily Sammi (advice, reliability, kans_*). */
   sammiDailyByIsoDay?: Record<string, SammiDailyForecastViewRow> | null;
+  /** Drives “Today” card taglines (e.g. Samui vs Krabi) when Spire-only heuristics are used. */
+  productRegion?: 'samui' | 'krabi';
 }
 
 export interface DailyData {
@@ -138,6 +156,116 @@ function isSignificantNearTerm(row: SamuiWeatherForecastRow): boolean {
 }
 
 /**
+ * Spire `pop` for rows without an hourly `sammi` overlay (e.g. Krabi) — aligned with `LEAD_DRY_MAX_RAIN_CHANCE`.
+ */
+function rainChanceOnRow(r: SamuiWeatherForecastRow): number {
+  const k = r.sammi?.kansRegenPctSammi;
+  if (k != null && Number.isFinite(k)) return k;
+  return effectivePop(r);
+}
+
+/** The model hour whose valid time is closest to “now” (Bangkok today strip). */
+export function pickLeadHourRow(
+  todayRows: SamuiWeatherForecastRow[],
+  tNow: number,
+): SamuiWeatherForecastRow | null {
+  if (todayRows.length === 0) return null;
+  let best = todayRows[0]!;
+  let bestDelta = Math.abs(new Date(best.time).getTime() - tNow);
+  for (const r of todayRows) {
+    const d = Math.abs(new Date(r.time).getTime() - tNow);
+    if (d < bestDelta) {
+      best = r;
+      bestDelta = d;
+    }
+  }
+  return best;
+}
+
+export function isLeadHourDry(r: SamuiWeatherForecastRow): boolean {
+  return r.precipRate < LEAD_DRY_MAX_PRECIP_RATE && rainChanceOnRow(r) < LEAD_DRY_MAX_RAIN_CHANCE;
+}
+
+function isLaterSignificantSlot(row: SamuiWeatherForecastRow): boolean {
+  if (isSignificantHour(row)) return true;
+  if (isThunderyHour(row) && (row.precipRate > 0.08 || effectivePop(row) >= 20)) return true;
+  return false;
+}
+
+type RestOfDayScan = {
+  hasAnySigLater: boolean;
+  firstThunder: SamuiWeatherForecastRow | null;
+  firstSig: SamuiWeatherForecastRow | null;
+  firstSigAfterOrAt3pm: boolean;
+  maxLaterPop: number;
+};
+
+/**
+ * “Later” = rest of today after a short buffer past the lead hour, so the story matches “right now is dry”.
+ */
+function scanRestOfDayForWet(
+  todayRows: SamuiWeatherForecastRow[],
+  tNow: number,
+): RestOfDayScan {
+  const cut = tNow + LEAD_PAST_CUTOFF_MS;
+  const rest: SamuiWeatherForecastRow[] = [];
+  for (const r of todayRows) {
+    if (new Date(r.time).getTime() > cut) rest.push(r);
+  }
+  rest.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const laterPops: number[] = [];
+  let firstThunder: SamuiWeatherForecastRow | null = null;
+  let firstSig: SamuiWeatherForecastRow | null = null;
+  for (const r of rest) {
+    if (isLaterSignificantSlot(r) && !firstSig) firstSig = r;
+    if (
+      isThunderyHour(r) &&
+      (r.precipRate > 0.08 || effectivePop(r) >= 20) &&
+      !firstThunder
+    ) {
+      firstThunder = r;
+    }
+    laterPops.push(effectivePop(r), rainChanceOnRow(r));
+  }
+  const maxLaterPop = laterPops.length > 0 ? Math.max(0, ...laterPops) : 0;
+  const hFirst = firstSig ? hourInBangkok(firstSig.time) : 12;
+  return {
+    hasAnySigLater: firstSig != null,
+    firstThunder,
+    firstSig,
+    firstSigAfterOrAt3pm: firstSig != null && hFirst >= LATE_SHOWERS_START_HOUR,
+    maxLaterPop: Math.min(100, maxLaterPop),
+  };
+}
+
+function minuteInBangkok(iso: string): number {
+  const s = new Date(iso).toLocaleTimeString('en-GB', {
+    timeZone: TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const v = s.split(':')[1];
+  return v != null && v !== '' ? parseInt(v, 10) : 0;
+}
+
+/** “after 3 PM” / “around 4:30 PM” for storm timing (local Bangkok). */
+function thunderTimePhrase(iso: string): string {
+  if (!iso) return 'later today';
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return 'later today';
+  if (minuteInBangkok(iso) !== 0) return `around ${formatTimeBangkokEn(iso)}`;
+  const h = hourInBangkok(iso);
+  if (h === 15) return 'after 3 PM';
+  if (h === 16) return 'after 4 PM';
+  if (h === 17) return 'after 5 PM';
+  if (h === 18) return 'after 6 PM';
+  if (h < 12) return `around ${formatTimeBangkokEn(iso)}`;
+  const h12 = h > 12 ? h - 12 : h;
+  return `after ${h12} PM`;
+}
+
+/**
  * Dry “beach day” branch: confidence from max POP in remaining hours (still no wet slots by our rules).
  * Low background POP → high; a single moderate blip in the day → medium.
  */
@@ -165,6 +293,105 @@ function reliabilityLabel(r: TodayReliability): { short: string; full: string } 
         full: 'Broad pattern only — use hourly for exact times',
       };
   }
+}
+
+/**
+ * Lead hour is dry — keep the Today card upbeat; layer “later today” only when the rest of the strip
+ * (or Sammi daily) still suggests wet weather.
+ */
+function buildInsightWhenLeadHourDry(
+  todayRows: SamuiWeatherForecastRow[],
+  tNow: number,
+  productRegion: 'samui' | 'krabi',
+  sammiDaily: SammiDailyForecastViewRow | null,
+): TodayCardInsight {
+  const futureOnly = todayRows.filter(
+    (r) => new Date(r.time).getTime() >= tNow - 30 * 60 * 1000,
+  );
+  const maxRestOfDayPop = maxEffectivePop(futureOnly);
+  const scan = scanRestOfDayForWet(todayRows, tNow);
+
+  let rRain = 0;
+  let rThunder = 0;
+  if (sammiDaily) {
+    rRain =
+      sammiDaily.kans_regen_pct_sammi != null && Number.isFinite(Number(sammiDaily.kans_regen_pct_sammi))
+        ? Number(sammiDaily.kans_regen_pct_sammi)
+        : 0;
+    rThunder =
+      sammiDaily.kans_onweer_pct_sammi != null && Number.isFinite(Number(sammiDaily.kans_onweer_pct_sammi))
+        ? Number(sammiDaily.kans_onweer_pct_sammi)
+        : 0;
+  }
+  const dailySaysWetLater = sammiDaily != null && (rRain >= 20 || rThunder >= 15);
+
+  if (!scan.hasAnySigLater && !dailySaysWetLater) {
+    return {
+      today_icon: '☀️',
+      todayIconKey: 'sun',
+      today_advice: 'Right now: clear and sunny',
+      time_hint: productRegion === 'krabi' ? 'A great day along the coast' : 'A beautiful day on the island',
+      mood: 'beach',
+      reliability: pickBeachReliability(maxRestOfDayPop),
+      chance_of_rain_pct:
+        maxRestOfDayPop > MIN_CHANCE_TO_SHOW ? Math.round(maxRestOfDayPop) : 0,
+    };
+  }
+
+  const sqlRel = sammiDaily?.reliability;
+  const reliabilityFromSql: TodayReliability =
+    sqlRel === 'low' ? 'trend' : sqlRel === 'medium' ? 'medium' : 'high';
+  const rel: TodayReliability = sammiDaily ? reliabilityFromSql : 'high';
+  const chanceShow = Math.max(scan.maxLaterPop, rRain);
+
+  if (scan.firstThunder) {
+    return {
+      today_icon: '☀️',
+      todayIconKey: 'sun-with-rain',
+      today_advice: 'Perfect right now',
+      time_hint: `Thunderstorms possible ${thunderTimePhrase(scan.firstThunder.time)}`,
+      mood: 'mixed',
+      reliability: rel,
+      chance_of_rain_pct: chanceShow >= MIN_CHANCE_TO_SHOW ? Math.round(chanceShow) : 0,
+    };
+  }
+
+  if (scan.hasAnySigLater && scan.firstSigAfterOrAt3pm) {
+    return {
+      today_icon: '☀️',
+      todayIconKey: 'sun-with-rain',
+      today_advice: 'Dry right now',
+      time_hint: 'Showers possible later this afternoon',
+      mood: 'mixed',
+      reliability: 'high',
+      chance_of_rain_pct: chanceShow >= MIN_CHANCE_TO_SHOW ? Math.round(chanceShow) : 0,
+    };
+  }
+
+  if (scan.hasAnySigLater) {
+    return {
+      today_icon: '☀️',
+      todayIconKey: 'sun-with-rain',
+      today_advice: 'Dry right now',
+      time_hint: 'Chance of rain later today',
+      mood: 'mixed',
+      reliability: 'high',
+      chance_of_rain_pct: chanceShow >= MIN_CHANCE_TO_SHOW ? Math.round(chanceShow) : 0,
+    };
+  }
+
+  return {
+    today_icon: '☀️',
+    todayIconKey: 'sun-with-rain',
+    today_advice: 'Dry right now',
+    time_hint:
+      rThunder >= rRain && rThunder >= 15
+        ? 'Storms may still show up later'
+        : 'Chance of rain later today',
+    mood: 'mixed',
+    reliability: rel,
+    chance_of_rain_pct: rRain >= MIN_CHANCE_TO_SHOW ? Math.round(rRain) : 0,
+  };
 }
 
 /**
@@ -198,12 +425,35 @@ function buildTimeHintLaterToday(firstSigHourBangkok: number): string {
 /**
  * @see TodayCardInsight — builds tourist-facing copy + fields for the Daily “Today” card.
  */
+export type SammiDailyLeadContext = {
+  lead: SamuiWeatherForecastRow | null;
+  todayRows: SamuiWeatherForecastRow[];
+  now: Date;
+};
+
 /**
  * Today card from `sammi_daily_forecast` (English copy + SQL reliability).
+ * When the lead model hour is dry, `leadContext` is used to align copy with the hourly strip.
  */
 function buildTodayCardInsightFromSammiDaily(
   d: SammiDailyForecastViewRow,
+  productRegion: 'samui' | 'krabi' = 'samui',
+  leadContext: SammiDailyLeadContext | null = null,
 ): TodayCardInsight {
+  const tNow = leadContext?.now.getTime() ?? Date.now();
+  if (
+    leadContext?.lead &&
+    isLeadHourDry(leadContext.lead) &&
+    leadContext.todayRows.length > 0
+  ) {
+    return buildInsightWhenLeadHourDry(
+      leadContext.todayRows,
+      tNow,
+      productRegion,
+      d,
+    );
+  }
+
   const rRain =
     d.kans_regen_pct_sammi != null && Number.isFinite(Number(d.kans_regen_pct_sammi))
       ? Number(d.kans_regen_pct_sammi)
@@ -232,7 +482,8 @@ function buildTodayCardInsightFromSammiDaily(
   return {
     today_icon,
     today_advice: d.sammi_advice?.trim() || 'See hourly for timing.',
-    time_hint: 'All day (Sammi daily summary)',
+    time_hint:
+      productRegion === 'krabi' ? 'All day (daily summary)' : 'All day (Sammi daily summary)',
     mood,
     reliability,
     chance_of_rain_pct: rRain >= MIN_CHANCE_TO_SHOW ? Math.round(rRain) : 0,
@@ -242,6 +493,7 @@ function buildTodayCardInsightFromSammiDaily(
 export function buildTodayCardInsightForRows(
   allRows: SamuiWeatherForecastRow[],
   now: Date = new Date(),
+  productRegion: 'samui' | 'krabi' = 'samui',
 ): TodayCardInsight | null {
   const todayKey = bangkokDateKey(now);
   const todayRows = allRows
@@ -251,6 +503,11 @@ export function buildTodayCardInsightForRows(
   if (todayRows.length === 0) return null;
 
   const tNow = now.getTime();
+  const lead = pickLeadHourRow(todayRows, tNow);
+  if (lead && isLeadHourDry(lead)) {
+    return buildInsightWhenLeadHourDry(todayRows, tNow, productRegion, null);
+  }
+
   const nearStart = tNow - NEAR_PAST_HOUR_MS;
   const nearEnd = tNow + NEAR_FUTURE_HOURS_MS;
 
@@ -327,7 +584,12 @@ export function buildTodayCardInsightForRows(
   const dryPick = dsum % 2 === 0;
   return {
     today_icon: '☀️',
-    today_advice: dryPick ? 'Excellent beach day' : 'Typical good Samui weather',
+    /** One-line “story” for the Today card when the hourly strip looks dry (no `sammi_daily` row for Krabi). */
+    today_advice: dryPick
+      ? 'Excellent beach day'
+      : productRegion === 'krabi'
+        ? 'Good coastal day'
+        : 'Typical good Samui weather',
     time_hint: 'All day',
     /** beach: ☀️ + gold / emerald; see `todayCardMoodClass('beach')` */
     mood: 'beach',
@@ -419,7 +681,12 @@ function getIconLegacy(day: DailyData, forceMoon = false) {
   return Icon;
 }
 
-export default function DailyForecast({ rows, onDayClick, sammiDailyByIsoDay }: DailyForecastProps) {
+export default function DailyForecast({
+  rows,
+  onDayClick,
+  sammiDailyByIsoDay,
+  productRegion = 'samui',
+}: DailyForecastProps) {
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
 
   const dailyMap = new Map<string, DailyData>();
@@ -479,10 +746,19 @@ export default function DailyForecast({ rows, onDayClick, sammiDailyByIsoDay }: 
 
   const todayKeyLive = bangkokDateKey(new Date());
   const bangkokTodayIso = new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+  const nowLive = new Date();
+  const todayRowsLive = rows
+    .filter((r) => dateKeyForRow(r.time) === todayKeyLive)
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const leadForToday = pickLeadHourRow(todayRowsLive, nowLive.getTime());
   const sammiDay = sammiDailyByIsoDay?.[bangkokTodayIso] ?? null;
   const fullInsight: TodayCardInsight | null = sammiDay
-    ? buildTodayCardInsightFromSammiDaily(sammiDay)
-    : buildTodayCardInsightForRows(rows, new Date());
+    ? buildTodayCardInsightFromSammiDaily(sammiDay, productRegion, {
+        lead: leadForToday,
+        todayRows: todayRowsLive,
+        now: nowLive,
+      })
+    : buildTodayCardInsightForRows(rows, nowLive, productRegion);
   if (fullInsight) {
     const d = dailyMap.get(todayKeyLive);
     if (d) d.today_insight = fullInsight;
@@ -516,10 +792,11 @@ export default function DailyForecast({ rows, onDayClick, sammiDailyByIsoDay }: 
   const dayCount = dailyArray.length;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2 pl-1 pr-0.5">
-        <p className="text-[9px] font-black uppercase tracking-widest text-cyan-400">
-          Daily outlook · up to {MAX_DAILY_OUTLOOK} days · {dayCount} loaded · swipe · tap for hourly
+    <div className="flex flex-col gap-2">
+      <div className="pl-1 pr-0.5">
+        <p className="text-[6px] font-semibold uppercase leading-tight tracking-wide text-cyan-500/80">
+          Daily · {MAX_DAILY_OUTLOOK}d outlook
+          <span className="font-normal text-slate-500"> · {dayCount} shown · swipe</span>
         </p>
       </div>
 
@@ -532,7 +809,24 @@ export default function DailyForecast({ rows, onDayClick, sammiDailyByIsoDay }: 
             const insight = day.today_insight;
             const isProminentToday = Boolean(insight);
             const baseIcon = insight ? insight.today_icon : getIconLegacy(day, useMoon);
-            const Icon = useMoon && insight && insight.today_icon === '☀️' ? '🌙' : baseIcon;
+            const showMoonInsteadOfSun =
+              Boolean(useMoon && insight) &&
+              (insight?.todayIconKey === 'sun' ||
+                insight?.todayIconKey === 'sun-with-rain' ||
+                (!insight?.todayIconKey && insight?.today_icon === '☀️'));
+            const Icon =
+              insight?.todayIconKey === 'sun-with-rain' ? (
+                <span className="inline-flex items-end justify-center gap-0.5" aria-label="Sunny with possible rain later">
+                  <span className="leading-none">{showMoonInsteadOfSun ? '🌙' : '☀️'}</span>
+                  <span className="text-[0.72em] leading-none opacity-90" aria-hidden>
+                    🌧️
+                  </span>
+                </span>
+              ) : showMoonInsteadOfSun ? (
+                '🌙'
+              ) : (
+                baseIcon
+              );
             const shortDate = (() => {
               const parts = day.dateStr.split('/');
               return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : day.dateStr;
@@ -554,10 +848,10 @@ export default function DailyForecast({ rows, onDayClick, sammiDailyByIsoDay }: 
                 onClick={() => handleDayTap(day)}
                 className={[
                   isProminentToday && tone
-                    ? 'relative min-h-[14rem] w-[7rem] shrink-0 snap-center flex flex-col items-stretch overflow-hidden rounded-2xl border px-2.5 py-3 text-left shadow-lg transition sm:min-h-[15rem] sm:w-[8rem] sm:px-3 sm:py-3.5'
+                    ? 'relative w-[6.25rem] shrink-0 snap-center flex min-h-0 flex-col items-stretch overflow-hidden rounded-xl border px-2 py-2 text-left shadow-lg transition sm:w-[6.75rem] sm:rounded-2xl sm:px-2.5 sm:py-2'
                     : 'flex w-[5.25rem] shrink-0 snap-center flex-col items-center rounded-2xl border px-2 py-2.5 shadow-lg transition sm:w-[5.75rem] sm:px-2.5 sm:py-3',
                   isProminentToday && tone
-                    ? [tone.border, tone.bg, tone.ring, 'text-left sm:min-w-[7.5rem]'].join(' ')
+                    ? [tone.border, tone.bg, tone.ring, 'text-left'].join(' ')
                     : isHeadCard
                       ? 'items-center border-cyan-500/40 bg-slate-900'
                       : 'items-center border-white/10 bg-slate-900',
@@ -573,8 +867,8 @@ export default function DailyForecast({ rows, onDayClick, sammiDailyByIsoDay }: 
                 {isProminentToday && rel && insight && tone ? (
                   <span
                     className={[
-                      'mb-1.5 line-clamp-2 w-full max-w-[11.5rem] self-center text-center text-[5.5px] font-semibold leading-tight sm:mb-2 sm:max-w-none sm:px-1 sm:text-[6.5px]',
-                      'rounded-full border px-1.5 py-1 not-italic normal-case',
+                      'mb-1 line-clamp-1 w-full self-center text-center text-[5px] font-semibold leading-none sm:text-[5.5px]',
+                      'rounded-full border px-1 py-0.5 not-italic normal-case',
                       tone.badge,
                     ].join(' ')}
                     title={rel.full}
@@ -602,9 +896,9 @@ export default function DailyForecast({ rows, onDayClick, sammiDailyByIsoDay }: 
 
                 <div
                   className={[
-                    'relative mb-1 flex w-full select-none items-center justify-center',
+                    'relative mb-0.5 flex w-full select-none items-center justify-center',
                     isProminentToday
-                      ? 'min-h-16 text-[3rem] leading-none drop-shadow-[0_2px_12px_rgba(0,0,0,0.35)] sm:min-h-[4.5rem] sm:text-[3.75rem] sm:leading-none'
+                      ? 'min-h-10 text-[1.85rem] leading-none drop-shadow-[0_1px_8px_rgba(0,0,0,0.3)] sm:min-h-11 sm:text-[2rem]'
                       : 'h-9 min-h-9 w-9 text-2xl sm:h-10 sm:min-h-10 sm:w-10 sm:text-3xl',
                   ].join(' ')}
                 >
@@ -617,17 +911,17 @@ export default function DailyForecast({ rows, onDayClick, sammiDailyByIsoDay }: 
                 </div>
 
                 {isProminentToday && insight && tone ? (
-                  <div className="mb-1 flex min-h-[2.5rem] flex-col gap-0.5 text-center sm:min-h-14">
-                    <p className="line-clamp-2 text-[8px] font-semibold leading-snug text-white/95 sm:text-[9px]">
+                  <div className="mb-0.5 flex flex-col gap-px text-center">
+                    <p className="line-clamp-2 text-[6.5px] font-medium leading-tight text-white/90 sm:text-[7px]">
                       {insight.today_advice}
                     </p>
                     {insight.time_hint ? (
-                      <p className="text-[7px] font-medium leading-tight text-white/60 sm:text-[8px]">
+                      <p className="text-[6px] font-medium leading-tight text-white/55 sm:text-[6.5px]">
                         {insight.time_hint}
                       </p>
                     ) : null}
                     {showChance ? (
-                      <p className="text-[7px] font-bold text-cyan-300/90 sm:text-[8px]">
+                      <p className="text-[6px] font-bold text-cyan-300/90 sm:text-[6.5px]">
                         {Math.round(insight.chance_of_rain_pct)}% chance of rain
                       </p>
                     ) : null}

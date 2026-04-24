@@ -21,8 +21,8 @@ function parseOptionalLatLon(request: Request): { lat: number; lon: number } {
 }
 
 /**
- * Ruwe Spire `/forecast/point` payloads per parameter-set (geen WAQI-merge).
- * Open in browser: `/api/spire/forecast-debug` of `?lat=&lon=`.
+ * Raw Spire `/forecast/point` payloads per parameter set (no WAQI merge).
+ * Open in browser: `/api/spire/forecast-debug` or `?lat=&lon=`.
  */
 export async function GET(request: Request) {
   const controller = new AbortController();
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         ...panel,
-        hint: 'Ruwe Spire JSON per query. `stats` = aantal rijen + span (uur) tussen eerste/laatste valid_time. `data` max 400 rijen als ingekort.',
+        hint: 'Raw Spire JSON per query. `stats` = row count + hour span between first/last valid_time. `data` capped at 400 rows when truncated.',
       },
       {
         headers: {

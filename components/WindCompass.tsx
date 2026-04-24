@@ -3,7 +3,7 @@
 import React, { useId } from 'react';
 
 interface WindCompassProps {
-  /** Graden van Spire (0–360), meteorologische windrichting (waar de wind vandaan komt). */
+  /** Degrees from Spire (0–360), meteorological direction (where the wind blows from). */
   direction: number;
   size?: number;
 }
@@ -20,7 +20,7 @@ export default function WindCompass({ direction, size = 40 }: WindCompassProps) 
     <div
       className="relative flex items-center justify-center"
       style={{ width: size, height: size }}
-      aria-label={`Windrichting ${direction}°`}
+      aria-label={`Wind direction ${direction}°`}
     >
       <svg
         viewBox="0 0 100 100"

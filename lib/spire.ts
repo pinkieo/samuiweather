@@ -1,5 +1,11 @@
-/** Spire Weather API — gedeelde constanten, forecast-mapping + WAQI-merge. */
-
+/**
+ * Spire Weather API — shared constants, forecast mapping + WAQI merge.
+ *
+ * **Product (what users mostly see):** Spire point forecast, merged tiers + (on Samui) OPF probability overlay on matching hours.
+ * Ingest in Supabase → `sammi_forecast` / `sammi_daily_forecast` for `kans_*`, advice, reliability.
+ * The UI can **nudge “now”** only via a private grid route — see `lib/forecast-reference.ts` (`blendReferenceNowcastIntoFirstRow`); Spire remains the lead timeline; that grid is a cross-check, not a second branded layer.
+ * **To track skill over time:** compare archived `weather_forecast` to METAR + radar truth and (when live) ground sensors; `issuance` vs `valid_time` in views encodes the OPF / medium / long-horizon bands.
+ */
 import {
   computeSpireBeachSkyCloudCover,
   extractSpireCloudLayerInputs,
@@ -126,7 +132,7 @@ export function getSpireOpfLocationFromEnv(): string {
 }
 
 /**
- * OPF hourly probabilities (~72h) for Sammi “hoog” band (0–48h vs issuance in SQL view).
+ * OPF hourly probabilities (~72h) for Sammi **high** band (0–48h vs issuance in SQL view).
  * Bundles: env override, else `basic,thunderstorm`, then `basic`.
  */
 async function fetchOpfProbabilities(
@@ -173,7 +179,7 @@ async function fetchOpfProbabilities(
 }
 
 /**
- * Spire v4 Tides Point — `/tides/point` met start + horizon (niet legacy forecast/point/tides).
+ * Spire v4 Tides Point — `/tides/point` with start + horizon (not legacy forecast/point/tides).
  */
 function isoUtcZNoMs(d: Date = new Date()): string {
   return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -196,10 +202,10 @@ export function buildTidesPointUrl(
 
 function hintForStatus(status: number): string | undefined {
   if (status === 404) {
-    return 'Gebruik api.wx.spire.com (niet api.spire.com); controleer pad en regio.';
+    return 'Use api.wx.spire.com (not api.spire.com); check path and region.';
   }
   if (status === 403) {
-    return 'Bundle mogelijk niet op dit token geactiveerd (bijv. maritime_atmos).';
+    return 'Bundle may not be enabled for this token (e.g. maritime_atmos).';
   }
   return undefined;
 }
@@ -256,7 +262,7 @@ export function formatWindMs(n: number | null | undefined): string {
   return x.toFixed(1);
 }
 
-/** Eén uniforme rij voor MapViewer: Spire + live WAQI alleen op index 0. */
+/** One unified row for MapViewer: Spire + live WAQI on index 0 only. */
 export interface SamuiWeatherForecastRow {
   time: string;
   temp: number;
@@ -274,14 +280,14 @@ export interface SamuiWeatherForecastRow {
   aqi: number | null;
   aqiStatus: string | null;
   /**
-   * Strand-/zon-relevante bewolking (0–100%): `effective_cloud_cover` of gewogen low/mid/high,
-   * anders `total_cloud_cover`. Zie `lib/spire-cloud-cover.ts`.
+   * Beach/sun-relevant cloud cover (0–100%): `effective_cloud_cover` or weighted low/mid/high,
+   * else `total_cloud_cover`. See `lib/spire-cloud-cover.ts`.
    */
   cloudCover: number;
   pop: number;
-  /** Ruwe Spire `total_cloud_cover` (hele kolom), indien aanwezig — voor debug / vergelijking. */
+  /** Raw Spire `total_cloud_cover` (full column) when present — for debug / comparison. */
   spireCloudTotal?: number | null;
-  /** Alleen met Spire `clouds` bundle (of toekomstige velden). */
+  /** Only with Spire `clouds` bundle (or future fields). */
   spireCloudLow?: number | null;
   spireCloudMid?: number | null;
   spireCloudHigh?: number | null;
@@ -293,17 +299,27 @@ export interface SamuiWeatherForecastRow {
   pwat?: number | null;
   /** J/kg — `thunderstorm` bundle. */
   dcape?: number | null;
-  /** Alleen index 0 + WAQI ok */
+  /** J/kg (≤ 0) — convective inhibition; `thunderstorm` / profile bundle when present. */
+  cin?: number | null;
+  /** Index 0 only + WAQI when ok */
   station?: string | null;
   /**
-   * Uurlijks van Supabase `sammi_forecast` (zelfde `time` ↔ `valid_time_utc`) — leeg als cron nog niet draaide
-   * of `location_id` niet matcht. `kans_*` = NULL wanneer SQL `reliability = low`.
+   * Hourly from Supabase `sammi_forecast` (same `time` ↔ `valid_time_utc`) — empty if cron has not run yet
+   * or `location_id` does not match. `kans_*` = NULL when SQL `reliability = low`.
    */
   sammi?: {
     kansRegenPctSammi: number | null;
     kansOnweerPctSammi: number | null;
     kansMistPctSammi: number | null;
     reliability: 'high' | 'medium' | 'low';
+    /** From `sammi_forecast` view (CAPE+PWAT+CIN / DCAPE guide) */
+    tropicalTier?: string | null;
+    windTier?: string | null;
+    convectiveLine?: string | null;
+    /** J/kg — same column as `row.cin` when Spire omits thunder bundle on this row. */
+    cinJkg?: number | null;
+    /** m AGL — cloud base / ceiling for “beach sky” copy; optional duplicate of `cloudCeiling`. */
+    ceilingM?: number | null;
   };
 }
 
@@ -398,6 +414,13 @@ function mapSpirePointRow(entry: unknown): Omit<
       'dcape',
     ]) ?? null;
 
+  const cin =
+    pickFirstNumber(vr, [
+      'convective_inhibition',
+      'cin',
+      'CIN',
+    ]) ?? null;
+
   return {
     time: e.times?.valid_time ?? new Date().toISOString(),
     temp: convertSpireValue(Number(v.air_temperature ?? 293.15), 'temp'),
@@ -421,6 +444,7 @@ function mapSpirePointRow(entry: unknown): Omit<
     cape,
     pwat,
     dcape,
+    cin,
     pop: popRaw <= 1 && popRaw > 0 ? Math.round(popRaw * 100) : Number(popRaw),
     uvIndex: uv,
     pm25,
@@ -436,7 +460,7 @@ type WaqiPayload = {
   };
 };
 
-/** OpenUV `/forecast` — geneste arrays met `{ uv, uv_time }`. */
+/** OpenUV `/forecast` — nested arrays with `{ uv, uv_time }`. */
 function collectOpenUvForecastRows(
   node: unknown,
   out: { uv: number; uv_time: string }[],
@@ -466,7 +490,7 @@ function collectOpenUvForecastRows(
   }
 }
 
-/** UTC-uur-bucket (ms sinds epoch) → lookup key voor Spire `valid_time` vs OpenUV `uv_time`. */
+/** UTC hour bucket (ms since epoch) → lookup key for Spire `valid_time` vs OpenUV `uv_time`. */
 function utcHourBucketMs(iso: string): number {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return NaN;
@@ -502,11 +526,11 @@ function lookupOpenUvForecastForValidTime(
 }
 
 /**
- * Ruwe Spire `data[]` + WAQI JSON. Index 0 krijgt live smog (AQI/PM2.5);
- * andere uren: Spire-waarden, `aqi`/`aqiStatus` null.
+ * Raw Spire `data[]` + WAQI JSON. Index 0 gets live smog (AQI/PM2.5);
+ * other hours: Spire values, `aqi`/`aqiStatus` null.
  *
- * UV: OpenUV **hourly forecast** (`/forecast`) wordt per `valid_time` gematcht; zo heeft elk uur
- * een index. Daarna: Spire `uv_index` als die er is; anders op index 0 geen aparte OpenUV `/uv` meer.
+ * UV: OpenUV **hourly forecast** (`/forecast`) is matched per `valid_time` so every hour
+ * has an index. Then: Spire `uv_index` when present; else on index 0 no separate OpenUV `/uv` call.
  */
 export function mergeSpireWithWaqi(
   spireRows: unknown[],
@@ -563,12 +587,12 @@ export function mergeSpireWithWaqi(
 }
 
 /**
- * `maritime-atmos` = 50 m wind + maritieme velden; `solar` staat op veel tokens niet toe.
- * `clouds` (low/mid/high) — zie `lib/spire-cloud-cover.ts` — alleen als je Spire-abonnement `clouds` toestaat.
+ * `maritime-atmos` = 50 m wind + maritime fields; `solar` is not allowed on many tokens.
+ * `clouds` (low/mid/high) — see `lib/spire-cloud-cover.ts` — only if your Spire plan allows `clouds`.
  */
 export const FORECAST_BUNDLES_VACATION = 'basic,maritime-atmos';
 
-/** Legacy: zelfde shape zonder WAQI. */
+/** Legacy: same shape without WAQI. */
 export function mapSpireForecastPointData(raw: unknown): SamuiWeatherForecastRow[] {
   if (!raw || typeof raw !== 'object' || !('data' in raw)) return [];
   const { data } = raw as { data: unknown };
@@ -587,7 +611,7 @@ function spireValidTimeKey(entry: unknown): string {
   }
 }
 
-/** Samenvatting van één Spire `/forecast/point` `data[]` — o.a. voor debug-endpoint. */
+/** Summary of one Spire `/forecast/point` `data[]` — e.g. for the debug endpoint. */
 export function computeSpirePointDataStats(data: unknown): {
   rowCount: number;
   spanHours: number;
@@ -633,15 +657,15 @@ export type SpireForecastDebugQueryResult = {
   stats: ReturnType<typeof computeSpirePointDataStats>;
   message?: string;
   meta?: unknown;
-  /** Ruwe rijen (ingekort als `truncated`) */
+  /** Raw rows (truncated when `truncated`) */
   data?: unknown[];
   truncated?: boolean;
   totalDataRows?: number;
 };
 
 /**
- * Eén request per veelgebruikte parametercombinatie — zie wat Spire **werkelijk** teruggeeft
- * (vóór WAQI/OpenUV-merge). Gebruik `/api/spire/forecast-debug` in de browser.
+ * One request per common parameter set — see what Spire **actually** returns
+ * (before WAQI/OpenUV merge). Use `/api/spire/forecast-debug` in the browser.
  */
 export async function fetchSpireForecastDebugPanel(
   lat: number,
@@ -650,7 +674,7 @@ export async function fetchSpireForecastDebugPanel(
 ): Promise<{ lat: number; lon: number; generatedAt: string; queries: SpireForecastDebugQueryResult[] }> {
   const token = getSpireApiToken();
   if (!token) {
-    throw new Error('SPIRE_API_TOKEN ontbreekt');
+    throw new Error('SPIRE_API_TOKEN is missing');
   }
 
   const MAX_DEBUG_ROWS = 400;
@@ -669,7 +693,7 @@ export async function fetchSpireForecastDebugPanel(
       forecastHours: 360,
     },
     {
-      label: 'hourly, geen forecast_hours (vacation)',
+      label: 'hourly, no forecast_hours (vacation)',
       bundles: FORECAST_BUNDLES_VACATION,
       timeBundle: 'hourly',
     },
@@ -703,7 +727,7 @@ export async function fetchSpireForecastDebugPanel(
       forecastHours: 360,
     },
     {
-      label: 'geen time_bundle (vacation — API default)',
+      label: 'no time_bundle (vacation — API default)',
       bundles: FORECAST_BUNDLES_VACATION,
     },
   ];
@@ -768,12 +792,11 @@ export async function fetchSpireForecastDebugPanel(
 
 /**
  * Spire contract (ProSeaDure): 0–48h hourly, 48–120h 3-hourly, 120–360h 6-hourly.
- * Zelfde `valid_time` → hoogste `tierPriority` wint (hourly > 3_hourly > 6_hourly).
- */
-/**
- * Lagere waarde = eerst in merge-map; zelfde `valid_time` → hogere `p` wint.
- * `6_hourly_15day`: Spire ProSea — ~15d spine op 6-uursbasis (zie support-mail).
- * `medium_range` / `6_hourly`: fallback als `6_hourly_15day` niet beschikbaar is.
+ * Same `valid_time` → highest `tierPriority` wins (hourly > 3_hourly > 6_hourly).
+ *
+ * Lower value = first in merge map; same `valid_time` → higher `p` wins.
+ * `6_hourly_15day`: Spire ProSea — ~15d spine on a 6-hourly grid (per support).
+ * `medium_range` / `6_hourly`: fallback when `6_hourly_15day` is not available.
  */
 const SPIRE_CONTRACT_TIER_PRIORITY: Record<string, number> = {
   medium_range: 0,
@@ -853,9 +876,9 @@ function overlayOpfProbabilitiesOnRows(base: unknown[], opf: unknown[]): void {
 }
 
 /**
- * Spire + WAQI: combined Point `hourly,3_hourly,6_hourly_15day` of tier-merge; parallel OPF (~72h,
- * bundles `basic,thunderstorm` then `basic`) overschrijft probabilities alleen op het Samui-point
- * ({@link isSamuiOpfOverlayPoint}). Sammi-reliability in SQL: hoog ≤48h, medium ≤120h, laag >120h
+ * Spire + WAQI: combined Point `hourly,3_hourly,6_hourly_15day` or tier merge; parallel OPF (~72h,
+ * bundles `basic,thunderstorm` then `basic`) overwrites probabilities only on the Samui point
+ * ({@link isSamuiOpfOverlayPoint}). Sammi reliability in SQL: high ≤48h, medium ≤120h, low >120h
  * vs `issuance_time_utc` (`sammi_forecast` view).
  */
 export async function getForecastMergedAt(
@@ -865,7 +888,7 @@ export async function getForecastMergedAt(
 ): Promise<SamuiWeatherForecastRow[]> {
   const token = getSpireApiToken();
   if (!token) {
-    throw new Error('SPIRE_API_TOKEN ontbreekt');
+    throw new Error('SPIRE_API_TOKEN is missing');
   }
 
   const waqiToken = (process.env.WAQI_API_TOKEN || process.env.NEXT_PUBLIC_AQICN_TOKEN)?.trim();
@@ -971,7 +994,7 @@ export async function getForecastMergedAt(
       });
   };
 
-  /** Hourly UV per `uv_time` — nodig omdat Spire vaak geen `uv_index` per uur levert. */
+  /** Hourly UV per `uv_time` — needed because Spire often omits per-hour `uv_index`. */
   const fetchUvForecast = (): Promise<unknown> => {
     if (!uvKey) return Promise.resolve(null);
     const url = `https://api.openuv.io/api/v1/forecast?lat=${lat}&lng=${lon}&alt=0`;
@@ -1002,7 +1025,7 @@ export async function getForecastMergedAt(
   ]);
 
   if (rows.length === 0) {
-    throw new Error('Spire: geen forecast data (contract tiers)');
+    throw new Error('Spire: no forecast data (contract tiers)');
   }
 
   overlayOpfProbabilitiesOnRows(rows, opfRows);

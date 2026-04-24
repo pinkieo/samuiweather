@@ -43,12 +43,12 @@ const defaultFeed: RadarFeedState = {
 
 const RadarFeedContext = createContext<RadarFeedState>(defaultFeed);
 
-/** Volledige feed + status — dashboard radar-dot wacht niet op de kaart. */
+/** Full feed + status — dashboard radar dot does not wait for the map. */
 export function useRadarFeed(): RadarFeedState {
   return useContext(RadarFeedContext);
 }
 
-/** Alleen frame-lijst — kaartlaag. */
+/** Frame list only — map layer. */
 export function useRadarFrames(): RadarFrame[] {
   return useContext(RadarFeedContext).frames;
 }
@@ -65,7 +65,7 @@ export function RadarFramesProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     let pollId: number | undefined;
 
-    /** @returns false = HTTP error of parse-fout; dan mag practice-snapshot als fallback. */
+    /** @returns false = HTTP or parse error; practice snapshot may be used as fallback. */
     async function loadLiveFrames(): Promise<boolean> {
       try {
         const r = await fetch('/api/radar/frames', { cache: 'no-store' });

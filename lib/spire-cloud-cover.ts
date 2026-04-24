@@ -1,15 +1,15 @@
 /**
- * Spire levert in `basic` vaak alleen `total_cloud_cover` (hele kolom) — daardoor “100%” terwijl
- * laaghangende bewolking schaars is. Met de **`clouds`** bundle (als je token die toestaat) krijg je
- * low/mid/high; sommige bundels leveren `effective_cloud_cover` (effect op zon op de grond).
+ * Spire’s `basic` bundle often exposes only `total_cloud_cover` (full column) — so you can see “100%” while
+ * low cloud is sparse. With the **`clouds`** bundle (when your token allows it) you get
+ * low/mid/high; some bundles expose `effective_cloud_cover` (effect on sun at ground level).
  *
  * @see https://developers.wx.spire.com/bundles — Clouds bundle (`clouds`)
  */
 
 export type SpireCloudLayerInputs = {
-  /** Effect op kortgolvige straling / “voelt” als bewolking op maaiveld (0–100). */
+  /** Effect on shortwave radiation / “feels like” cloud at the surface (0–100). */
   effectiveCloudCover: number | null;
-  /** Hele atmosfeer-kolom (0–100) — ruw Spire-veld. */
+  /** Full atmosphere column (0–100) — raw Spire field. */
   totalCloudCover: number | null;
   lowCloudCover: number | null;
   midCloudCover: number | null;
@@ -21,7 +21,7 @@ function clampPct(n: number): number {
   return Math.max(0, Math.min(100, n));
 }
 
-/** Spire geeft soms fracties (0–1) i.p.v. procenten. */
+/** Spire sometimes returns fractions (0–1) instead of percent. */
 function toPercent0to100(v: number | null): number | null {
   if (v == null || Number.isNaN(v)) return null;
   if (v >= 0 && v <= 1) return v * 100;
@@ -29,15 +29,15 @@ function toPercent0to100(v: number | null): number | null {
 }
 
 /**
- * Gewichten: laag = wat je op het strand ziet; hoog = cirrus/sluier — weinig invloed op “zonnetje”.
- * (Afstembaar; documentatie in bundels: low &lt; ~650 hPa, high &gt; ~350 hPa top.)
+ * Weights: low = what you see at the beach; high = cirrus/veil — little effect on “feels sunny”.
+ * (Tunable; bundle docs: low &lt; ~650 hPa, high &gt; ~350 hPa top.)
  */
 const W_LOW = 0.82;
 const W_MID = 0.32;
 const W_HIGH = 0.09;
 
 /**
- * Eén getal voor dashboard / Sammi: strand-relevante bewolking (0–100).
+ * Single number for dashboard / Sammi: beach-relevant cloud cover (0–100).
  */
 export function computeSpireBeachSkyCloudCover(
   layers: SpireCloudLayerInputs,
@@ -67,7 +67,7 @@ export function computeSpireBeachSkyCloudCover(
 }
 
 /**
- * Velden uit Spire `values{}` — meerdere mogelijke API-namen voor toekomstige bundels.
+ * Fields from Spire `values{}` — several possible API names for future bundles.
  */
 export function extractSpireCloudLayerInputs(
   vr: Record<string, unknown>,

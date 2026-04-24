@@ -136,15 +136,15 @@ export default function RadarHourlyTimeline({
         .filter(Boolean)
         .join(' ')}
       role="region"
-      aria-label="Radar per uur op jouw pin (ICT)"
+      aria-label="Radar by hour for your map pin (ICT)"
     >
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
         <span className="text-[9px] font-black uppercase tracking-wider text-cyan-200/95">
-          Radar · uren (Bangkok)
+          Radar · hours (Bangkok)
         </span>
         <div className="flex items-center gap-2">
           {busy && (
-            <span className="text-[8px] font-semibold text-slate-500">Scans lezen…</span>
+            <span className="text-[8px] font-semibold text-slate-500">Loading scans…</span>
           )}
           <button
             type="button"
@@ -163,9 +163,9 @@ export default function RadarHourlyTimeline({
         </div>
       </div>
       <p className="mb-2 text-[8px] leading-snug text-slate-500">
-        Kleur = echo op je pin. Tik een uur om die radarscan op de kaart te tonen. Live = nieuwste
-        sweep. Uren vooruit alleen bij RainViewer-nowcast; anders tonen we alleen ~2 uur historie +
-        nu.
+        Color = echo on your pin. Tap an hour to show that scan on the map. Live = newest sweep.
+        Future hours only when a RainViewer nowcast exists; otherwise we show about two hours of past
+        + now.
       </p>
       <div className="flex gap-1 sm:gap-1.5">
         {buckets.map((b) => {
@@ -189,11 +189,11 @@ export default function RadarHourlyTimeline({
                 : 'border border-dashed border-slate-600/80 bg-slate-900/40';
           const hintBase =
             b.level === 1
-              ? 'Neerslag op pin / nabij'
+              ? 'Precipitation on / near your pin'
               : b.level === 0
-                ? 'Geen echo op pin / nabij (in beschikbare scans)'
-                : 'Geen radarscan in dit uur';
-          const scrubHint = canScrub ? ' — klik: deze scan op de kaart' : '';
+                ? 'No echo on / near your pin (in available scans)'
+                : 'No radar scan for this hour';
+          const scrubHint = canScrub ? ' — click: show this frame on the map' : '';
           return (
             <div key={b.key} className="flex min-w-0 flex-1 flex-col items-center gap-1">
               <button
@@ -222,7 +222,7 @@ export default function RadarHourlyTimeline({
                   isSelected ? 'text-amber-200' : '',
                 ].join(' ')}
               >
-                {isNow ? 'Nu' : formatHourLabel(b.hourStartUtc)}
+                {isNow ? 'Now' : formatHourLabel(b.hourStartUtc)}
               </span>
             </div>
           );
