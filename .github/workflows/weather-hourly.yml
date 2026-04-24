@@ -17,7 +17,7 @@ name: Weather hourly ingest
 on:
   schedule:
     # Elke uur op :00 UTC (GitHub gebruikt UTC)
-    - cron: "0 * * * *"
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 concurrency:
