@@ -373,7 +373,9 @@ export default function SammiConcierge({
 
   const nowBeachScore = useMemo(() => {
     const r = forecastRows[0];
-    return r ? calculateBeachSunScore(r) : null;
+    return r
+      ? calculateBeachSunScore(r, { hourlyRows: forecastRows, anchorIso: r.time })
+      : null;
   }, [forecastRows]);
 
   /** Scroll to bottom only when chatting; on first load keep top visible (avatar + intel). */
@@ -412,6 +414,7 @@ export default function SammiConcierge({
             beachSunScore:     nowBeachScore?.score,
             beachSunLabel:     nowBeachScore?.label,
             beachSunAdvice:    nowBeachScore?.advice,
+            beachSunUvWarning: nowBeachScore?.uvWarning,
             beachRegionLabel:  regionBeachLabel,
           } : undefined,
         }),

@@ -5,6 +5,7 @@ description: >-
   Use when working on any feature in this project — weather data, radar overlay, Sammi chat,
   vector search, Reddit embedding, or Mapbox map. Enforces the hybrid data policy:
   SPIRE for forecasts, Surat Thani radar for live rain, Supabase pgvector for Sammi's brain.
+  UI copy is **English** — no Dutch in user-facing app strings (labels, tooltips, timeline text).
 ---
 
 # Samui Concierge — Project Skill
@@ -20,6 +21,8 @@ description: >-
 | AI Chat | OpenAI GPT-4o-mini | Max 200 tokens, Sammi persona always active |
 | Vector Search | Supabase pgvector, `text-embedding-3-small` | 1536 dims, cosine similarity |
 | Community | Reddit r/kohsamui + r/weathersamui | Embedded via `npm run embed` |
+
+**Product UI copy:** all user-facing strings in the app (not internal comments) are **English** — no **Dutch** in labels, tooltips, timeline copy, or similar.
 
 ## 📡 Data Policy (STRICT)
 

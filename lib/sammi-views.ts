@@ -35,6 +35,8 @@ export interface SammiForecastViewRow {
   sammi_tropical_tier?: SammiTropicalTier | null;
   sammi_wind_tier?: SammiWindTier | null;
   sammi_convective_line?: string | null;
+  /** Degrees meteorological (from); matches `weather_forecast.wind_direction_deg` / Spire ingest. */
+  wind_direction_deg?: number | null;
 }
 
 export interface SammiDailyForecastViewRow {

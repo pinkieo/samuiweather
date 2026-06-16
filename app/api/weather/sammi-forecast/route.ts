@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabase
     .from('sammi_forecast')
     .select(
-      'location_id,valid_time_utc,kans_regen_pct_sammi,kans_onweer_pct_sammi,kans_mist_pct_sammi,reliability,cin,ceiling_m,sammi_tropical_tier,sammi_wind_tier,sammi_convective_line',
+      'location_id,valid_time_utc,kans_regen_pct_sammi,kans_onweer_pct_sammi,kans_mist_pct_sammi,reliability,cin,ceiling_m,sammi_tropical_tier,sammi_wind_tier,sammi_convective_line,wind_direction_deg',
     )
     .eq('location_id', locationId)
     .order('valid_time_utc', { ascending: true })

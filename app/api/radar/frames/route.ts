@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getRainViewerIngestProof } from '@/lib/rainviewer-ingest-proof';
 
+/**
+ * Proxies RainViewer’s public catalog (frame paths + times only; no image bytes in this response).
+ * Upstream: https://api.rainviewer.com/public/weather-maps.json — `radar.past` is typically ~2–3 h of scans.
+ */
 export const runtime = 'edge';
 /** Avoid half-stale cached responses in dev — always fresh `weather-maps.json`. */
 export const dynamic = 'force-dynamic';

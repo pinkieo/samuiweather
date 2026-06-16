@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getForecastMergedAt, SAMUI_CENTER } from '@/lib/spire';
+import { getForecastMergedAt, getSpireApiToken, SAMUI_CENTER } from '@/lib/spire';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,8 +30,43 @@ export async function GET(request: Request) {
 
   try {
     const { lat, lon } = parseOptionalLatLon(request);
+    const hasToken = Boolean(getSpireApiToken());
+    // #region agent log
+    fetch('http://127.0.0.1:7488/ingest/700ecb43-33c3-46ad-a0f9-880b489bb2e9', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Debug-Session-Id': 'e62a63',
+      },
+      body: JSON.stringify({
+        sessionId: 'e62a63',
+        hypothesisId: 'H5',
+        location: 'api/spire/forecast:GET:start',
+        message: 'server forecast GET enter',
+        data: { hasToken, lat, lon },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     const rows = await getForecastMergedAt(lat, lon, controller.signal);
     clearTimeout(timer);
+    // #region agent log
+    fetch('http://127.0.0.1:7488/ingest/700ecb43-33c3-46ad-a0f9-880b489bb2e9', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Debug-Session-Id': 'e62a63',
+      },
+      body: JSON.stringify({
+        sessionId: 'e62a63',
+        hypothesisId: 'H5',
+        location: 'api/spire/forecast:GET:ok',
+        message: 'getForecastMergedAt returned',
+        data: { rowCount: rows.length },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (rows.length === 0) {
       return NextResponse.json(
         { error: 'No forecast data from Spire' },
@@ -48,6 +83,26 @@ export async function GET(request: Request) {
   } catch (error) {
     clearTimeout(timer);
     const message = error instanceof Error ? error.message : 'Unknown error';
+    // #region agent log
+    fetch('http://127.0.0.1:7488/ingest/700ecb43-33c3-46ad-a0f9-880b489bb2e9', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Debug-Session-Id': 'e62a63',
+      },
+      body: JSON.stringify({
+        sessionId: 'e62a63',
+        hypothesisId: 'H3',
+        location: 'api/spire/forecast:GET:catch',
+        message: 'server forecast GET catch',
+        data: {
+          errName: error instanceof Error ? error.name : 'unknown',
+          errMessage: message,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (message.includes('SPIRE_API_TOKEN')) {
       return NextResponse.json({ error: message }, { status: 500 });
     }

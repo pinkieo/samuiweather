@@ -1,3 +1,8 @@
+import {
+  calculateRainMovementVector,
+  nowcastIndexForHourOffset,
+} from './rainviewer-motion';
+
 export type RadarFrameLike = { path: string; time: number };
 
 /** `YYYY-MM-DDTHH` in Asia/Bangkok for grouping. */
@@ -61,9 +66,9 @@ export function pickLatestFrameInHour(
 }
 
 /**
- * Frame for map scrub: first real scan in the hour; for **future** ICT hours with no hit,
- * use the nowcast frame whose time is closest to the middle of that hour (RainViewer
- * sometimes clusters all `time` stamps in the current hour).
+ * Frame for map scrub: latest real scan in the hour from merged past+nowcast; for **future**
+ * hours with no in-hour scan, route across **distinct** nowcast steps (see
+ * `calculateRainMovementVector`) so Play/click does not stick on one tile path.
  */
 export function pickScrubFrameForHour(
   merged: RadarFrameLike[],
@@ -73,18 +78,33 @@ export function pickScrubFrameForHour(
 ): RadarFrameLike | null {
   const direct = pickLatestFrameInHour(merged, hourStartUtc);
   if (direct) return direct;
-  if (hourStartUtc <= currentBangkokHourStartUtc || nowcastOnly.length === 0) return null;
-  const target = hourStartUtc + 1800;
-  let best: RadarFrameLike | null = null;
-  let bestAbs = Infinity;
-  for (const f of nowcastOnly) {
-    const abs = Math.abs(f.time - target);
-    if (abs < bestAbs) {
-      bestAbs = abs;
-      best = f;
+
+  if (nowcastOnly.length === 0) return null;
+
+  const motion = calculateRainMovementVector(nowcastOnly);
+  if (!motion) return null;
+
+  const hourOff = Math.round((hourStartUtc - currentBangkokHourStartUtc) / 3600);
+
+  if (hourStartUtc > currentBangkokHourStartUtc) {
+    const tMid = hourStartUtc + 1800;
+    if (!motion.timesAreClustered) {
+      let best: RadarFrameLike | null = null;
+      let bestAbs = Infinity;
+      for (const f of motion.sortedNowcast) {
+        const abs = Math.abs(f.time - tMid);
+        if (abs < bestAbs) {
+          bestAbs = abs;
+          best = f;
+        }
+      }
+      if (best != null && bestAbs <= 2.5 * 3600) return best;
     }
+    const idx = nowcastIndexForHourOffset(motion, hourOff);
+    return motion.sortedNowcast[idx] ?? motion.sortedNowcast[0]!;
   }
-  return best;
+
+  return null;
 }
 
 export function buildHourlyRadarBuckets(

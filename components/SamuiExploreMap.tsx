@@ -17,6 +17,7 @@ import {
 } from '../lib/krabi-vector-style';
 import { applyPreferredPlaceLabels } from '../lib/maplibre-place-labels';
 import { useHudThrottleMove } from '../lib/map-move-hud';
+import RadarOverlay from './RadarOverlay';
 
 /** Streets/POI detail (restaurants, etc.); RainViewer raster stays native z≤7 and overzooms above that. */
 const MAP_MAX_ZOOM = 20;
@@ -76,12 +77,21 @@ export interface SamuiExploreMapProps {
    * Optional RainViewer scrub: show this frame on the map instead of the newest past scan.
    * `null` = live (latest scan from feed).
    */
-  radarScrub?: { path: string; time: number } | null;
+  radarScrub?: { path: string; time: number; translate?: [number, number] } | null;
   /**
    * Short tourist-friendly line: live rain on the map vs the forecast time bar
    * (`HOLIDAY_MAP_FOOTER_LINE` from `lib/holiday-now-hints.ts`).
    */
   mapFooterHolidayLine: string;
+  /**
+   * Pin-centered RainViewer tile as a semi-transparent screenshot; when set, the georeferenced
+   * raster source is hidden to avoid double radar.
+   */
+  radarOverlayUrl?: string | null;
+  /** Return to live tiled radar + clear scrub (hour bar “Live”). */
+  onRadarOverlayClear?: () => void;
+  /** Pull RainViewer frames immediately (LIVE chip). */
+  onRefreshLive?: () => void;
 }
 
 /**
@@ -171,6 +181,9 @@ export default function SamuiExploreMap({
   mapScaleContextLabel = 'island',
   radarScrub = null,
   mapFooterHolidayLine,
+  radarOverlayUrl = null,
+  onRadarOverlayClear,
+  onRefreshLive,
 }: SamuiExploreMapProps) {
   const mapRef = useRef<MapRef | null>(null);
   const startLng = initialLongitude ?? INITIAL_LNG;
@@ -178,6 +191,49 @@ export default function SamuiExploreMap({
   const startZoom = initialZoom ?? INITIAL_MAP_ZOOM;
   /** From {@link RadarFramesProvider} — fetched at app root so radar metadata logs on every route. */
   const radarFrames = useRadarFrames();
+  const [liveClockKey, setLiveClockKey] = useState(0);
+  const [liveAgeKey, setLiveAgeKey] = useState(0);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setLiveClockKey((x) => x + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setLiveAgeKey((x) => x + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const latestRadarScanSec = useMemo(() => {
+    if (radarFrames.length === 0) return null;
+    return Math.max(...radarFrames.map((f) => f.time));
+  }, [radarFrames]);
+
+  const liveClockHm = useMemo(() => {
+    void liveClockKey;
+    return new Date().toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Bangkok',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }, [liveClockKey]);
+
+  const liveFeedSubline = useMemo(() => {
+    void liveAgeKey;
+    if (latestRadarScanSec == null) return 'Waiting for radar frames…';
+    const scanHm = new Date(latestRadarScanSec * 1000).toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Bangkok',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const ageMin = Math.max(
+      0,
+      Math.round((Date.now() / 1000 - latestRadarScanSec) / 60),
+    );
+    return `Last scan ${scanHm} ICT · ${ageMin}m ago`;
+  }, [latestRadarScanSec, liveAgeKey]);
   /** Wait for basemap + Mercator to settle before attaching RainViewer (avoids tile glitches with overlays). */
   const [baseMapReady, setBaseMapReady] = useState(false);
   /** Map zoom for UI (scale bar, zoom readout). */
@@ -310,15 +366,12 @@ export default function SamuiExploreMap({
     [activeRadarPath],
   );
 
-  /**
-   * Stable `<Layer>` — react-map-gl skips `setTiles` when multiple Source props change at once.
-   */
-  const radarRasterLayer = useMemo(
-    () => (
-      <Layer id="rainviewer-radar-layer" type="raster" paint={RADAR_OPACITY_PAINT} />
-    ),
-    [],
-  );
+  /** MapLibre raster layers do not support `raster-translate` (unlike some Mapbox builds). */
+  const radarLayerPaint = useMemo((): RasterLayerSpecification['paint'] => {
+    return { ...RADAR_OPACITY_PAINT };
+  }, []);
+
+  const showNativeRadarLayer = !radarOverlayUrl;
 
   /**
    * Imperative `setTiles` + double rAF so updates apply right after the source is created.
@@ -335,6 +388,7 @@ export default function SamuiExploreMap({
           | { setTiles?: (tiles: string[]) => void }
           | undefined;
         src?.setTiles?.(radarTiles);
+        map.triggerRepaint();
       } catch {
         /* source not mounted yet */
       }
@@ -437,7 +491,7 @@ export default function SamuiExploreMap({
           setCenterLat(map.getCenter().lat);
         }}
       >
-        {baseMapReady && radarTiles.length > 0 && (
+        {baseMapReady && radarTiles.length > 0 && showNativeRadarLayer && (
           <Source
             key="rainviewer-raster-stable"
             id="rainviewer-radar"
@@ -448,7 +502,7 @@ export default function SamuiExploreMap({
             maxzoom={RADAR_RASTER_MAX_ZOOM}
             scheme="xyz"
           >
-            {radarRasterLayer}
+            <Layer id="rainviewer-radar-layer" type="raster" paint={radarLayerPaint} />
           </Source>
         )}
 
@@ -593,6 +647,34 @@ export default function SamuiExploreMap({
 
         <NavigationControl position="top-right" />
       </Map>
+
+      {radarOverlayUrl ? (
+        <RadarOverlay
+          frameUrl={radarOverlayUrl}
+          label="Live radar"
+          onDismiss={onRadarOverlayClear}
+          dismissLabel="Live"
+        />
+      ) : (
+        <div className="pointer-events-auto absolute right-3 top-[3.25rem] z-[16] flex flex-col items-end gap-0.5 sm:top-[3.5rem]">
+          <button
+            type="button"
+            onClick={() => onRefreshLive?.()}
+            className="flex flex-wrap items-baseline gap-x-1.5 rounded-md border border-emerald-500/40 bg-emerald-950/80 px-2 py-0.5 shadow-lg backdrop-blur-sm transition-colors hover:bg-emerald-900/75"
+            title="Refresh radar now"
+          >
+            <span className="text-[8px] font-black uppercase tracking-widest text-emerald-200">
+              LIVE
+            </span>
+            <span className="font-mono text-[9px] font-bold tabular-nums tracking-normal text-emerald-50/95">
+              {liveClockHm} ICT
+            </span>
+          </button>
+          <p className="max-w-[11rem] text-right text-[6.5px] font-medium leading-tight text-emerald-200/55">
+            {liveFeedSubline}
+          </p>
+        </div>
+      )}
 
       {/* Right column: HUD 11.5rem; Sammi wider (up to 22rem) — both flush right so edges align */}
       <div className="pointer-events-none absolute right-3 top-[4.25rem] z-[15] flex w-[min(22rem,calc(100%-1rem))] max-w-[22rem] flex-col items-end gap-1.5 sm:top-[4.5rem]">

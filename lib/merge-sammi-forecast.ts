@@ -26,8 +26,15 @@ export function mergeSamuiHourlyIntoRows(
     const r = hit.reliability;
     if (r !== 'high' && r !== 'medium' && r !== 'low') return row;
 
+    const dbWind = hit.wind_direction_deg;
+    const windDirFromDb =
+      dbWind != null && Number.isFinite(Number(dbWind))
+        ? ((((Math.round(Number(dbWind)) % 360) + 360) % 360) as number)
+        : null;
+
     return {
       ...row,
+      ...(windDirFromDb != null ? { windDir: windDirFromDb } : {}),
       sammi: {
         kansRegenPctSammi:
           hit.kans_regen_pct_sammi != null

@@ -3,6 +3,23 @@
 export const RAINVIEWER_NATIVE_Z = 7;
 export const RAINVIEWER_TILE_PX = 512;
 
+/** Pixel within a RainViewer tile → WGS84 (same slippy grid as {@link latLonToRainviewerTileFraction}). */
+export function tilePixelToLatLon(
+  xTile: number,
+  yTile: number,
+  px: number,
+  py: number,
+  z: number = RAINVIEWER_NATIVE_Z,
+): { lat: number; lon: number } {
+  const n = 2 ** z;
+  const xf = xTile + px / RAINVIEWER_TILE_PX;
+  const yf = yTile + py / RAINVIEWER_TILE_PX;
+  const lon = (xf / n) * 360 - 180;
+  const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * yf) / n)));
+  const lat = (latRad * 180) / Math.PI;
+  return { lat, lon };
+}
+
 export function latLonToRainviewerTileFraction(
   lat: number,
   lon: number,

@@ -15,6 +15,11 @@ import {
   beachScoreVerdictClasses,
   calculateBeachSunScore,
 } from '../lib/beachSunScore';
+import { getTouristAirQualityHint } from '../lib/air-quality-snapshot';
+import {
+  getFeelsLikeHumidityHint,
+  relativeHumidityPercentForDisplay,
+} from '../lib/feels-like-heat-index';
 import HourlyForecast from './HourlyForecast';
 import DailyForecast from './DailyForecast';
 
@@ -248,10 +253,13 @@ function getVerdict(
   row: SamuiWeatherForecastRow,
   sunInfo: ReturnType<typeof getSunInfoAt>,
   bkHour: number,
-  opts?: { radarLeadsOverDryModels?: boolean },
+  opts?: { radarLeadsOverDryModels?: boolean; hourlyRows?: SamuiWeatherForecastRow[] },
 ): Verdict {
   const slot = `${forecastDayContextLabel(row.time)} · ${bangkokTimeShort(row.time)} ICT`;
-  const beach = calculateBeachSunScore(row);
+  const beach = calculateBeachSunScore(row, {
+    hourlyRows: opts?.hourlyRows ?? [],
+    anchorIso: row.time,
+  });
   const fromScore = (): Verdict => {
     const c = beachScoreVerdictClasses[beach.color];
     return {
@@ -307,9 +315,13 @@ function getVerdict(
   /** Morning (after sunrise, before 08:00 ICT): same ladder as daytime — users check at wake-up. */
   if ((row.uvIndex != null && row.uvIndex > 10) || row.temp > 34) {
     const v = fromScore();
+    const uvShade =
+      beach.uvWarning
+        ? 'Extreme UV — seek shade 12:00–15:00 ICT · '
+        : '';
     return {
       label: '☀️ Extreme Heat · Seek Shade',
-      sub: `${slot} · ${formatTempC(row.temp)}°C · UV ${row.uvIndex?.toFixed(0) ?? '—'} · Score ${beach.score}/100 · Apply SPF 50+ every 2 hours`,
+      sub: `${slot} · ${formatTempC(row.temp)}°C · UV ${row.uvIndex?.toFixed(0) ?? '—'} · Score ${beach.score}/100 · ${uvShade}Apply SPF 50+ every 2 hours`,
       bg: v.bg,
       border: v.border,
       text: v.text,
@@ -421,9 +433,12 @@ export default function VacationDashboard({
 
   const bkHour = bangkokHourFromIso(row.time);
   const sunInfo = getSunInfoAt(sunLatitude, sunLongitude, new Date(row.time));
-  const beachSun = calculateBeachSunScore(row);
+  const beachSun = calculateBeachSunScore(row, { hourlyRows: rows, anchorIso: row.time });
   const verdict = augmentVerdictWithSolarPeakHint(
-    getVerdict(row, sunInfo, bkHour, { radarLeadsOverDryModels }),
+    getVerdict(row, sunInfo, bkHour, {
+      radarLeadsOverDryModels,
+      hourlyRows: rows,
+    }),
     row,
     rows,
   );
@@ -471,6 +486,17 @@ export default function VacationDashboard({
     row.uvIndex,
     metarSkyCover,
   );
+
+  /** WAQI lives on forecast index 0 only — show hint when viewing “now” and air is elevated. */
+  const airQualityHint =
+    selectedIndex === 0 && rows[0] ? getTouristAirQualityHint(rows[0]) : null;
+
+  const humidFeelsHint = getFeelsLikeHumidityHint(
+    row.temp,
+    row.humidity,
+    new Date(row.time).getTime(),
+  );
+
 
   return (
     <div className="mb-4 flex flex-col gap-3">
@@ -539,13 +565,21 @@ export default function VacationDashboard({
             <span className="text-3xl font-extrabold text-white">{formatTempC(row.temp)}°C</span>
             <span className="text-xs font-bold text-slate-400">{row.precipRate.toFixed(1)} mm/h</span>
           </div>
-          <p className="mt-0.5 text-[11px] tracking-wider text-white/50">
-            Feels like {formatTempC(row.feelsLike)}°C
-          </p>
+          {humidFeelsHint && (
+            <p className="mt-1 text-[11px] font-medium leading-snug tracking-wide text-amber-100/90">
+              {humidFeelsHint}
+            </p>
+          )}
           <p className="mt-2 text-[10px] text-slate-400">
-            💧 {row.humidity}% humidity · ☁️ {cloudDisp.pct.toFixed(0)}% cloud cover
+            💧 {relativeHumidityPercentForDisplay(row.humidity)}% humidity · ☁️{' '}
+            {cloudDisp.pct.toFixed(0)}% cloud cover
             {cloudDisp.note}
           </p>
+          {airQualityHint && (
+            <p className={`mt-2 text-[10px] font-medium leading-snug ${airQualityHint.textClass}`}>
+              {airQualityHint.line}
+            </p>
+          )}
         </div>
 
         <div className={`rounded-3xl border border-white/10 p-5 shadow-2xl transition-colors duration-1000 ${bgClass}`}>

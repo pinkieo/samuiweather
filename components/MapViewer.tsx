@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { SamuiWeatherForecastRow } from '../lib/spire';
 import type { TideTrend } from '../lib/tides';
@@ -34,6 +34,7 @@ import { HOLIDAY_MAP_FOOTER_LINE } from '../lib/holiday-now-hints';
 import type { MetarApiResponse } from '../app/api/metar/route';
 import { dominantCoverFromMetarClouds, type MetarDominantCover } from '../lib/sky-display';
 import { sampleRadarEchoAtLocation } from '../lib/rainviewer-tile-sample';
+import { rainPossibleInNext6Hours } from '../lib/rain-next-6h';
 import { useRadarFeed } from './RadarFramesProvider';
 import { mergeSamuiHourlyIntoRows } from '../lib/merge-sammi-forecast';
 import type { SammiDailyForecastViewRow, SammiForecastViewRow } from '../lib/sammi-views';
@@ -158,7 +159,16 @@ export default function MapViewer() {
   const [radarScrubFrame, setRadarScrubFrame] = useState<{
     path: string;
     time: number;
+    targetUtcSec?: number;
+    translate?: [number, number];
+    hourKey?: string;
   } | null>(null);
+  /** Pin-centered tile snapshot over the map (hour bar / Play); `null` = tiled live radar. */
+  const [radarOverlayUrl, setRadarOverlayUrl] = useState<string | null>(null);
+  const handleRadarOverlayClear = useCallback(() => {
+    setRadarOverlayUrl(null);
+    setRadarScrubFrame(null);
+  }, []);
 
   // Dashboard collapse — closed on mobile by default, open on desktop
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
@@ -168,6 +178,7 @@ export default function MapViewer() {
 
   useEffect(() => {
     setRadarScrubFrame(null);
+    setRadarOverlayUrl(null);
   }, [dashboardRegionId]);
 
   // Section toggles
@@ -261,11 +272,46 @@ export default function MapViewer() {
     const timer = setTimeout(() => controller.abort(), 25000);
 
     const q = `?lat=${encodeURIComponent(String(region.lat))}&lon=${encodeURIComponent(String(region.lon))}`;
-    fetch(`/api/spire/forecast${q}`, {
+    const forecastUrl = `/api/spire/forecast${q}`;
+    // #region agent log
+    fetch('http://127.0.0.1:7488/ingest/700ecb43-33c3-46ad-a0f9-880b489bb2e9', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Debug-Session-Id': 'e62a63',
+      },
+      body: JSON.stringify({
+        sessionId: 'e62a63',
+        hypothesisId: 'H1',
+        location: 'MapViewer.tsx:forecast-fetch-start',
+        message: 'client forecast fetch start',
+        data: { dashboardRegionId, forecastUrl },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    fetch(forecastUrl, {
       signal: controller.signal,
     })
       .then(async (res) => {
         clearTimeout(timer);
+        // #region agent log
+        fetch('http://127.0.0.1:7488/ingest/700ecb43-33c3-46ad-a0f9-880b489bb2e9', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Debug-Session-Id': 'e62a63',
+          },
+          body: JSON.stringify({
+            sessionId: 'e62a63',
+            hypothesisId: 'H2',
+            location: 'MapViewer.tsx:forecast-fetch-response',
+            message: 'client forecast response headers',
+            data: { ok: res.ok, status: res.status, dashboardRegionId },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         const data: unknown = await res.json();
         if (!res.ok) {
           const err =
@@ -273,6 +319,23 @@ export default function MapViewer() {
             typeof (data as { error: unknown }).error === 'string'
               ? (data as { error: string }).error
               : `HTTP ${res.status}`;
+          // #region agent log
+          fetch('http://127.0.0.1:7488/ingest/700ecb43-33c3-46ad-a0f9-880b489bb2e9', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Debug-Session-Id': 'e62a63',
+            },
+            body: JSON.stringify({
+              sessionId: 'e62a63',
+              hypothesisId: 'H2',
+              location: 'MapViewer.tsx:forecast-fetch-not-ok',
+              message: 'API returned error body',
+              data: { status: res.status, err },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
           if (forecastRowsRef.current.length === 0) {
             setForecastRows([]);
             setForecastError(err);
@@ -302,6 +365,25 @@ export default function MapViewer() {
       })
       .catch((err: unknown) => {
         clearTimeout(timer);
+        // #region agent log
+        const en = err instanceof Error ? err.name : 'non-Error';
+        const em = err instanceof Error ? err.message : String(err);
+        fetch('http://127.0.0.1:7488/ingest/700ecb43-33c3-46ad-a0f9-880b489bb2e9', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Debug-Session-Id': 'e62a63',
+          },
+          body: JSON.stringify({
+            sessionId: 'e62a63',
+            hypothesisId: 'H1',
+            location: 'MapViewer.tsx:forecast-fetch-catch',
+            message: 'client forecast fetch rejected',
+            data: { errName: en, errMessage: em, dashboardRegionId },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         if (err instanceof Error && err.name === 'AbortError') {
           return;
         }
@@ -513,6 +595,11 @@ export default function MapViewer() {
     return blendReferenceNowcastIntoFirstRow(spireWithSammi, snap);
   }, [spireWithSammi, mbState]);
 
+  const rainPossibleNext6h = useMemo(() => {
+    if (displayForecastRows.length === 0) return radarEcho === 'precip';
+    return rainPossibleInNext6Hours(displayForecastRows, radarEcho);
+  }, [displayForecastRows, radarEcho]);
+
   const radarLeadsOverDryModels = useMemo(() => {
     if (radarEcho !== 'precip' || selectedIndex !== 0 || forecastRows.length === 0) return false;
     const spire0 = forecastRows[0]!;
@@ -595,19 +682,27 @@ export default function MapViewer() {
           mapScaleContextLabel={region.isSamuiProduct ? 'island' : 'coast'}
           radarScrub={radarScrubFrame}
           mapFooterHolidayLine={HOLIDAY_MAP_FOOTER_LINE}
+          radarOverlayUrl={radarOverlayUrl}
+          onRadarOverlayClear={handleRadarOverlayClear}
+          onRefreshLive={radarFeed.refresh}
         />
 
-        {/* Buienradar-style hourly strip — tap hour → map shows that scan; Live = newest */}
-        <div className="pointer-events-none absolute bottom-[7.25rem] left-1/2 z-[18] w-[min(96vw,40rem)] -translate-x-1/2 px-2 sm:bottom-[7.75rem]">
-          <RadarHourlyTimeline
-            key={dashboardRegionId}
-            lat={region.lat}
-            lon={region.lon}
-            product={region.isSamuiProduct ? 'samui' : 'krabi'}
-            radarScrub={radarScrubFrame}
-            onRadarScrub={setRadarScrubFrame}
-          />
-        </div>
+        {/* Hybrid 18h strip on map only when rain is relevant — drawer still has compact/outlook */}
+        {rainPossibleNext6h && (
+          <div className="pointer-events-none absolute bottom-[7.25rem] left-1/2 z-[18] w-[min(98vw,52rem)] -translate-x-1/2 px-2 sm:bottom-[7.75rem]">
+            <RadarHourlyTimeline
+              key={dashboardRegionId}
+              lat={region.lat}
+              lon={region.lon}
+              product={region.isSamuiProduct ? 'samui' : 'krabi'}
+              forecastRows={spireWithSammi}
+              windDirDeg={displayForecastRows[0]?.windDir ?? 0}
+              radarScrub={radarScrubFrame}
+              onRadarScrub={setRadarScrubFrame}
+              onRadarOverlayUrl={setRadarOverlayUrl}
+            />
+          </div>
+        )}
       </div>
 
       {/* POI detail — to the right of top-left drawer on desktop */}
@@ -790,6 +885,11 @@ export default function MapViewer() {
                     nowcastFrames={radarFeed.nowcastFrames}
                     pastFrames={radarFeed.frames}
                     radarReady={radarFeed.status === 'ready'}
+                    rainPossibleNext6h={rainPossibleNext6h}
+                    forecastRows={displayForecastRows}
+                    product={region.isSamuiProduct ? 'samui' : 'krabi'}
+                    radarScrub={radarScrubFrame}
+                    onRadarScrub={setRadarScrubFrame}
                   />
                 </div>
 

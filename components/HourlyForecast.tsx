@@ -3,6 +3,7 @@
 import { Sun, Wind } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { formatTempC, type SamuiWeatherForecastRow } from '../lib/spire';
+import { getFeelsLikeHumidityHint } from '../lib/feels-like-heat-index';
 import { rainChancePercentForRow } from '../lib/sammi-views';
 import { getSunInfo } from '../lib/sun';
 import WindCompass from './WindCompass';
@@ -223,6 +224,10 @@ export default function HourlyForecast({ rows, selectedIndex, onHourSelect }: Ho
             });
             const expanded = isExpandedSlot(i);
             const expandedHeaderLabel = isSameBangkokHourAsNow(row.time) ? 'NOW' : timeStr;
+            const humidFeelsHint =
+              expanded && isSameBangkokHourAsNow(row.time)
+                ? getFeelsLikeHumidityHint(row.temp, row.humidity, new Date(row.time).getTime())
+                : null;
 
             const pop = rainChancePercentForRow(row);
             const showPop = pop >= 10;
@@ -297,6 +302,11 @@ export default function HourlyForecast({ rows, selectedIndex, onHourSelect }: Ho
                           </div>
                         </div>
                       </div>
+                      {humidFeelsHint && (
+                        <p className="mt-1.5 px-0.5 text-center text-[8px] font-medium leading-tight text-amber-100/90">
+                          {humidFeelsHint}
+                        </p>
+                      )}
                     </>
                   ) : (
                     <>

@@ -41,6 +41,8 @@ export interface SammiChatRequest {
     beachSunScore?: number;
     beachSunLabel?: string;
     beachSunAdvice?: string;
+    /** True when beach score applied the ≥11 UV warning band */
+    beachSunUvWarning?: boolean;
     /** e.g. Chaweng (Samui) or Ao Nang (Krabi) for score copy */
     beachRegionLabel?: string;
   };
@@ -74,7 +76,7 @@ function buildSystemPrompt(weatherContext?: SammiChatRequest['weatherContext']):
     w &&
     typeof w.beachSunScore === 'number' &&
     !Number.isNaN(w.beachSunScore)
-      ? `BEACH SUN SCORE: ${w.beachSunScore}/100 (${w.beachSunLabel ?? 'n/a'})${w.beachSunAdvice ? ` — ${w.beachSunAdvice}` : ''}. Region label for copy: ${w.beachRegionLabel ?? 'the beach strip'}. When the user asks about beach conditions, timing, or swimming, mention this score naturally in one tight line (e.g. "Today an 88 on ${w.beachRegionLabel ?? 'Chaweng'} — solid. After 16:00 it may slide toward 40s if an afternoon storm fires."). Do not recite raw CAPE/PWAT unless asked.`
+      ? `BEACH SUN SCORE: ${w.beachSunScore}/100 (${w.beachSunLabel ?? 'n/a'})${w.beachSunAdvice ? ` — ${w.beachSunAdvice}` : ''}. Region label for copy: ${w.beachRegionLabel ?? 'the beach strip'}.${w.beachSunUvWarning ? ' Extreme UV flag: lead with shade and limiting direct sun 12:00–15:00 ICT in any beach or pool timing advice.' : ''} When the user asks about beach conditions, timing, or swimming, mention this score naturally in one tight line (e.g. "Today an 88 on ${w.beachRegionLabel ?? 'Chaweng'} — solid. After 16:00 it may slide toward 40s if an afternoon storm fires."). Do not recite raw CAPE/PWAT unless asked.`
       : '';
 
   const sitrep = w
