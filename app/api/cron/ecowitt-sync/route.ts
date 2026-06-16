@@ -5,8 +5,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 /**
- * Poll Ecowitt Cloud → Supabase every minute (Vercel cron).
- * Secured with CRON_SECRET. Custom gateway push to /api/ecowitt/ingest still works in parallel.
+ * Poll Ecowitt Cloud → Supabase. Secured with CRON_SECRET.
+ * Not scheduled on Vercel Hobby (sub-daily crons unsupported) — call via external cron; see docs/ecowitt.md.
  */
 export async function GET(request: Request) {
   const secret =

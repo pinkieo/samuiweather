@@ -19,5 +19,15 @@ __pycache__/
 # Cursor debug session logs (LF-only; avoid git add noise on Windows)
 .cursor/debug*.log
 
+# Cursor Ecowitt portal scrape artifacts (third-party Mapbox tokens; never commit)
+.cursor/ecowitt-*
+.cursor/parse-ecowitt-js*.py
+.cursor/parse-weblogin.py
+.cursor/xlsx-preview.txt
+
 # Local RainViewer practice loop (npm run radar:snapshot)
 public/radar-practice.json
+
+# Ecowitt historical exports (large xlsx from ecowitt.net)
+data/ecowitt/*.xlsx
+data/ecowitt/*.csv

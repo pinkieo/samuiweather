@@ -21,7 +21,10 @@
     "supabase:status": "supabase status",
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
-    "ecowitt:sync": "npx tsx scripts/ecowitt-sync-once.ts"
+    "ecowitt:sync": "npx tsx scripts/ecowitt-sync-once.ts",
+    "ecowitt:cronjob-setup": "npx tsx scripts/setup-ecowitt-cronjob.ts",
+    "ecowitt:import-xlsx": "python scripts/import-ecowitt-xlsx.py",
+    "forecast:verify-backfill": "python scripts/backfill-forecast-verification.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
