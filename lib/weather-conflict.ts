@@ -55,19 +55,20 @@ function spireIsStormy(precipRate: number): boolean {
   return precipRate > 2.5;
 }
 
-// ── ECOWITT placeholder note ──────────────────────────────────────────────────
+// ── ECOWITT ground-truth note ─────────────────────────────────────────────────
 
 function ecowittNote(scenario: ConflictScenario, mode: 'samui' | 'krabi' = 'samui'): string {
   if (mode === 'krabi') {
     return "*(📍 Krabi coast: I blend METAR from Krabi (VTSG) and Phuket (VTSP) — ~200 km apart along the Andaman; Phuket often leads moisture moving northeast.)*";
   }
-  const base = "*(📍 Local Precision upgrade arriving at Baan Ton Kluay in ~12 days — once my Ecowitt hyper-local array is online, I'll give you the exact drop count and ground temperature down to 50 metres. For now, the airport radar will have to do.)*";
+  const base =
+    "*(📍 Ground truth from my Ecowitt array at Baan Ton Kluay — hyper-local temperature, rain, wind, and UV within ~50 metres of the villa.)*";
 
   if (scenario === 'rain_alert' || scenario === 'storm_incoming' || scenario === 'all_alarm') {
-    return "*(📍 If my Baan Ton Kluay local sensors were already here, I'd tell you the exact rainfall intensity at ground level. They're en route. For now, the mainland radar and airport sensors are your source of truth.)*";
+    return "*(📍 I'm cross-checking mainland radar with my Baan Ton Kluay rain gauge — ground-level mm/h beats echo intensity when cells are small.)*";
   }
   if (scenario === 'fake_grey_sky') {
-    return "*(📍 Once my Ecowitt array is online at Baan Ton Kluay, I can tell you the exact humidity under that cloud layer and whether it's going anywhere. Arriving in ~12 days.)*";
+    return "*(📍 My Ecowitt humidity sensor under the cloud deck tells me whether that grey sky is cosmetic or carrying moisture.)*";
   }
   return base;
 }
