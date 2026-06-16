@@ -20,7 +20,8 @@
     "supabase:stop": "supabase stop",
     "supabase:status": "supabase status",
     "db:push": "supabase db push",
-    "db:reset": "supabase db reset"
+    "db:reset": "supabase db reset",
+    "ecowitt:sync": "npx tsx scripts/ecowitt-sync-once.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

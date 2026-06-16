@@ -214,7 +214,7 @@ export default function EcowittPlaceholder() {
         <div className="mb-3 space-y-1.5">
           <SensorRow
             icon="🌡️"
-            name="Temperature"
+            name="Outdoor temperature"
             value={obs?.temperatureC != null ? `${fmtNum(obs.temperatureC, 1)} °C` : '—'}
             status={sensorStatus(obs?.temperatureC, sensorFreshness)}
           />

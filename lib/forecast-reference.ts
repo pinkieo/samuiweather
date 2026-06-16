@@ -2,7 +2,7 @@
  * Internal second-model snapshot for **only** the first hour of the strip.
  * Today: from the server route that fetches the Meteoblue package — **not** ground truth;
  * used for a short “now” nudge and future comparison / ML features next to Spire + OPF.
- * Observations (Ecowitt, METAR) remain the real validation.
+ * Ecowitt (when fresh) overrides this for Samui row 0 — real outdoor readings at Baan Ton Kluay.
  */
 import type { SamuiWeatherForecastRow } from './spire';
 
@@ -12,6 +12,25 @@ export interface ReferenceNowcastSnapshot {
   windDirDeg: number;
   /** Nearest 1h slot, mm in that window — used as mm/h-like intensity. */
   precipMm: number;
+}
+
+/** Live Ecowitt outdoor snapshot — highest priority for Samui “now” when fresh. */
+export interface EcowittGroundSnapshot {
+  observedAt: string;
+  tempC: number | null;
+  humidityPct: number | null;
+  windSpeedMs: number | null;
+  windDirDeg: number | null;
+  rainRateMmh: number | null;
+  uvIndex: number | null;
+}
+
+const ECOWITT_STALE_MINUTES = 20;
+
+function observationAgeMinutes(observedAt: string): number {
+  const t = new Date(observedAt).getTime();
+  if (Number.isNaN(t)) return Infinity;
+  return Math.round((Date.now() - t) / 60_000);
 }
 
 /**
@@ -32,6 +51,43 @@ export function blendReferenceNowcastIntoFirstRow(
   r0.precipRate = Math.max(0, snap.precipMm);
   if (snap.precipMm > 0.08) {
     r0.pop = Math.max(r0.pop, Math.min(92, Math.round(45 + snap.precipMm * 25)));
+  }
+  return [r0, ...rows.slice(1)];
+}
+
+/**
+ * Baan Ton Kluay ground truth on row 0 when the station checked in recently.
+ * Overrides Meteoblue/Spire for outdoor temp, wind, rain rate, and UV at the pin.
+ */
+export function blendEcowittIntoFirstRow(
+  rows: SamuiWeatherForecastRow[],
+  snap: EcowittGroundSnapshot | null,
+): SamuiWeatherForecastRow[] {
+  if (!snap || rows.length === 0) return rows;
+  if (observationAgeMinutes(snap.observedAt) > ECOWITT_STALE_MINUTES) return rows;
+
+  const r0 = { ...rows[0] };
+  if (snap.tempC != null && Number.isFinite(snap.tempC)) {
+    r0.temp = snap.tempC;
+    r0.feelsLike = snap.tempC;
+  }
+  if (snap.windSpeedMs != null && Number.isFinite(snap.windSpeedMs)) {
+    r0.windSpeed = snap.windSpeedMs;
+  }
+  if (snap.windDirDeg != null && Number.isFinite(snap.windDirDeg)) {
+    r0.windDir = snap.windDirDeg;
+  }
+  if (snap.rainRateMmh != null && Number.isFinite(snap.rainRateMmh)) {
+    r0.precipRate = Math.max(0, snap.rainRateMmh);
+    if (snap.rainRateMmh > 0.05) {
+      r0.pop = Math.max(r0.pop, Math.min(92, Math.round(40 + snap.rainRateMmh * 30)));
+    }
+  }
+  if (snap.uvIndex != null && Number.isFinite(snap.uvIndex)) {
+    r0.uvIndex = snap.uvIndex;
+  }
+  if (snap.humidityPct != null && Number.isFinite(snap.humidityPct)) {
+    r0.humidity = snap.humidityPct;
   }
   return [r0, ...rows.slice(1)];
 }

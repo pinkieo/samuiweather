@@ -38,9 +38,12 @@ import { useRadarFeed } from './RadarFramesProvider';
 import { mergeSamuiHourlyIntoRows } from '../lib/merge-sammi-forecast';
 import type { SammiDailyForecastViewRow, SammiForecastViewRow } from '../lib/sammi-views';
 import {
+  blendEcowittIntoFirstRow,
   blendReferenceNowcastIntoFirstRow,
+  type EcowittGroundSnapshot,
   type ReferenceNowcastSnapshot,
 } from '../lib/forecast-reference';
+import type { EcowittLatestResponse } from '../app/api/ecowitt/latest/route';
 
 const SamuiExploreMap = dynamic(() => import('./SamuiExploreMap'), {
   ssr: false,
@@ -126,6 +129,12 @@ type ReferenceGridClientState =
   | { status: 'error' }
   | { status: 'ok'; snap: ReferenceNowcastSnapshot };
 
+type EcowittClientState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'ok'; snap: EcowittGroundSnapshot };
+
 export default function MapViewer() {
   const [dashboardRegionId, setDashboardRegionId] = useState<DashboardRegionId>(
     DEFAULT_DASHBOARD_REGION_ID,
@@ -141,6 +150,8 @@ export default function MapViewer() {
   const [forecastError, setForecastError]   = useState<string | null>(null);
   /** Nearest-hour local grid for row-0 blend only; hourly strip + DB Sammi = Spire. */
   const [mbState, setMbState] = useState<ReferenceGridClientState>({ status: 'loading' });
+  /** Baan Ton Kluay Ecowitt — overrides row 0 when fresh (Samui only). */
+  const [ecowittState, setEcowittState] = useState<EcowittClientState>({ status: 'idle' });
   /** Server-side `sammi_forecast` / `sammi_daily_forecast` (kans_*, advice, reliability). */
   const [sammiHourlyRows, setSammiHourlyRows] = useState<SammiForecastViewRow[]>([]);
   const [sammiDailyByIsoDay, setSammiDailyByIsoDay] = useState<Record<
@@ -565,6 +576,49 @@ export default function MapViewer() {
     };
   }, [region.lat, region.lon]);
 
+  // ── Ecowitt ground truth (Samui) — row 0 outdoor temp / rain / UV at Baan Ton Kluay ─
+  useEffect(() => {
+    if (!region.isSamuiProduct) {
+      setEcowittState({ status: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    const run = () => {
+      fetch('/api/ecowitt/latest', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((d: EcowittLatestResponse) => {
+          if (cancelled) return;
+          const o = d.observation;
+          if (!o) {
+            setEcowittState({ status: 'error' });
+            return;
+          }
+          setEcowittState({
+            status: 'ok',
+            snap: {
+              observedAt: o.observedAt,
+              tempC: o.temperatureC,
+              humidityPct: o.humidityPct,
+              windSpeedMs: o.windSpeedMs,
+              windDirDeg: o.windDirectionDeg,
+              rainRateMmh: o.rainRateMmh,
+              uvIndex: o.uvIndex,
+            },
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setEcowittState({ status: 'error' });
+        });
+    };
+    setEcowittState({ status: 'loading' });
+    run();
+    const id = window.setInterval(run, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [region.isSamuiProduct]);
+
   // ── RainViewer tile at pin: echo vs dry model row 0 (from global feed, not from map sampling) ─
   useEffect(() => {
     const path = radarFeed.latestFrame?.path;
@@ -590,9 +644,18 @@ export default function MapViewer() {
   );
 
   const displayForecastRows = useMemo(() => {
-    const snap = mbState.status === 'ok' ? mbState.snap : null;
-    return blendReferenceNowcastIntoFirstRow(spireWithSammi, snap);
-  }, [spireWithSammi, mbState]);
+    const mbSnap = mbState.status === 'ok' ? mbState.snap : null;
+    const withMb = blendReferenceNowcastIntoFirstRow(spireWithSammi, mbSnap);
+    const ecSnap = ecowittState.status === 'ok' ? ecowittState.snap : null;
+    return blendEcowittIntoFirstRow(withMb, ecSnap);
+  }, [spireWithSammi, mbState, ecowittState]);
+
+  const ecowittLive = useMemo(() => {
+    if (ecowittState.status !== 'ok') return false;
+    const t = new Date(ecowittState.snap.observedAt).getTime();
+    if (Number.isNaN(t)) return false;
+    return Date.now() - t <= 20 * 60_000;
+  }, [ecowittState]);
 
   const rainPossibleNext6h = useMemo(() => {
     if (displayForecastRows.length === 0) return radarEcho === 'precip';
@@ -640,7 +703,7 @@ export default function MapViewer() {
           { icon: '🛰️', ok: true },
           { icon: '🌧️', ok: radarLive, offline: radarLoading },
           { icon: '✈️', ok: true },
-          { icon: '📍', ok: false, offline: true },
+          { icon: '📍', ok: ecowittLive, offline: region.isSamuiProduct && !ecowittLive },
         ]
       : [
           { icon: '🛰️', ok: false },
@@ -648,7 +711,7 @@ export default function MapViewer() {
           { icon: '✈️', ok: false },
           { icon: '📍', ok: false, offline: true },
         ];
-  }, [forecastStatus, radarFeed.status, radarFeed.frames.length]);
+  }, [forecastStatus, radarFeed.status, radarFeed.frames.length, ecowittLive, region.isSamuiProduct]);
 
   return (
     <div className="relative box-border h-full min-h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#020617]">

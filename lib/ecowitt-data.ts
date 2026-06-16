@@ -87,6 +87,7 @@ export async function fetchLatestEcowittObservation(
     .select('*')
     .eq('location_id', locationId)
     .order('observed_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
