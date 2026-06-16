@@ -28,3 +28,38 @@ export interface RainObservation {
   labelStormHitsCoast: boolean | null;
   createdAt?: string;
 }
+
+/**
+ * One raw Ecowitt station upload normalized for metric dashboards and ML labels.
+ * Source: Baan Ton Kluay weather station custom upload.
+ */
+export interface EcowittObservation {
+  id?: string;
+  observedAt: string;
+  locationId: string;
+  stationType: string | null;
+  stationId: string | null;
+  temperatureC: number | null;
+  humidityPct: number | null;
+  indoorTemperatureC: number | null;
+  indoorHumidityPct: number | null;
+  relativePressureHpa: number | null;
+  absolutePressureHpa: number | null;
+  windSpeedMs: number | null;
+  windGustMs: number | null;
+  windDirectionDeg: number | null;
+  rainRateMmh: number | null;
+  rainHourMm: number | null;
+  rainDayMm: number | null;
+  rainWeekMm: number | null;
+  rainMonthMm: number | null;
+  rainYearMm: number | null;
+  rainEventMm: number | null;
+  solarWm2: number | null;
+  uvIndex: number | null;
+  lightningDistanceKm: number | null;
+  lightningCount: number | null;
+  batteryStatus: Record<string, string> | null;
+  rawJson: Record<string, string>;
+  createdAt?: string;
+}

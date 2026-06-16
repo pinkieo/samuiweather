@@ -21,7 +21,6 @@ import WebcamGrid from './WebcamGrid';
 import MetarCard from './MetarCard';
 import EcowittPlaceholder from './EcowittPlaceholder';
 import StormAlertBanner from './StormAlertBanner';
-import RadarHourlyTimeline from './RadarHourlyTimeline';
 import { getPoiById, type IslandPoi } from '../lib/island-pois';
 import PoiIntelligenceCard from './PoiIntelligenceCard';
 import {
@@ -687,22 +686,6 @@ export default function MapViewer() {
           onRefreshLive={radarFeed.refresh}
         />
 
-        {/* Hybrid 18h strip on map only when rain is relevant — drawer still has compact/outlook */}
-        {rainPossibleNext6h && (
-          <div className="pointer-events-none absolute bottom-[7.25rem] left-1/2 z-[18] w-[min(98vw,52rem)] -translate-x-1/2 px-2 sm:bottom-[7.75rem]">
-            <RadarHourlyTimeline
-              key={dashboardRegionId}
-              lat={region.lat}
-              lon={region.lon}
-              product={region.isSamuiProduct ? 'samui' : 'krabi'}
-              forecastRows={spireWithSammi}
-              windDirDeg={displayForecastRows[0]?.windDir ?? 0}
-              radarScrub={radarScrubFrame}
-              onRadarScrub={setRadarScrubFrame}
-              onRadarOverlayUrl={setRadarOverlayUrl}
-            />
-          </div>
-        )}
       </div>
 
       {/* POI detail — to the right of top-left drawer on desktop */}

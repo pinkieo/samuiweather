@@ -16,5 +16,8 @@ __pycache__/
 # misc
 *.tsbuildinfo
 
+# Cursor debug session logs (LF-only; avoid git add noise on Windows)
+.cursor/debug*.log
+
 # Local RainViewer practice loop (npm run radar:snapshot)
 public/radar-practice.json
