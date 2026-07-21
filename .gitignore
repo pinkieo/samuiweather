@@ -31,3 +31,7 @@ public/radar-practice.json
 # Ecowitt historical exports (large xlsx from ecowitt.net)
 data/ecowitt/*.xlsx
 data/ecowitt/*.csv
+
+*.zip
+
+supabase/migrations/20260707100000_solarman_polls.sql
