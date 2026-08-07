@@ -12,7 +12,8 @@ Pipeline:
      Parallel: /forecast/point/optimized (OPF) hourly ~72h — POP/thunder/fog overlay on the same valid_time (see `lib/spire.ts`)
   3. RainViewer tile sample at pin (same z7/512 scheme as the app)
   4. beach_score (clouds/thunder/ceiling + temp bonus; −3 when radar shows rain)
-  5. upsert weather_forecast (incl. radar_status)
+  5. append/dedupe weather_forecast_snapshot provenance rows
+  6. upsert weather_forecast (incl. radar_status)
 
 Env (.env / .env.local):
   SPIRE_API_TOKEN or SPIRE_API_KEY
@@ -37,6 +38,7 @@ remains in `values_json` for backward compatibility and view COALESCE.
 fills `values` — requires `supabase/020_weather_forecast_pwat_dcape_cin.sql`.
 
 Note: FORECAST_HOURS is ignored — horizons are fixed by the tier list above.
+Forecast issuance snapshots require `supabase/021_weather_forecast_snapshots.sql`.
 """
 
 from __future__ import annotations
@@ -62,6 +64,7 @@ def _maybe_reexec_windows_venv() -> None:
 
 _maybe_reexec_windows_venv()
 
+import hashlib
 import json
 import math
 import traceback
@@ -963,6 +966,147 @@ def flatten_for_db(
     }
 
 
+def forecast_lead_hours(valid_time: str, issuance_time: str) -> float:
+    """Return deterministic UTC valid-minus-issuance lead time."""
+    valid = datetime.fromisoformat(valid_time.replace("Z", "+00:00"))
+    issued = datetime.fromisoformat(issuance_time.replace("Z", "+00:00"))
+    if valid.tzinfo is None:
+        valid = valid.replace(tzinfo=timezone.utc)
+    if issued.tzinfo is None:
+        issued = issued.replace(tzinfo=timezone.utc)
+    return round((valid.astimezone(timezone.utc) - issued.astimezone(timezone.utc)).total_seconds() / 3600, 6)
+
+
+def build_forecast_snapshot_row(
+    location_id: str,
+    request_lat: float,
+    request_lon: float,
+    forecast_row: Dict[str, Any],
+    retrieved_at: str,
+    opf_overlay_applied: bool,
+) -> Dict[str, Any]:
+    """Build one append-only provenance row from the already fetched response."""
+    valid_time = str(forecast_row["valid_time"])
+    spire_issuance = forecast_row.get("issuance_time")
+    issuance_source = "spire" if spire_issuance else "retrieval_fallback"
+    issuance_time = str(spire_issuance or retrieved_at)
+    flat = forecast_row["flat"]
+
+    source_composition = {
+        "standard_point": {
+            "endpoint": "/forecast/point",
+            "bundles_requested": spire_bundle_chain(),
+            "time_bundle": "hourly,3_hourly,6_hourly_15day",
+            "forecast_hours": 360,
+            "product": (os.environ.get("SPIRE_FORECAST_PRODUCT") or "").strip() or None,
+            "unit_system": (os.environ.get("SPIRE_FORECAST_UNIT_SYSTEM") or "").strip() or None,
+        },
+        "optimized_point_probability_overlay": {
+            "endpoint": "/forecast/point/optimized",
+            "location": opf_location_from_env(),
+            "bundles_requested": [
+                b
+                for b in (
+                    (os.environ.get("SPIRE_OPF_BUNDLES") or "").strip(),
+                    "basic,thunderstorm",
+                    "basic",
+                )
+                if b
+            ],
+            "time_bundle": "hourly",
+            "forecast_hours": 72,
+            "product": (os.environ.get("SPIRE_FORECAST_PRODUCT") or "").strip() or None,
+            "unit_system": (os.environ.get("SPIRE_FORECAST_UNIT_SYSTEM") or "").strip() or None,
+            "applied_to_this_row": opf_overlay_applied,
+        },
+    }
+    try:
+        source_composition["optimized_point_probability_overlay"]["forecast_hours"] = min(
+            max(int((os.environ.get("SPIRE_OPF_FORECAST_HOURS") or "72").strip()), 24),
+            120,
+        )
+    except ValueError:
+        pass
+
+    content_for_hash = {
+        "location_id": location_id,
+        "valid_time_utc": valid_time,
+        "issuance_time_utc": issuance_time,
+        "values_json": flat["values_json"],
+        "normalized": {
+            key: flat.get(key)
+            for key in (
+                "air_temperature_c",
+                "wind_speed_ms",
+                "wind_direction_deg",
+                "wind_gust_ms",
+                "total_cloud_cover",
+                "low_cloud_cover",
+                "mid_cloud_cover",
+                "high_cloud_cover",
+                "ceiling_m",
+                "cape",
+                "lifted_index",
+                "pwat",
+                "dcape",
+                "cin",
+                "probability_of_precipitation_1hr",
+                "probability_of_precipitation_24hr",
+                "probability_of_thunderstorm",
+                "probability_of_fog",
+                "precipitation_rate",
+                "relative_humidity",
+            )
+        },
+    }
+    snapshot_hash = hashlib.sha256(
+        json.dumps(content_for_hash, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+    return {
+        "source_provider": "spire",
+        "source_product": "standard_point_plus_optimized_point_probability_overlay",
+        "source_composition": source_composition,
+        "source_version": "weather_engine_hourly_snapshot_v1",
+        "location_id": location_id,
+        "request_latitude": request_lat,
+        "request_longitude": request_lon,
+        "retrieved_at_utc": retrieved_at,
+        "issuance_time_utc": issuance_time,
+        "issuance_time_source": issuance_source,
+        "valid_time_utc": flat["valid_time_utc"],
+        "forecast_lead_hours": forecast_lead_hours(flat["valid_time_utc"], issuance_time),
+        **{
+            key: flat.get(key)
+            for key in (
+                "air_temperature_c",
+                "wind_speed_ms",
+                "wind_direction_deg",
+                "wind_gust_ms",
+                "total_cloud_cover",
+                "low_cloud_cover",
+                "mid_cloud_cover",
+                "high_cloud_cover",
+                "ceiling_m",
+                "cape",
+                "lifted_index",
+                "pwat",
+                "dcape",
+                "cin",
+                "probability_of_precipitation_1hr",
+                "probability_of_precipitation_24hr",
+                "probability_of_thunderstorm",
+                "probability_of_fog",
+                "precipitation_rate",
+                "relative_humidity",
+            )
+        },
+        "values_json": flat["values_json"],
+        "opf_overlay_applied": opf_overlay_applied,
+        "snapshot_hash": snapshot_hash,
+    }
+
+
 def coerce_whole_floats_for_postgres(row: Dict[str, Any]) -> Dict[str, Any]:
     """
     Supabase/Postgres integer columns reject JSON floats like 5.0; convert
@@ -1092,9 +1236,21 @@ def run() -> int:
     )
 
     rows_out: List[Dict[str, Any]] = []
+    snapshot_rows: List[Dict[str, Any]] = []
+    retrieved_at = datetime.now(timezone.utc).isoformat()
     for m in merged:
         flat = flatten_for_db(location_id, m, radar_status, radar_rain)
         rows_out.append(flat)
+        snapshot_rows.append(
+            build_forecast_snapshot_row(
+                location_id,
+                lat,
+                lon,
+                {**m, "flat": flat},
+                retrieved_at,
+                normalize_time_key(str(m["valid_time"])) in opf_overlay,
+            )
+        )
 
     print(f"Upsert-ready {len(rows_out)} rows (aligned with lib/spire.ts).")
     if dry:
@@ -1110,6 +1266,18 @@ def run() -> int:
         row = coerce_whole_floats_for_postgres(dict(r))
         row["updated_at"] = now_iso
         payload.append(row)
+
+    try:
+        sb.table("weather_forecast_snapshot").upsert(
+            snapshot_rows,
+            on_conflict="location_id,valid_time_utc,issuance_time_utc",
+        ).execute()
+        print(f"Upserted/deduped {len(snapshot_rows)} rows into weather_forecast_snapshot.")
+    except Exception as e:
+        print(f"[ERROR] Forecast snapshot upsert failed: {e}", file=sys.stderr)
+        print(_exception_text(e), file=sys.stderr)
+        traceback.print_exc()
+        return 1
 
     try:
         sb.table("weather_forecast").upsert(

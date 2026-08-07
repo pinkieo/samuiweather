@@ -138,6 +138,31 @@ Code: `app/api/ecowitt/ingest/route.ts`
 
 Rows are ordered by `observed_at` (then `created_at`). Stale test rows with fake future timestamps can block live data — delete them in Supabase if `/latest` looks wrong.
 
+### Forecast provenance for Ecowitt validation
+
+Before `supabase/021_weather_forecast_snapshots.sql`, Samui retained only the
+latest forecast issuance for each `valid_time_utc` in `weather_forecast`.
+Existing `weather_history` records are preserved, but they do not contain a
+complete historical issuance ladder.
+
+After the migration is activated, the hourly Spire ingest also writes
+`weather_forecast_snapshot`. This is an append-only provenance layer for the
+same response already fetched by `weather_engine_hourly.py`; it adds no Spire
+API calls and does not replace `weather_forecast`.
+
+The snapshot stores UTC issuance/valid/retrieval times, deterministic lead
+hours, normalized fields, full `values_json`, and explicit source composition:
+Standard Point plus an Optimized Point probability overlay when present. It is
+not a pure OPF record. See
+`docs/research/weather-models/SAMUI_FORECAST_PROVENANCE.md`.
+
+Migration 021 was activated on 2026-08-07 after capacity confirmation
+(8 GB provisioned disk; approximately 1.03 GB total usage and 0.15 GB database
+usage before activation). The first controlled hourly cycle stored 113
+snapshots. No retention or archive policy is active yet. Storage is checked
+around 2026-09-07 and 2026-11-07; review starts at 60% disk usage and action
+planning is required at 75%.
+
 ---
 
 ## Keys and docs
