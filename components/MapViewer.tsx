@@ -302,6 +302,7 @@ export default function MapViewer() {
     // #endregion
     fetch(forecastUrl, {
       signal: controller.signal,
+      cache: 'no-store',
     })
       .then(async (res) => {
         clearTimeout(timer);
@@ -513,7 +514,7 @@ export default function MapViewer() {
   // ── METAR sky (VTSM / VTSG) — blend with Spire cloud % on the snapshot card ─
   useEffect(() => {
     const icao = dashboardRegionId === 'krabi_baan_mook_taley' ? 'VTSG' : 'VTSM';
-    fetch('/api/metar')
+    fetch('/api/metar', { cache: 'no-store' })
       .then(r => r.json())
       .then((d: MetarApiResponse) => {
         const m = d.stations?.[icao]?.metar;

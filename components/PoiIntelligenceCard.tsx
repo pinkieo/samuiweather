@@ -25,7 +25,7 @@ export default function PoiIntelligenceCard({
 
     const q = `lat=${poi.lat}&lon=${poi.lon}`;
 
-    fetch(`/api/weather/point?${q}`)
+    fetch(`/api/weather/point?${q}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((sp) => {
         if (cancelled) return;

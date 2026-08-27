@@ -166,7 +166,7 @@ async function fetchOpfProbabilities(
       const res = await fetch(url, {
         headers: { 'spire-api-key': token },
         signal: spireFetchSignal(),
-        next: { revalidate: 900 },
+        cache: 'no-store',
       });
       if (!res.ok) continue;
       const json = (await res.json().catch(() => ({}))) as { data?: unknown[] };
@@ -919,7 +919,7 @@ export async function getForecastMergedAt(
       const r = await fetch(url, {
         headers: { 'spire-api-key': token },
         signal: spireFetchSignal(),
-        next: { revalidate: 900 },
+        cache: 'no-store',
       });
       const json = (await r.json().catch(() => ({}))) as { data?: unknown[] };
       if (!r.ok) return [];
@@ -986,7 +986,7 @@ export async function getForecastMergedAt(
   const fetchWaqi = (): Promise<unknown> => {
     if (!waqiToken) return Promise.resolve(null);
     const url = `https://api.waqi.info/feed/geo:${lat};${lon}/?token=${encodeURIComponent(waqiToken)}`;
-    return fetch(url, { signal: auxSig(), next: { revalidate: 60 } })
+    return fetch(url, { signal: auxSig(), cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .catch((e) => {
         console.error('Spire merge fetchWaqi err:', e);
@@ -1001,7 +1001,7 @@ export async function getForecastMergedAt(
     return fetch(url, {
       headers: { 'x-access-token': uvKey },
       signal: auxSig(),
-      next: { revalidate: 60 },
+      cache: 'no-store',
     })
       .then((r) => (r.ok ? r.json() : null))
       .catch((e) => {

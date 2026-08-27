@@ -8,6 +8,10 @@ export const TH_SOUTH_METAR_URL =
 export const TH_SOUTH_TAF_URL =
   'https://aviationweather.gov/api/data/taf?ids=VTSM,VTSG,VTSP&format=json';
 
+/** aviationweather.gov rejects anonymous/empty User-Agent from some clouds. */
+export const AVIATIONWEATHER_USER_AGENT =
+  'SamuiWeather/1.0 (https://samuiweather.com; Koh Samui vacation weather)';
+
 /** @deprecated Use {@link TH_SOUTH_METAR_URL} and pick station by `icaoId`. */
 export const VTSM_METAR_URL = TH_SOUTH_METAR_URL;
 /** @deprecated Use {@link TH_SOUTH_TAF_URL} and pick station by `icaoId`. */

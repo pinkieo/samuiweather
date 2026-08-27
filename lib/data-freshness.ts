@@ -24,8 +24,9 @@ export interface TripleFreshness {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-export function ageMinutes(unixSeconds: number): number {
-  return Math.round((Date.now() / 1000 - unixSeconds) / 60);
+export function ageMinutes(unixSeconds: number, nowUnix?: number): number {
+  const now = nowUnix ?? Math.floor(Date.now() / 1000);
+  return Math.round((now - unixSeconds) / 60);
 }
 
 export function ageLabel(minutes: number): string {
@@ -74,8 +75,8 @@ export function spireFreshness(firstRowTime: string): SourceFreshness {
  * METAR (VTSM): published on the hour and half-hour.
  * obsTime = Unix seconds of observation. Stale > 45 min (one cycle missed).
  */
-export function metarFreshness(obsTimeUnix: number): SourceFreshness {
-  const age      = ageMinutes(obsTimeUnix);
+export function metarFreshness(obsTimeUnix: number, nowUnix?: number): SourceFreshness {
+  const age      = ageMinutes(obsTimeUnix, nowUnix);
   const stale    = age > 45;
   const syncTime = ictTimeStr(obsTimeUnix);
 

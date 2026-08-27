@@ -53,9 +53,12 @@ export default function SamuiMap() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/weather');
+        const res = await fetch('/api/weather', { cache: 'no-store' });
         if (!res.ok) throw new Error('weather');
-        const rows = (await res.json()) as WeatherRow[];
+        const payload = await res.json();
+        const rows = Array.isArray(payload)
+          ? (payload as WeatherRow[])
+          : ((payload as { forecast?: WeatherRow[] }).forecast ?? []);
         if (!cancelled && rows[0]) setWeather(rows[0]);
       } catch {
         if (!cancelled) setWxError(true);

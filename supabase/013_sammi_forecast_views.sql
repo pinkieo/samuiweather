@@ -72,24 +72,28 @@ n AS (
   SELECT
     b.*,
     /* 0-100, accepts Spire 0-1 or 0-100 */
+    /* Engine stores 0–100. Treat only (0, 1) as leftover 0–1 fractions — never 1.0 as 100%. */
     CASE
       WHEN b.probability_of_precipitation_1hr IS NULL THEN NULL::double precision
       WHEN b.probability_of_precipitation_1hr::double precision < 0 THEN 0::double precision
-      WHEN b.probability_of_precipitation_1hr::double precision <= 1.0
+      WHEN b.probability_of_precipitation_1hr::double precision > 0
+        AND b.probability_of_precipitation_1hr::double precision < 1.0
         THEN LEAST(100::double precision, b.probability_of_precipitation_1hr * 100.0)
       ELSE LEAST(100::double precision, b.probability_of_precipitation_1hr::double precision)
     END AS rain_pct_0_100,
     CASE
       WHEN b.probability_of_thunderstorm IS NULL THEN NULL::double precision
       WHEN b.probability_of_thunderstorm::double precision < 0 THEN 0::double precision
-      WHEN b.probability_of_thunderstorm::double precision <= 1.0
+      WHEN b.probability_of_thunderstorm::double precision > 0
+        AND b.probability_of_thunderstorm::double precision < 1.0
         THEN LEAST(100::double precision, b.probability_of_thunderstorm * 100.0)
       ELSE LEAST(100::double precision, b.probability_of_thunderstorm::double precision)
     END AS thunder_pct_0_100,
     CASE
       WHEN b.probability_of_fog IS NULL THEN NULL::double precision
       WHEN b.probability_of_fog::double precision < 0 THEN 0::double precision
-      WHEN b.probability_of_fog::double precision <= 1.0
+      WHEN b.probability_of_fog::double precision > 0
+        AND b.probability_of_fog::double precision < 1.0
         THEN LEAST(100::double precision, b.probability_of_fog * 100.0)
       ELSE LEAST(100::double precision, b.probability_of_fog::double precision)
     END AS fog_pct_0_100,

@@ -227,7 +227,7 @@ export default function MetarCard({ defaultIcao }: { defaultIcao: MetarStationKe
   }, [defaultIcao]);
 
   useEffect(() => {
-    fetch('/api/metar')
+    fetch('/api/metar', { cache: 'no-store' })
       .then(r => r.json())
       .then((d: MetarApiResponse) => {
         setData(d);

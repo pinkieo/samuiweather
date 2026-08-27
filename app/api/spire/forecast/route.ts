@@ -1,118 +1,115 @@
 import { NextResponse } from 'next/server';
 import { getForecastMergedAt, getSpireApiToken, SAMUI_CENTER } from '@/lib/spire';
+import {
+  CACHE_CONTROL_NO_STORE,
+  SAMUI_PLACE,
+  buildProvenance,
+  isInVacationBbox,
+  provenanceHeaders,
+} from '@/lib/weather-provenance';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+export const maxDuration = 60;
 
-/** Edge cache: refresh at most every 6h (replaces frequent cron freshness) */
-export const revalidate = 21600;
-
-function parseOptionalLatLon(request: Request): { lat: number; lon: number } {
+/**
+ * Default without lat/lon: Koh Samui (9.5127, 100.0137).
+ * Explicit coordinates are accepted only inside the south-Thailand vacation box
+ * (Samui / Krabi / Phuket). Never a silent global or geo-IP fallback.
+ */
+function parseLatLon(request: Request):
+  | { ok: true; lat: number; lon: number; defaulted: boolean }
+  | { ok: false; status: number; error: string } {
   const { searchParams } = new URL(request.url);
-  const latN = Number(searchParams.get('lat'));
-  const lonN = Number(searchParams.get('lon'));
-  if (
-    Number.isFinite(latN) &&
-    Number.isFinite(lonN) &&
-    latN >= -55 &&
-    latN <= 55 &&
-    lonN >= -180 &&
-    lonN <= 180
-  ) {
-    return { lat: latN, lon: lonN };
+  const latRaw = searchParams.get('lat');
+  const lonRaw = searchParams.get('lon');
+  if ((latRaw == null || latRaw === '') && (lonRaw == null || lonRaw === '')) {
+    return { ok: true, lat: SAMUI_CENTER.lat, lon: SAMUI_CENTER.lon, defaulted: true };
   }
-  return { lat: SAMUI_CENTER.lat, lon: SAMUI_CENTER.lon };
+  if (latRaw == null || lonRaw == null || latRaw === '' || lonRaw === '') {
+    return { ok: false, status: 400, error: 'Both lat and lon are required, or omit both for Koh Samui.' };
+  }
+  const lat = Number(latRaw);
+  const lon = Number(lonRaw);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return { ok: false, status: 400, error: 'lat and lon must be numbers.' };
+  }
+  if (!isInVacationBbox(lat, lon)) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        'lat/lon is outside the Koh Samui vacation area (south Thailand). Omit both to use Koh Samui.',
+    };
+  }
+  return { ok: true, lat, lon, defaulted: false };
 }
 
 export async function GET(request: Request) {
+  const parsed = parseLatLon(request);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.error, default_place: SAMUI_PLACE },
+      { status: parsed.status, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } },
+    );
+  }
+
+  const { lat, lon, defaulted } = parsed;
   const controller = new AbortController();
-  /** Spire tries many bundle/time_bundle combos (hourly + extended); allow headroom before abort. */
   const timer = setTimeout(() => controller.abort(), 45000);
 
   try {
-    const { lat, lon } = parseOptionalLatLon(request);
-    const hasToken = Boolean(getSpireApiToken());
-    // #region agent log
-    fetch('http://127.0.0.1:7488/ingest/700ecb43-33c3-46ad-a0f9-880b489bb2e9', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': 'e62a63',
-      },
-      body: JSON.stringify({
-        sessionId: 'e62a63',
-        hypothesisId: 'H5',
-        location: 'api/spire/forecast:GET:start',
-        message: 'server forecast GET enter',
-        data: { hasToken, lat, lon },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    if (!getSpireApiToken()) {
+      return NextResponse.json(
+        { error: 'SPIRE_API_TOKEN is missing' },
+        { status: 500, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } },
+      );
+    }
     const rows = await getForecastMergedAt(lat, lon, controller.signal);
     clearTimeout(timer);
-    // #region agent log
-    fetch('http://127.0.0.1:7488/ingest/700ecb43-33c3-46ad-a0f9-880b489bb2e9', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': 'e62a63',
-      },
-      body: JSON.stringify({
-        sessionId: 'e62a63',
-        hypothesisId: 'H5',
-        location: 'api/spire/forecast:GET:ok',
-        message: 'getForecastMergedAt returned',
-        data: { rowCount: rows.length },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (rows.length === 0) {
       return NextResponse.json(
         { error: 'No forecast data from Spire' },
-        { status: 502 },
+        { status: 502, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } },
       );
     }
+    const fetchedAt = Math.floor(Date.now() / 1000);
+    const firstTime = rows[0]?.time ?? null;
+    const provenance = buildProvenance({
+      source: 'spire',
+      staleAfterMinutes: 90,
+      issuedAtIso: firstTime,
+      nowUnix: fetchedAt,
+      place: defaulted ? SAMUI_PLACE.name : undefined,
+      lat,
+      lon,
+    });
     return NextResponse.json(rows, {
       headers: {
-        /** Browser + CDN may reuse; lat/lon in query already key the response. */
-        'Cache-Control':
-          'private, max-age=120, s-maxage=120, stale-while-revalidate=3600',
+        ...provenanceHeaders(provenance),
+        ...(defaulted ? { 'X-Weather-Default': 'koh-samui' } : {}),
       },
     });
   } catch (error) {
     clearTimeout(timer);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    // #region agent log
-    fetch('http://127.0.0.1:7488/ingest/700ecb43-33c3-46ad-a0f9-880b489bb2e9', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': 'e62a63',
-      },
-      body: JSON.stringify({
-        sessionId: 'e62a63',
-        hypothesisId: 'H3',
-        location: 'api/spire/forecast:GET:catch',
-        message: 'server forecast GET catch',
-        data: {
-          errName: error instanceof Error ? error.name : 'unknown',
-          errMessage: message,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (message.includes('SPIRE_API_TOKEN')) {
-      return NextResponse.json({ error: message }, { status: 500 });
+      return NextResponse.json(
+        { error: message },
+        { status: 500, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } },
+      );
     }
     if (error instanceof Error && error.name === 'AbortError') {
-      return NextResponse.json({ error: 'Timeout: Spire API did not respond' }, { status: 504 });
+      return NextResponse.json(
+        { error: 'Timeout: Spire API did not respond' },
+        { status: 504, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } },
+      );
     }
     console.error('spire/forecast:', error);
     return NextResponse.json(
       { error: 'Data fetch failed' },
-      { status: 500 },
+      { status: 500, headers: { 'Cache-Control': CACHE_CONTROL_NO_STORE } },
     );
   }
 }

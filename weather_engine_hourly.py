@@ -374,16 +374,32 @@ def extract_opf_probabilities_from_values(vals: Dict[str, Any]) -> Dict[str, flo
         ),
     )
     if pop is not None:
+        out["probability_of_precipitation_1hr_raw"] = float(pop)
         out["probability_of_precipitation_1hr"] = normalize_prob_percent(pop)
     p24 = pick_num(vals, ("probability_of_precipitation_24hr",))
     if p24 is not None:
+        out["probability_of_precipitation_24hr_raw"] = float(p24)
         out["probability_of_precipitation_24hr"] = normalize_prob_percent(p24)
     th = pick_num(vals, ("probability_of_thunderstorm",))
     if th is not None:
-        out["probability_of_thunderstorm"] = normalize_prob_percent(th)
+        stored = normalize_prob_percent(th)
+        out["probability_of_thunderstorm_raw"] = float(th)
+        out["probability_of_thunderstorm"] = stored
+        if float(th) == 1.0:
+            print(
+                f"[OPF] thunder raw={th} stored={stored} (1.0 treated as 100% fraction)",
+                file=sys.stderr,
+            )
     fg = pick_num(vals, ("probability_of_fog", "fog_probability"))
     if fg is not None:
-        out["probability_of_fog"] = normalize_prob_percent(fg)
+        stored = normalize_prob_percent(fg)
+        out["probability_of_fog_raw"] = float(fg)
+        out["probability_of_fog"] = stored
+        if float(fg) == 1.0:
+            print(
+                f"[OPF] fog raw={fg} stored={stored} (1.0 treated as 100% fraction)",
+                file=sys.stderr,
+            )
     return out
 
 
@@ -1136,6 +1152,47 @@ def _exception_text(exc: BaseException) -> str:
     return "\n".join(parts)
 
 
+def print_ingest_summary(payload: Dict[str, Any]) -> None:
+    line = "INGEST_SUMMARY " + json.dumps(payload, default=str)
+    print(line)
+    print(line, file=sys.stderr)
+
+
+def skip_if_fresh_minutes() -> Optional[int]:
+    if os.environ.get("FORCE_INGEST", "").lower() in ("1", "true", "yes"):
+        return None
+    raw = (os.environ.get("SKIP_IF_FRESH_MINUTES") or "").strip()
+    if not raw:
+        return 50
+    try:
+        n = int(raw)
+    except ValueError:
+        return 50
+    return n if n > 0 else None
+
+
+def latest_updated_at(sb: Client, location_id: str) -> Optional[datetime]:
+    try:
+        res = (
+            sb.table("weather_forecast")
+            .select("updated_at")
+            .eq("location_id", location_id)
+            .order("updated_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        if not rows:
+            return None
+        raw = rows[0].get("updated_at")
+        if not raw:
+            return None
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except Exception as e:
+        print(f"[WARN] could not read last ingest time: {e}", file=sys.stderr)
+        return None
+
+
 def get_supabase() -> Client:
     if create_client is None:
         raise RuntimeError("Install supabase: pip install supabase")
@@ -1188,6 +1245,31 @@ def run() -> int:
         except Exception as e:
             print(e, file=sys.stderr)
             return 1
+        skip_min = skip_if_fresh_minutes()
+        if skip_min is not None:
+            last = latest_updated_at(sb, location_id)
+            if last is not None:
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                age_m = (datetime.now(timezone.utc) - last.astimezone(timezone.utc)).total_seconds() / 60.0
+                if age_m < skip_min:
+                    print_ingest_summary(
+                        {
+                            "skipped": True,
+                            "reason": "fresh",
+                            "location_id": location_id,
+                            "lat": lat,
+                            "lon": lon,
+                            "updated_at": last.isoformat(),
+                            "age_minutes": round(age_m, 1),
+                            "skip_if_fresh_minutes": skip_min,
+                        }
+                    )
+                    print(
+                        f"Skip Spire fetch: last ingest {age_m:.1f} min ago (< {skip_min}).",
+                        file=sys.stderr,
+                    )
+                    return 0
         try:
             arch = sb.rpc(
                 "archive_expired_forecasts", {"p_location_id": location_id}
@@ -1291,6 +1373,19 @@ def run() -> int:
         traceback.print_exc()
         return 1
 
+    print_ingest_summary(
+        {
+            "skipped": False,
+            "location_id": location_id,
+            "lat": lat,
+            "lon": lon,
+            "row_count": len(payload),
+            "first_valid_time": first_vt,
+            "last_valid_time": last_vt,
+            "updated_at": now_iso,
+            "radar_status": radar_status,
+        }
+    )
     return 0
 
 

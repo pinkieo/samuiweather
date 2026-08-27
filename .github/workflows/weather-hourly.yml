@@ -1,24 +1,36 @@
-# Koh Samui — Spire ingest elk uur (zelfde contract-merge als lib/spire.ts → Supabase).
+# Koh Samui — Spire ingest (same contract-merge as lib/spire.ts → Supabase).
 # Lange horizon: time_bundle 6_hourly_15day @ 360h (+ 3h/1h); zie .cursor/skills/samui-concierge/SKILL.md
+#
+# GitHub's `schedule` trigger is delayed or skipped on this repo (observed ~12
+# successful runs/day, not 24; gaps of several hours). Catch-up: run every
+# 15 minutes UTC; weather_engine_hourly.py skips the Spire call when the last
+# weather_forecast.updated_at is younger than SKIP_IF_FRESH_MINUTES (50).
 #
 # Vereiste repository secrets (Settings -> Secrets and variables -> Actions):
 #   SPIRE_API_TOKEN  (of SPIRE_API_KEY als fallback)
 #   SUPABASE_URL
 #   SUPABASE_SERVICE_ROLE_KEY  (of SUPABASE_KEY als fallback)
-# Optioneel — repository *variables* (Settings -> Secrets and variables -> Actions -> Variables):
+# Optioneel — repository *variables*:
 #   WEATHER_LOCATION_ID, SAMUI_LAT, SAMUI_LON
 #   SPIRE_FORECAST_BUNDLES, SPIRE_FORECAST_PRODUCT, SPIRE_FORECAST_UNIT_SYSTEM
 #   SPIRE_OPF_LOCATION, SPIRE_OPF_BUNDLES, SPIRE_OPF_FORECAST_HOURS, SPIRE_OPF_ENABLED (=0 schakelt OPF uit)
 #
-# Handmatig testen: Actions -> Weather hourly ingest -> Run workflow
+# Handmatig: Actions -> Weather hourly ingest -> Run workflow
+# Status API: GET /api/weather/status
 
 name: Weather hourly ingest
 
 on:
   schedule:
-    # Elke uur op :00 UTC (GitHub gebruikt UTC)
-    - cron: '0 * * * *'
+    # Catch-up for GitHub cron skips. Engine no-ops when ingest is still fresh.
+    - cron: '0,15,30,45 * * * *'
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force Spire fetch even if last ingest is fresh'
+        required: false
+        default: 'false'
+        type: boolean
 
 concurrency:
   group: weather-hourly
@@ -33,12 +45,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # If this step is missing in the Actions log, you are not running this workflow file from GitHub.
       - name: Entrypoint check
         run: |
-          echo "Samui hourly ingest - weather_engine_hourly.py (fog fix on main: 37a3570+)"
+          echo "Samui hourly ingest - weather_engine_hourly.py"
           test -f weather_engine_hourly.py
           echo "OK: weather_engine_hourly.py is in the repo checkout."
+          echo "utc_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -52,8 +64,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-weather-engine.txt
 
-      # Entrypoint: weather_engine_hourly.py (Spire + RainViewer + Supabase upsert).
       - name: Run weather engine
+        id: engine
         env:
           PYTHONUTF8: "1"
           PYTHONIOENCODING: utf-8
@@ -70,6 +82,8 @@ jobs:
           SPIRE_OPF_BUNDLES: ${{ vars.SPIRE_OPF_BUNDLES }}
           SPIRE_OPF_FORECAST_HOURS: ${{ vars.SPIRE_OPF_FORECAST_HOURS }}
           SPIRE_OPF_ENABLED: ${{ vars.SPIRE_OPF_ENABLED }}
+          SKIP_IF_FRESH_MINUTES: "50"
+          FORCE_INGEST: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && '1' || '0' }}
         run: |
           set -euo pipefail
           echo "CI_GIT_SHA=$(git rev-parse HEAD)"
@@ -90,4 +104,17 @@ jobs:
             echo "::error::SUPABASE_SERVICE_ROLE_KEY is empty. Add SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY."
             exit 1
           fi
-          python weather_engine_hourly.py
+          python weather_engine_hourly.py | tee /tmp/weather-ingest.log
+          summary="$(grep -E '^INGEST_SUMMARY ' /tmp/weather-ingest.log | tail -n 1 || true)"
+          echo "summary_line=${summary}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Samui weather ingest"
+            echo ""
+            echo "- SHA: \`$(git rev-parse HEAD)\`"
+            echo "- UTC: \`$(date -u +%Y-%m-%dT%H:%M:%SZ)\`"
+            echo "- FORCE_INGEST: \`${FORCE_INGEST}\`"
+            echo ""
+            echo '```'
+            echo "${summary:-no INGEST_SUMMARY line}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
