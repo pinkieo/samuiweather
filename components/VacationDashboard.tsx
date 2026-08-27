@@ -22,6 +22,7 @@ import {
 } from '../lib/feels-like-heat-index';
 import HourlyForecast from './HourlyForecast';
 import DailyForecast from './DailyForecast';
+import DailyVacationBrief from './DailyVacationBrief';
 
 const TZ_ICT = 'Asia/Bangkok';
 
@@ -500,7 +501,19 @@ export default function VacationDashboard({
 
   return (
     <div className="mb-4 flex flex-col gap-3">
-      {/* ── 1. Beach Score (top) ──────────────────────────────────────── */}
+      {/* ── 1. Today in Koh Samui ─────────────────────────────────────── */}
+      {productRegion === 'samui' && (
+        <DailyVacationBrief
+          rows={rows}
+          sammiDaily={
+            sammiDailyByIsoDay?.[
+              new Date().toLocaleDateString('en-CA', { timeZone: TZ_ICT })
+            ] ?? null
+          }
+        />
+      )}
+
+      {/* ── 2. Beach Score ────────────────────────────────────────────── */}
       <div>
         <p className="mb-2 pl-1 text-[9px] font-black uppercase tracking-[0.14em] text-cyan-400">
           BEACH SCORE
@@ -527,7 +540,7 @@ export default function VacationDashboard({
         </div>
       </div>
 
-      {/* ── 2. Today · hourly ─────────────────────────────────────────── */}
+      {/* ── 3. Today · hourly ─────────────────────────────────────────── */}
       <div>
         <p className="mb-2 pl-1 text-[9px] font-black uppercase tracking-[0.14em] text-cyan-400">
           TODAY - HOURLY
@@ -535,7 +548,7 @@ export default function VacationDashboard({
         <HourlyForecast rows={rows} selectedIndex={selectedIndex} onHourSelect={onSelectedIndexChange} />
       </div>
 
-      {/* ── 3. Daily outlook ──────────────────────────────────────────── */}
+      {/* ── 4. Daily outlook ──────────────────────────────────────────── */}
       <DailyForecast
         rows={rows}
         onDayClick={onSelectedIndexChange}
@@ -543,7 +556,7 @@ export default function VacationDashboard({
         productRegion={productRegion}
       />
 
-      {/* ── 4. Verdict Hero ───────────────────────────────────────────── */}
+      {/* ── 5. Verdict Hero ───────────────────────────────────────────── */}
       <div className={`rounded-3xl border ${verdict.border} ${verdict.bg} px-5 py-4 shadow-2xl`}>
         <div className="flex items-center gap-3">
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${verdict.dot} shadow-[0_0_8px_currentColor]`} />
@@ -553,7 +566,7 @@ export default function VacationDashboard({
         <p className="mt-2 text-[11px] leading-snug text-white/50 pl-[22px]">{beachSun.advice}</p>
       </div>
 
-      {/* ── 5. Weather Now + Beach Guide ────────────────────────────────── */}
+      {/* ── 6. Weather Now + Beach Guide ────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className={`rounded-3xl border border-white/10 p-5 shadow-2xl transition-colors duration-1000 ${bgClass}`}>
           <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-cyan-400">Weather snapshot</p>

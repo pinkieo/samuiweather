@@ -25,7 +25,8 @@
     "ecowitt:cronjob-setup": "npx tsx scripts/setup-ecowitt-cronjob.ts",
     "ecowitt:import-xlsx": "python scripts/import-ecowitt-xlsx.py",
     "forecast:verify-backfill": "python scripts/backfill-forecast-verification.py",
-    "test": "python -m unittest discover -s tests -p \"test_*.py\""
+    "test": "python -m unittest discover -s tests -p \"test_*.py\"",
+    "test:unit": "npx tsx --test tests/daily-vacation-brief.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
