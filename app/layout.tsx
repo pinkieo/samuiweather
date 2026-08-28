@@ -6,8 +6,8 @@ import './globals.css';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 export const metadata: Metadata = {
-  title: 'Samui Pro',
-  description: 'Marine intelligence — Koh Samui',
+  title: 'Samui Weather',
+  description: 'Koh Samui vacation weather — daily brief, radar, and island forecast',
   icons: {
     icon: '/favicon.ico',
   },

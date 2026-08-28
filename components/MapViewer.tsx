@@ -24,8 +24,6 @@ import StormAlertBanner from './StormAlertBanner';
 import { getPoiById, type IslandPoi } from '../lib/island-pois';
 import PoiIntelligenceCard from './PoiIntelligenceCard';
 import {
-  DASHBOARD_REGION_TAB_ORDER,
-  DEFAULT_DASHBOARD_REGION_ID,
   type DashboardRegionId,
   getDashboardRegion,
 } from '../lib/dashboard-regions';
@@ -136,10 +134,8 @@ type EcowittClientState =
   | { status: 'ok'; snap: EcowittGroundSnapshot };
 
 export default function MapViewer() {
-  const [dashboardRegionId, setDashboardRegionId] = useState<DashboardRegionId>(
-    DEFAULT_DASHBOARD_REGION_ID,
-  );
-  const region = getDashboardRegion(dashboardRegionId);
+  const dashboardRegionId: DashboardRegionId = 'samui';
+  const region = getDashboardRegion('samui');
 
   const [forecastRows, setForecastRows] = useState<SamuiWeatherForecastRow[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -511,17 +507,16 @@ export default function MapViewer() {
     };
   }, [region.lat, region.lon]);
 
-  // ── METAR sky (VTSM / VTSG) — blend with Spire cloud % on the snapshot card ─
+  // ── METAR sky (VTSM) — blend with Spire cloud % on the snapshot card ─
   useEffect(() => {
-    const icao = dashboardRegionId === 'krabi_baan_mook_taley' ? 'VTSG' : 'VTSM';
     fetch('/api/metar', { cache: 'no-store' })
       .then(r => r.json())
       .then((d: MetarApiResponse) => {
-        const m = d.stations?.[icao]?.metar;
+        const m = d.stations?.VTSM?.metar;
         setMetarSkyCover(dominantCoverFromMetarClouds(m?.clouds));
       })
       .catch(() => setMetarSkyCover(null));
-  }, [dashboardRegionId]);
+  }, []);
 
   // ── Local 1h grid (private route) — blend into row 0; strip stays Spire-led ─
   useEffect(() => {
@@ -717,9 +712,9 @@ export default function MapViewer() {
   return (
     <div className="relative box-border h-full min-h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#020617]">
 
-      {/* Storm / METAR alert — fixed top (Samui or Krabi conflict product) */}
+      {/* Storm / METAR alert — Koh Samui */}
       <StormAlertBanner
-        region={region.isSamuiProduct ? 'samui' : 'krabi'}
+        region="samui"
         onActiveChange={setStormBannerActive}
       />
 
@@ -728,11 +723,11 @@ export default function MapViewer() {
         <SamuiExploreMap
           key={dashboardRegionId}
           flyToRequest={flyToRequest}
-          onPoiSelect={region.isSamuiProduct ? setSelectedMapPoi : undefined}
+          onPoiSelect={setSelectedMapPoi}
           initialLongitude={region.lon + region.lngOffset}
           initialLatitude={region.lat + region.latOffset}
           initialZoom={region.mapZoom}
-          showIslandPois={region.isSamuiProduct}
+          showIslandPois
           homeLocationPins={
             region.homePins?.map(p => ({
               lat: p.lat,
@@ -742,7 +737,7 @@ export default function MapViewer() {
               badge: p.badge,
             })) ?? null
           }
-          mapScaleContextLabel={region.isSamuiProduct ? 'island' : 'coast'}
+          mapScaleContextLabel="island"
           radarScrub={radarScrubFrame}
           mapFooterHolidayLine={HOLIDAY_MAP_FOOTER_LINE}
           radarOverlayUrl={radarOverlayUrl}
@@ -777,29 +772,6 @@ export default function MapViewer() {
           stormBannerActive ? 'pt-14 sm:pt-[4.5rem]' : 'pt-3 sm:pt-0',
         ].join(' ')}
       >
-
-        {/* Region tabs — Samui vs Krabi test */}
-        <div className="mb-2 flex rounded-2xl border border-white/10 bg-slate-950/90 p-1 shadow-lg backdrop-blur-md">
-          {DASHBOARD_REGION_TAB_ORDER.map((id) => {
-            const r = getDashboardRegion(id);
-            const active = dashboardRegionId === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setDashboardRegionId(id)}
-                className={[
-                  'flex-1 rounded-xl px-2 py-2 text-center text-[9px] font-black uppercase tracking-wide transition',
-                  active
-                    ? 'bg-cyan-500/25 text-cyan-100 ring-1 ring-cyan-400/40'
-                    : 'text-slate-500 hover:bg-white/5 hover:text-slate-300',
-                ].join(' ')}
-              >
-                {r.shortLabel}
-              </button>
-            );
-          })}
-        </div>
 
         {/* Toggle bar — always visible */}
         <button
@@ -920,7 +892,7 @@ export default function MapViewer() {
                   radarLeadsOverDryModels={radarLeadsOverDryModels}
                   metarSkyCover={metarSkyCover}
                   sammiDailyByIsoDay={sammiDailyByIsoDay}
-                  productRegion={region.isSamuiProduct ? 'samui' : 'krabi'}
+                  productRegion="samui"
                 />
 
                 <div className="mb-3 mt-4">
@@ -934,7 +906,7 @@ export default function MapViewer() {
                     radarReady={radarFeed.status === 'ready'}
                     rainPossibleNext6h={rainPossibleNext6h}
                     forecastRows={displayForecastRows}
-                    product={region.isSamuiProduct ? 'samui' : 'krabi'}
+                    product="samui"
                     radarScrub={radarScrubFrame}
                     onRadarScrub={setRadarScrubFrame}
                   />
@@ -998,34 +970,28 @@ export default function MapViewer() {
                     <div className="mt-2">
                       <MetarCard
                         key={dashboardRegionId}
-                        defaultIcao={
-                          dashboardRegionId === 'krabi_baan_mook_taley' ? 'VTSG' : 'VTSM'
-                        }
+                        defaultIcao="VTSM"
                       />
                     </div>
                   )}
                 </div>
 
-                {region.isSamuiProduct && (
-                  <>
-                    {/* Ecowitt */}
-                    <div className="mb-3">
-                      <EcowittPlaceholder />
-                    </div>
+                {/* Ecowitt */}
+                <div className="mb-3">
+                  <EcowittPlaceholder />
+                </div>
 
-                    {/* Live webcams */}
-                    <div className="mb-3">
-                      <button
-                        onClick={() => setShowCams(!showCams)}
-                        className="flex w-full items-center justify-between rounded-xl border border-teal-200/12 bg-white/5 px-4 py-2 text-left transition hover:bg-white/10"
-                      >
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">📹 Sammi&apos;s Eyes · Live Island View</span>
-                        <span className="text-[10px] text-slate-500">{showCams ? '▲' : '▼'}</span>
-                      </button>
-                      {showCams && <div className="mt-2"><WebcamGrid /></div>}
-                    </div>
-                  </>
-                )}
+                {/* Live webcams */}
+                <div className="mb-3">
+                  <button
+                    onClick={() => setShowCams(!showCams)}
+                    className="flex w-full items-center justify-between rounded-xl border border-teal-200/12 bg-white/5 px-4 py-2 text-left transition hover:bg-white/10"
+                  >
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">📹 Sammi&apos;s Eyes · Live Island View</span>
+                    <span className="text-[10px] text-slate-500">{showCams ? '▲' : '▼'}</span>
+                  </button>
+                  {showCams && <div className="mt-2"><WebcamGrid /></div>}
+                </div>
               </>
             )}
           </div>
@@ -1036,8 +1002,8 @@ export default function MapViewer() {
       {forecastStatus === 'ok' && forecastRows.length > 0 && (
         <SammiChatPortal
           forecastRows={displayForecastRows}
-          onMapFlyTo={region.isSamuiProduct ? handleMapFlyTo : undefined}
-          conflictRegion={region.isSamuiProduct ? 'samui' : 'krabi'}
+          onMapFlyTo={handleMapFlyTo}
+          conflictRegion="samui"
           mapRegionKey={dashboardRegionId}
         />
       )}

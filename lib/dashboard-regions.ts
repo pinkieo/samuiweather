@@ -126,14 +126,11 @@ export const DASHBOARD_REGIONS: Record<DashboardRegionId, DashboardRegion> = {
   },
 };
 
-/** Primary QA tab while Krabi rain + map UX are validated; switch to `samui` when parity is ready. */
-export const DEFAULT_DASHBOARD_REGION_ID: DashboardRegionId = 'krabi_baan_mook_taley';
+/** Vacation dashboard is Koh Samui only. Krabi region config is retained for a later product. */
+export const DEFAULT_DASHBOARD_REGION_ID: DashboardRegionId = 'samui';
 
-/** Tab order in the UI — Krabi first during rain-data focus. */
-export const DASHBOARD_REGION_TAB_ORDER: DashboardRegionId[] = [
-  'krabi_baan_mook_taley',
-  'samui',
-];
+/** Kept for a future Krabi product; the Samui dashboard does not render region tabs. */
+export const DASHBOARD_REGION_TAB_ORDER: DashboardRegionId[] = ['samui'];
 
 export function getDashboardRegion(id: DashboardRegionId): DashboardRegion {
   return DASHBOARD_REGIONS[id];
