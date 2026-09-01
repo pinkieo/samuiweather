@@ -1,4 +1,11 @@
 # Samui Weather Pro
+
+Status: REFERENCE
+Document version: 1.0
+Last updated: 2026-09-01
+Last verified: NOT VERIFIED
+Owner: ProSeadure
+
 Live: samuiweather.com
 
 ## UI copy

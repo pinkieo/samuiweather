@@ -1,5 +1,11 @@
 # Samui Ecowitt source — forecast provenance note
 
+Status: REFERENCE
+Document version: 1.0
+Last updated: 2026-09-01
+Last verified: NOT VERIFIED
+Owner: ProSeadure
+
 The authoritative observation source remains the existing Ecowitt pipeline:
 
 ```text

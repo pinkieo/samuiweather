@@ -1,5 +1,11 @@
 # Ecowitt station — Baan Ton Kluay
 
+Status: CANONICAL
+Document version: 1.0
+Last updated: 2026-09-01
+Last verified: NOT VERIFIED
+Owner: ProSeadure
+
 Live ground-truth from the GW3000C at Ko Samui. Two ingest paths exist; only one works reliably today.
 
 ## Vercel Hobby — cron does **not** work for minute sync

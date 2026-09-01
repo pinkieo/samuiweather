@@ -1,5 +1,11 @@
 # Daily vacation forecast
 
+Status: CANONICAL
+Document version: 1.0
+Last updated: 2026-09-01
+Last verified: NOT VERIFIED
+Owner: ProSeadure
+
 ## Purpose
 
 The dashboard opens with a **Today in Koh Samui** Daily Vacation Brief: a

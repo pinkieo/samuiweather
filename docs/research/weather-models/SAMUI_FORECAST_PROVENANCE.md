@@ -1,5 +1,11 @@
 # Samui forecast provenance
 
+Status: REFERENCE
+Document version: 1.0
+Last updated: 2026-09-01
+Last verified: NOT VERIFIED
+Owner: ProSeadure
+
 Status: implemented on the hourly ingest path. Migration activated on
 **2026-08-07**. No new Spire request type was added.
 
