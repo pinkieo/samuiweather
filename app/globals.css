@@ -37,3 +37,16 @@ body {
 .mapboxgl-canary {
   background-color: rgb(250, 128, 114) !important;
 }
+
+/*
+  Keep the MapLibre WebGL canvas in a low stacking context. Without this, the
+  canvas compositor layer can paint over sibling HUD / dashboard HTML.
+*/
+.maplibregl-canvas-container,
+.maplibregl-canvas {
+  z-index: 0;
+}
+
+.maplibregl-control-container {
+  z-index: 1;
+}

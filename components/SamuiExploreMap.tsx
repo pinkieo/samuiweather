@@ -414,7 +414,9 @@ export default function SamuiExploreMap({
   }
 
   return (
-    <div className="relative h-full w-full bg-[#d4d2ce]">
+    <div className="relative isolate h-full w-full bg-[#d4d2ce]">
+      {/* Canvas stays in its own stacking context so HUD / Sammi cannot paint under the map. */}
+      <div className="absolute inset-0 z-0">
       <Map
         ref={mapRef}
         mapLib={maplibregl}
@@ -647,7 +649,9 @@ export default function SamuiExploreMap({
 
         <NavigationControl position="top-right" />
       </Map>
+      </div>
 
+      <div className="pointer-events-none absolute inset-0 z-20 isolate">
       {radarOverlayUrl ? (
         <RadarOverlay
           frameUrl={radarOverlayUrl}
@@ -851,7 +855,7 @@ export default function SamuiExploreMap({
             id="sammi-chat-anchor"
             className={
               sammiPanelOpen
-                ? 'pointer-events-auto flex h-[min(58vh,32rem)] min-h-[16rem] w-full max-h-[calc(100dvh-7rem)] flex-col overflow-hidden overscroll-contain rounded-b-xl border border-t-0 border-white/15 bg-slate-950/90 shadow-xl [scrollbar-gutter:stable]'
+                ? 'pointer-events-auto relative z-20 flex h-[min(58vh,32rem)] min-h-[16rem] w-full max-h-[calc(100dvh-7rem)] flex-col overflow-hidden overscroll-contain rounded-b-xl border border-t-0 border-white/15 bg-slate-950 shadow-xl [scrollbar-gutter:stable]'
                 : 'pointer-events-none max-h-0 min-h-0 w-full overflow-hidden border-0 p-0 opacity-0 shadow-none'
             }
             aria-hidden={!sammiPanelOpen}
@@ -879,6 +883,7 @@ export default function SamuiExploreMap({
             {mapFooterHolidayLine}
           </p>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -719,7 +719,7 @@ export default function MapViewer() {
       />
 
       {/* ── Base map: satellite + radar + POIs ─ */}
-      <div className="absolute inset-0 z-0 min-h-0">
+      <div className="absolute inset-0 z-0 isolate min-h-0">
         <SamuiExploreMap
           key={dashboardRegionId}
           flyToRequest={flyToRequest}
@@ -765,10 +765,10 @@ export default function MapViewer() {
         </div>
       )}
 
-      {/* ── Weather drawer — above map layer (z-0); Sammi HUD is inside map but drawer must stay clickable ─ */}
+      {/* ── Weather drawer — above the isolated map layer; isolate so the WebGL canvas cannot cover it ─ */}
       <div
         className={[
-          'absolute left-0 top-0 z-30 w-full max-w-md px-3 sm:left-4 sm:top-4 sm:px-0',
+          'pointer-events-auto absolute left-0 top-0 z-40 isolate w-full max-w-md px-3 sm:left-4 sm:top-4 sm:px-0',
           stormBannerActive ? 'pt-14 sm:pt-[4.5rem]' : 'pt-3 sm:pt-0',
         ].join(' ')}
       >
