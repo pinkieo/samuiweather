@@ -1,4 +1,6 @@
 @echo off
+REM Interactive/manual only. For a scheduled/background run use weather-hourly-silent.vbs
+REM (wscript.exe //nologo //B) so no console window flashes.
 REM Run ingest with a project-local venv (always use .venv\Scripts\python.exe — not global "python").
 setlocal
 cd /d "%~dp0"

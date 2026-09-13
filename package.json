@@ -25,8 +25,13 @@
     "ecowitt:cronjob-setup": "npx tsx scripts/setup-ecowitt-cronjob.ts",
     "ecowitt:import-xlsx": "python scripts/import-ecowitt-xlsx.py",
     "forecast:verify-backfill": "python scripts/backfill-forecast-verification.py",
+    "forecast:score-day": "npx tsx scripts/forecast-score-day.ts",
     "test": "python -m unittest discover -s tests -p \"test_*.py\"",
-    "test:unit": "npx tsx --test tests/daily-vacation-brief.test.ts tests/dashboard-region.test.ts"
+    "broadcast:script": "npx tsx scripts/broadcast-script.ts",
+    "broadcast:render": "npx tsx scripts/broadcast-render.ts",
+    "broadcast:schedule": "npx tsx scripts/broadcast-schedule.ts",
+    "broadcast:schedule:dry": "npx tsx scripts/broadcast-schedule.ts --dry-run",
+    "test:unit": "npx tsx --test tests/daily-vacation-brief.test.ts tests/dashboard-region.test.ts tests/broadcast-script.test.ts tests/broadcast-catalog.test.ts tests/wind-overlay.test.ts tests/ecowitt-daily.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
@@ -53,7 +58,9 @@
     "autoprefixer": "^10.4.20",
     "dotenv": "^17.4.2",
     "postcss": "^8.4.49",
+    "puppeteer-core": "^25.10.0",
     "tailwindcss": "^3.4.15",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.0"
   }
 }

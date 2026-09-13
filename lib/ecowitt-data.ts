@@ -1,7 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import type { EcowittObservation } from '@/types/supabase';
+import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-const DEFAULT_LOCATION_ID = 'baan_ton_kluay';
+export const ECOWITT_LOCATION_ID = 'baan_ton_kluay';
+export const ECOWITT_TIME_ZONE = 'Asia/Bangkok';
+const DEFAULT_LOCATION_ID = ECOWITT_LOCATION_ID;
+const ICT_YMD = /^\d{4}-\d{2}-\d{2}$/;
+const PAGE = 1000;
 
 type DbRow = {
   id: string;
@@ -99,4 +104,173 @@ export async function fetchLatestEcowittObservation(
   }
 
   return { ok: true, observation: fromDbRow(data as DbRow) };
+}
+
+export type EcowittDaySample = {
+  observed_at: string;
+  temperature_c: number | null;
+  humidity_pct: number | null;
+  wind_speed_ms: number | null;
+  wind_gust_ms: number | null;
+  rain_rate_mmh: number | null;
+  rain_day_mm: number | null;
+  solar_wm2: number | null;
+  uv_index: number | null;
+};
+
+export type EcowittDailySummary = {
+  available: boolean;
+  date: string;
+  timezone: typeof ECOWITT_TIME_ZONE;
+  locationId: string;
+  sampleCount: number;
+  firstObservedAt: string | null;
+  lastObservedAt: string | null;
+  temperatureMinC: number | null;
+  temperatureMaxC: number | null;
+  humidityMinPct: number | null;
+  humidityMaxPct: number | null;
+  windMaxMs: number | null;
+  windGustMaxMs: number | null;
+  /** Peak of the station daily rain counter on that ICT day — not today's live counter. */
+  rainDayMm: number | null;
+  rainRateMaxMmh: number | null;
+  solarMaxWm2: number | null;
+  uvMax: number | null;
+};
+
+function finiteNums(values: Array<number | null | undefined>): number[] {
+  return values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+}
+
+function minNum(values: number[]): number | null {
+  return values.length ? Math.min(...values) : null;
+}
+
+function maxNum(values: number[]): number | null {
+  return values.length ? Math.max(...values) : null;
+}
+
+export function parseIctDateYmd(raw: string | null | undefined): string | null {
+  const date = String(raw || '').trim();
+  if (!ICT_YMD.test(date)) return null;
+  const t = Date.parse(`${date}T12:00:00+07:00`);
+  if (!Number.isFinite(t)) return null;
+  return date;
+}
+
+/** ICT calendar day → exclusive UTC range. Asia/Bangkok is UTC+7, no DST. */
+export function ictDayUtcRange(dateYmd: string): { startUtc: Date; endUtc: Date } | null {
+  const date = parseIctDateYmd(dateYmd);
+  if (!date) return null;
+  const startUtc = new Date(`${date}T00:00:00+07:00`);
+  if (!Number.isFinite(startUtc.getTime())) return null;
+  return { startUtc, endUtc: new Date(startUtc.getTime() + 24 * 60 * 60 * 1000) };
+}
+
+export function ictYmd(at = new Date()): string {
+  return at.toLocaleDateString('en-CA', {
+    timeZone: ECOWITT_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+}
+
+export function yesterdayIctDate(at = new Date()): string {
+  const today = ictYmd(at);
+  const noon = new Date(`${today}T12:00:00+07:00`);
+  return ictYmd(new Date(noon.getTime() - 24 * 60 * 60 * 1000));
+}
+
+export function summarizeEcowittDay(
+  rows: EcowittDaySample[],
+  date: string,
+  locationId = DEFAULT_LOCATION_ID,
+): EcowittDailySummary {
+  const empty: EcowittDailySummary = {
+    available: false,
+    date,
+    timezone: ECOWITT_TIME_ZONE,
+    locationId,
+    sampleCount: 0,
+    firstObservedAt: null,
+    lastObservedAt: null,
+    temperatureMinC: null,
+    temperatureMaxC: null,
+    humidityMinPct: null,
+    humidityMaxPct: null,
+    windMaxMs: null,
+    windGustMaxMs: null,
+    rainDayMm: null,
+    rainRateMaxMmh: null,
+    solarMaxWm2: null,
+    uvMax: null,
+  };
+  if (!rows.length) return empty;
+  const ordered = [...rows].sort((a, b) => a.observed_at.localeCompare(b.observed_at));
+  const temps = finiteNums(ordered.map((r) => r.temperature_c));
+  const hums = finiteNums(ordered.map((r) => r.humidity_pct));
+  return {
+    available: true,
+    date,
+    timezone: ECOWITT_TIME_ZONE,
+    locationId,
+    sampleCount: ordered.length,
+    firstObservedAt: ordered[0]!.observed_at,
+    lastObservedAt: ordered[ordered.length - 1]!.observed_at,
+    temperatureMinC: minNum(temps),
+    temperatureMaxC: maxNum(temps),
+    humidityMinPct: minNum(hums),
+    humidityMaxPct: maxNum(hums),
+    windMaxMs: maxNum(finiteNums(ordered.map((r) => r.wind_speed_ms))),
+    windGustMaxMs: maxNum(finiteNums(ordered.map((r) => r.wind_gust_ms))),
+    rainDayMm: maxNum(finiteNums(ordered.map((r) => r.rain_day_mm))),
+    rainRateMaxMmh: maxNum(finiteNums(ordered.map((r) => r.rain_rate_mmh))),
+    solarMaxWm2: maxNum(finiteNums(ordered.map((r) => r.solar_wm2))),
+    uvMax: maxNum(finiteNums(ordered.map((r) => r.uv_index))),
+  };
+}
+
+export type FetchEcowittDailyResult =
+  | { ok: true; summary: EcowittDailySummary; samples: EcowittDaySample[] }
+  | { ok: false; error: string };
+
+export async function fetchEcowittDaily(
+  dateYmd: string,
+  locationId = DEFAULT_LOCATION_ID,
+): Promise<FetchEcowittDailyResult> {
+  const range = ictDayUtcRange(dateYmd);
+  if (!range) return { ok: false, error: 'date must be YYYY-MM-DD (ICT)' };
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return { ok: false, error: 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing' };
+  }
+
+  const samples: EcowittDaySample[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('ecowitt_observations')
+      .select(
+        'observed_at,temperature_c,humidity_pct,wind_speed_ms,wind_gust_ms,rain_rate_mmh,rain_day_mm,solar_wm2,uv_index',
+      )
+      .eq('location_id', locationId)
+      .gte('observed_at', range.startUtc.toISOString())
+      .lt('observed_at', range.endUtc.toISOString())
+      .order('observed_at', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) return { ok: false, error: error.message };
+    const chunk = (data || []) as EcowittDaySample[];
+    samples.push(...chunk);
+    if (chunk.length < PAGE) break;
+    from += PAGE;
+    if (from > 20_000) break;
+  }
+
+  return {
+    ok: true,
+    summary: summarizeEcowittDay(samples, dateYmd, locationId),
+    samples,
+  };
 }

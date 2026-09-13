@@ -1,9 +1,9 @@
 # Ecowitt station — Baan Ton Kluay
 
 Status: CANONICAL
-Document version: 1.0
-Last updated: 2026-09-01
-Last verified: NOT VERIFIED
+Document version: 2.0
+Last updated: 2026-09-13
+Last verified: 2026-09-13
 Owner: ProSeadure
 
 Live ground-truth from the GW3000C at Ko Samui. Two ingest paths exist; only one works reliably today.
@@ -97,6 +97,12 @@ npm run forecast:verify-backfill
 
 Writes **`forecast_verification`** with `spire_snapshot`, `observation`, `errors_json` (temp/humidity/wind/rain).
 
+Day score without writing that table:
+
+```bash
+npm run forecast:score-day -- 2026-09-12
+```
+
 Re-run anytime after new history or Ecowitt data.
 
 ---
@@ -137,12 +143,19 @@ Code: `app/api/ecowitt/ingest/route.ts`
 
 ---
 
-## Read path (dashboard)
+## Read path (dashboard + day archive)
 
-- `GET /api/ecowitt/latest` — latest row for `baan_ton_kluay`
+- `GET /api/ecowitt/latest` — latest row for `baan_ton_kluay` (now). `rainDayMm` is **today’s** station counter and resets at midnight ICT. It cannot score yesterday.
+- `GET /api/ecowitt/daily?date=YYYY-MM-DD` — one **ICT** calendar day from `ecowitt_observations`: sample count, high/low temperature, peak `rain_day_mm`, max wind/gust. Omit `date` for **yesterday ICT**. Empty day returns `available: false` (200), not 404.
+- `GET /api/forecast/accuracy?date=YYYY-MM-DD` — Spire (`weather_history` ∪ `weather_forecast`, latest issuance per hour) vs that station day. Hourly MAE plus day min/max/rain. Same default date.
+- There is no `/api/ecowitt/history` or `/observations` list. Minute rows stay in Supabase.
 - UI: `components/EcowittPlaceholder.tsx`, blended into row 0 in `components/MapViewer.tsx`
 
+Cloud poll is `real_time` only. History for a past ICT day is the minute table, not a second Ecowitt Cloud history call.
+
 Rows are ordered by `observed_at` (then `created_at`). Stale test rows with fake future timestamps can block live data — delete them in Supabase if `/latest` looks wrong.
+
+`rainDayMm` on `/daily` is `MAX(rain_day_mm)` inside that ICT day. Do not sum `rain_rate_mmh`.
 
 ### Forecast provenance for Ecowitt validation
 

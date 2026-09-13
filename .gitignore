@@ -28,6 +28,12 @@ __pycache__/
 # Local RainViewer practice loop (npm run radar:snapshot)
 public/radar-practice.json
 
+# Sammi Broadcast renders (MP4 / TTS / frames) — not git
+broadcast-out/
+public/broadcast/latest/*.mp4
+public/broadcast/latest/*.vtt
+public/broadcast/latest/manifest.json
+
 # Ecowitt historical exports (large xlsx from ecowitt.net)
 data/ecowitt/*.xlsx
 data/ecowitt/*.csv

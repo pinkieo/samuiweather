@@ -18,6 +18,7 @@ import {
 import { applyPreferredPlaceLabels } from '../lib/maplibre-place-labels';
 import { useHudThrottleMove } from '../lib/map-move-hud';
 import RadarOverlay from './RadarOverlay';
+import WindyWindOverlay from './WindyWindOverlay';
 
 /** Streets/POI detail (restaurants, etc.); RainViewer raster stays native z≤7 and overzooms above that. */
 const MAP_MAX_ZOOM = 20;
@@ -92,6 +93,11 @@ export interface SamuiExploreMapProps {
   onRadarOverlayClear?: () => void;
   /** Pull RainViewer frames immediately (LIVE chip). */
   onRefreshLive?: () => void;
+  /** Hide zoom/legend/Sammi HUD — used by the broadcast studio. */
+  hideHud?: boolean;
+  onMapReady?: () => void;
+  /** Windy-look DWD ICON wind colour + particles (picture only). */
+  weatherOverlayEnabled?: boolean;
 }
 
 /**
@@ -184,6 +190,9 @@ export default function SamuiExploreMap({
   radarOverlayUrl = null,
   onRadarOverlayClear,
   onRefreshLive,
+  hideHud = false,
+  onMapReady,
+  weatherOverlayEnabled = false,
 }: SamuiExploreMapProps) {
   const mapRef = useRef<MapRef | null>(null);
   const startLng = initialLongitude ?? INITIAL_LNG;
@@ -244,6 +253,10 @@ export default function SamuiExploreMap({
   const [mapStyle, setMapStyle] = useState<StyleSpecification | null>(null);
   /** Sammi chat panel — toggle keeps same width as Zoom / Scale / Radar (11.5rem). */
   const [sammiPanelOpen, setSammiPanelOpen] = useState(true);
+
+  useEffect(() => {
+    if (baseMapReady) onMapReady?.();
+  }, [baseMapReady, onMapReady]);
 
   /** After one MapTiler vector tile network failure, swap to OSM raster so the map stays usable. */
   const mapTilerFallbackDoneRef = useRef(false);
@@ -647,11 +660,14 @@ export default function SamuiExploreMap({
           </Marker>
         ))}
 
-        <NavigationControl position="top-right" />
+        {!hideHud && <NavigationControl position="top-right" />}
       </Map>
+      {weatherOverlayEnabled && <WindyWindOverlay mapRef={mapRef} enabled />}
       </div>
 
       <div className="pointer-events-none absolute inset-0 z-20 isolate">
+      {!hideHud && (
+      <>
       {radarOverlayUrl ? (
         <RadarOverlay
           frameUrl={radarOverlayUrl}
@@ -884,6 +900,8 @@ export default function SamuiExploreMap({
           </p>
         </div>
       </div>
+      </>
+      )}
       </div>
     </div>
   );

@@ -1,8 +1,8 @@
 # Samui / Sammi documentation index
 
 Status: CANONICAL
-Document version: 1.0
-Last updated: 2026-09-01
+Document version: 1.6
+Last updated: 2026-09-13
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -24,10 +24,11 @@ authorised production host.
 | Document | Subject | Version | Last updated | Last verified |
 |---|---|---|---|---|
 | [AGENTS.md](../AGENTS.md) | Agent operating instructions for this repo | 1.0 | 2026-09-01 | NOT VERIFIED |
-| [docs/README.md](README.md) | Documentation index (this file) | 1.0 | 2026-09-01 | NOT VERIFIED |
-| [ARCHITECTURE.md](../ARCHITECTURE.md) | Sammi AI / Samui weather architecture | 1.0 | 2026-09-01 | NOT VERIFIED |
-| [docs/daily-vacation-forecast.md](daily-vacation-forecast.md) | Daily vacation brief | 1.0 | 2026-09-01 | NOT VERIFIED |
-| [docs/ecowitt.md](ecowitt.md) | Ecowitt station ingest (Vercel Hobby cron limits) | 1.0 | 2026-09-01 | NOT VERIFIED |
+| [docs/README.md](README.md) | Documentation index (this file) | 1.6 | 2026-09-13 | NOT VERIFIED |
+| [ARCHITECTURE.md](../ARCHITECTURE.md) | Sammi AI / Samui weather architecture | 3.2 | 2026-09-13 | NOT VERIFIED |
+| [docs/daily-vacation-forecast.md](daily-vacation-forecast.md) | Daily vacation brief | 1.1 | 2026-09-12 | NOT VERIFIED |
+| [docs/sammi-broadcast.md](sammi-broadcast.md) | Sammi tourist weather TV (4× daily feature + hourly bumper) | 3.0 | 2026-09-12 | 2026-09-12 |
+| [docs/ecowitt.md](ecowitt.md) | Ecowitt station ingest + ICT day archive | 2.0 | 2026-09-13 | 2026-09-13 |
 
 ## Draft
 

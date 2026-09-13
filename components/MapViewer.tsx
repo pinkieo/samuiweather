@@ -21,6 +21,7 @@ import WebcamGrid from './WebcamGrid';
 import MetarCard from './MetarCard';
 import EcowittPlaceholder from './EcowittPlaceholder';
 import StormAlertBanner from './StormAlertBanner';
+import BroadcastOnAir from './BroadcastOnAir';
 import { getPoiById, type IslandPoi } from '../lib/island-pois';
 import PoiIntelligenceCard from './PoiIntelligenceCard';
 import {
@@ -171,6 +172,7 @@ export default function MapViewer() {
   } | null>(null);
   /** Pin-centered tile snapshot over the map (hour bar / Play); `null` = tiled live radar. */
   const [radarOverlayUrl, setRadarOverlayUrl] = useState<string | null>(null);
+  const [weatherOverlayEnabled, setWeatherOverlayEnabled] = useState(false);
   const handleRadarOverlayClear = useCallback(() => {
     setRadarOverlayUrl(null);
     setRadarScrubFrame(null);
@@ -743,6 +745,7 @@ export default function MapViewer() {
           radarOverlayUrl={radarOverlayUrl}
           onRadarOverlayClear={handleRadarOverlayClear}
           onRefreshLive={radarFeed.refresh}
+          weatherOverlayEnabled={weatherOverlayEnabled}
         />
 
       </div>
@@ -981,6 +984,8 @@ export default function MapViewer() {
                   <EcowittPlaceholder />
                 </div>
 
+                <BroadcastOnAir variant="drawer" />
+
                 {/* Live webcams */}
                 <div className="mb-3">
                   <button
@@ -996,6 +1001,23 @@ export default function MapViewer() {
             )}
           </div>
         </div>
+      </div>
+
+      <div className="pointer-events-none absolute bottom-6 right-3 z-40 flex flex-col items-end gap-2 sm:bottom-8 sm:right-4">
+        <button
+          type="button"
+          onClick={() => setWeatherOverlayEnabled((on) => !on)}
+          aria-pressed={weatherOverlayEnabled}
+          className={[
+            'pointer-events-auto rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest shadow-xl backdrop-blur-md',
+            weatherOverlayEnabled
+              ? 'border-cyan-400/50 bg-cyan-950/90 text-cyan-100'
+              : 'border-white/20 bg-slate-950/90 text-slate-200',
+          ].join(' ')}
+        >
+          Weather overlay {weatherOverlayEnabled ? 'on' : 'off'}
+        </button>
+        <BroadcastOnAir variant="chip" />
       </div>
 
       {/* Sammi — portaled into map under Zoom / Scale / Radar (see #sammi-chat-anchor) */}

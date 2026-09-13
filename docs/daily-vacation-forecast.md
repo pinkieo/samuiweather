@@ -1,8 +1,8 @@
 # Daily vacation forecast
 
 Status: CANONICAL
-Document version: 1.0
-Last updated: 2026-09-01
+Document version: 1.1
+Last updated: 2026-09-12
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -69,6 +69,9 @@ Times are Asia/Bangkok.
 - **Fog:** shown only when mist % is high in the morning, or in at least two hours. A single isolated spike is not enough.
 - **Ceiling:** shown when the lowest cloud base is ≤ 800 m AGL.
 - **Verdict bands:** Indoor-first (heavy rain / repeated thunder), Rain-aware (wet or ≥ 45% rain), Flexible (moderate rain/wind or no beach window), Beach-first (none of the above).
+
+Sammi Broadcast (4× daily ~2 min feature + hourly bumper) uses this brief as the
+spine. It must not invent windows the brief withheld. See `docs/sammi-broadcast.md`.
 
 ## Freshness and honesty
 
