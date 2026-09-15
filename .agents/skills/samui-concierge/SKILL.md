@@ -85,6 +85,9 @@ app/api/
   ecowitt/latest          ← station now
   ecowitt/daily           ← ICT day high/low/rain from ecowitt_observations
   forecast/accuracy       ← Spire vs that station day
+  forecast/accuracy/trend ← ICT-day skill series
+  forecast/overview       ← 4× ICT Spire+OPF lock vs Ecowitt
+  overview/               ← tourist accuracy page
 scripts/
   embed-reddit.ts         ← Manual embed: npm run embed
 supabase/

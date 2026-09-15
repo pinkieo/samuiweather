@@ -12,6 +12,7 @@ import {
   scoreForecastDay,
   type ForecastHour,
 } from '../lib/forecast-day-accuracy';
+import { eachIctDay } from '../lib/forecast-accuracy-trend';
 
 describe('ICT day range', () => {
   it('maps 2026-09-12 ICT onto 11th 17:00Z .. 12th 17:00Z', () => {
@@ -28,6 +29,14 @@ describe('ICT day range', () => {
 
   it('yesterday is the previous ICT calendar day', () => {
     assert.equal(yesterdayIctDate(new Date('2026-09-13T03:00:00.000Z')), '2026-09-12');
+  });
+
+  it('lists inclusive ICT days', () => {
+    assert.deepEqual(eachIctDay('2026-09-11', '2026-09-13'), [
+      '2026-09-11',
+      '2026-09-12',
+      '2026-09-13',
+    ]);
   });
 });
 

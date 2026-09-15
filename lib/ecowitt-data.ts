@@ -236,17 +236,15 @@ export type FetchEcowittDailyResult =
   | { ok: true; summary: EcowittDailySummary; samples: EcowittDaySample[] }
   | { ok: false; error: string };
 
-export async function fetchEcowittDaily(
-  dateYmd: string,
+export async function fetchEcowittRange(
+  startUtc: Date,
+  endUtc: Date,
   locationId = DEFAULT_LOCATION_ID,
-): Promise<FetchEcowittDailyResult> {
-  const range = ictDayUtcRange(dateYmd);
-  if (!range) return { ok: false, error: 'date must be YYYY-MM-DD (ICT)' };
+): Promise<{ ok: true; samples: EcowittDaySample[] } | { ok: false; error: string }> {
   const supabase = getSupabaseAdmin();
   if (!supabase) {
     return { ok: false, error: 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing' };
   }
-
   const samples: EcowittDaySample[] = [];
   let from = 0;
   for (;;) {
@@ -256,8 +254,8 @@ export async function fetchEcowittDaily(
         'observed_at,temperature_c,humidity_pct,wind_speed_ms,wind_gust_ms,rain_rate_mmh,rain_day_mm,solar_wm2,uv_index',
       )
       .eq('location_id', locationId)
-      .gte('observed_at', range.startUtc.toISOString())
-      .lt('observed_at', range.endUtc.toISOString())
+      .gte('observed_at', startUtc.toISOString())
+      .lt('observed_at', endUtc.toISOString())
       .order('observed_at', { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) return { ok: false, error: error.message };
@@ -267,10 +265,20 @@ export async function fetchEcowittDaily(
     from += PAGE;
     if (from > 20_000) break;
   }
+  return { ok: true, samples };
+}
 
+export async function fetchEcowittDaily(
+  dateYmd: string,
+  locationId = DEFAULT_LOCATION_ID,
+): Promise<FetchEcowittDailyResult> {
+  const range = ictDayUtcRange(dateYmd);
+  if (!range) return { ok: false, error: 'date must be YYYY-MM-DD (ICT)' };
+  const window = await fetchEcowittRange(range.startUtc, range.endUtc, locationId);
+  if (!window.ok) return window;
   return {
     ok: true,
-    summary: summarizeEcowittDay(samples, dateYmd, locationId),
-    samples,
+    summary: summarizeEcowittDay(window.samples, dateYmd, locationId),
+    samples: window.samples,
   };
 }

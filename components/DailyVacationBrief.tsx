@@ -9,6 +9,7 @@ import {
 } from '../lib/daily-vacation-forecast';
 import type { SammiDailyForecastViewRow } from '../lib/sammi-views';
 import type { SamuiWeatherForecastRow } from '../lib/spire';
+import SkyGlyph, { type SkyKind } from './SkyGlyph';
 
 type DailyVacationBriefProps = {
   rows: SamuiWeatherForecastRow[];
@@ -40,12 +41,24 @@ function fmtRate(n: number | null): string {
   return `${n.toFixed(1)} mm/h`;
 }
 
+function periodSkyKind(period: PeriodSnapshot): SkyKind {
+  if ((period.thunderRiskPct ?? 0) >= 20) return 'storm';
+  if ((period.rainRateMmH ?? 0) >= 0.5) return 'rain';
+  if ((period.rainRateMmH ?? 0) >= 0.1 || (period.rainChancePct ?? 0) >= 35) return 'showers';
+  if (period.id === 'evening') return 'moon';
+  return 'sun';
+}
+
 function PeriodCard({ period }: { period: PeriodSnapshot }) {
   const thin = period.hoursAvailable === 0;
+  const kind = periodSkyKind(period);
   return (
     <article className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
       <div className="flex items-baseline justify-between gap-2">
-        <p className="text-[11px] font-extrabold text-white">{period.label}</p>
+        <p className="flex items-center gap-1.5 text-[11px] font-extrabold text-white">
+          {!thin && <SkyGlyph kind={kind} size={16} />}
+          {period.label}
+        </p>
         <p className="text-[9px] text-slate-500">{period.hourRange}</p>
       </div>
       {thin ? (

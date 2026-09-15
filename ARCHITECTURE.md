@@ -1,8 +1,8 @@
 # Sammi AI - Project skills & architecture (V2)
 
 Status: CANONICAL
-Document version: 3.2
-Last updated: 2026-09-13
+Document version: 3.5
+Last updated: 2026-09-15
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -35,7 +35,8 @@ Sammi keeps a clear split between what is happening *now* and what will *happen*
 - **UI:** one toggle, **Weather overlay** on/off. Default off.
 
 ### 4. Ecowitt ground truth (Baan Ton Kluay)
-- Live: `GET /api/ecowitt/latest`. Day archive: `GET /api/ecowitt/daily?date=YYYY-MM-DD` (ICT). Forecast skill vs that day: `GET /api/forecast/accuracy?date=YYYY-MM-DD`.
+- Live: `GET /api/ecowitt/latest`. Day archive: `GET /api/ecowitt/daily?date=YYYY-MM-DD` (ICT). Forecast skill vs that day: `GET /api/forecast/accuracy?date=YYYY-MM-DD`. Trend: `GET /api/forecast/accuracy/trend`.
+- **4× daily OPF overview:** dashboard **Today's 4 checks**, `GET /overview`, `GET|POST /api/forecast/overview`. Table `daily_forecast_slot_lock`. Contract: `docs/forecast-overview.md`.
 - Numbers on the dashboard / Sammi still come from Spire. The station is verification and “now” blend, not a second forecast source.
 
 ## Tech stack
@@ -82,6 +83,9 @@ app/
     ecowitt/latest     ← station now
     ecowitt/daily      ← ICT day archive from ecowitt_observations
     forecast/accuracy  ← Spire vs station for one ICT day
+    forecast/accuracy/trend ← ICT-day skill series
+    forecast/overview      ← 4× ICT slot lock + Ecowitt raw score
+  overview/            ← 4× daily Spire vs station page
     cron/embed/        ← Daily Reddit → Supabase
     broadcast/script/  ← TV rundown JSON
     broadcast/latest/  ← on-air catalog

@@ -5,6 +5,7 @@ import { formatTempC, formatWindMs, type SamuiWeatherForecastRow } from '../lib/
 import { getSunInfo } from '../lib/sun';
 import type { SammiDailyForecastViewRow } from '../lib/sammi-views';
 import { HourlyScrollStrip, HourlyStripForCalendarDay } from './HourlyForecast';
+import SkyGlyph, { skyKindFromConditions, type SkyKind } from './SkyGlyph';
 
 /** Cap daily strip at 15 calendar days (matches ~360h Spire target when available). */
 const MAX_DAILY_OUTLOOK = 15;
@@ -671,14 +672,13 @@ function todayCardMoodClass(m: TodayMood, rel: TodayReliability): {
   }
 }
 
-function getIconLegacy(day: DailyData, forceMoon = false) {
-  const avgCloud = day.avgCloudCover / day.hoursCount;
-  let Icon = forceMoon ? '🌙' : '☀️';
-  if (day.maxPrecipRate > 1.5) Icon = '🌧️';
-  else if (day.maxPrecipRate > 0.1) Icon = '🌦️';
-  else if (avgCloud > 60) Icon = '☁️';
-  else if (avgCloud > 20) Icon = forceMoon ? '☁️' : '⛅';
-  return Icon;
+function skyKindLegacy(day: DailyData, forceMoon = false): SkyKind {
+  const avgCloud = day.hoursCount ? day.avgCloudCover / day.hoursCount : 0;
+  return skyKindFromConditions({
+    isDay: !forceMoon,
+    precipRate: day.maxPrecipRate,
+    cloudCover: avgCloud,
+  });
 }
 
 export default function DailyForecast({
@@ -808,25 +808,19 @@ export default function DailyForecast({
             const useMoon = isHeadCard && isNightCurrently;
             const insight = day.today_insight;
             const isProminentToday = Boolean(insight);
-            const baseIcon = insight ? insight.today_icon : getIconLegacy(day, useMoon);
             const showMoonInsteadOfSun =
               Boolean(useMoon && insight) &&
               (insight?.todayIconKey === 'sun' ||
                 insight?.todayIconKey === 'sun-with-rain' ||
                 (!insight?.todayIconKey && insight?.today_icon === '☀️'));
-            const Icon =
-              insight?.todayIconKey === 'sun-with-rain' ? (
-                <span className="inline-flex items-end justify-center gap-0.5" aria-label="Sunny with possible rain later">
-                  <span className="leading-none">{showMoonInsteadOfSun ? '🌙' : '☀️'}</span>
-                  <span className="text-[0.72em] leading-none opacity-90" aria-hidden>
-                    🌧️
-                  </span>
-                </span>
-              ) : showMoonInsteadOfSun ? (
-                '🌙'
-              ) : (
-                baseIcon
-              );
+            const skyKind: SkyKind =
+              insight?.todayIconKey === 'sun-with-rain'
+                ? 'showers'
+                : showMoonInsteadOfSun
+                  ? 'moon'
+                  : insight?.todayIconKey === 'sun'
+                    ? 'sun'
+                    : skyKindLegacy(day, useMoon);
             const shortDate = (() => {
               const parts = day.dateStr.split('/');
               return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : day.dateStr;
@@ -902,7 +896,11 @@ export default function DailyForecast({
                       : 'h-9 min-h-9 w-9 text-2xl sm:h-10 sm:min-h-10 sm:w-10 sm:text-3xl',
                   ].join(' ')}
                 >
-                  {Icon}
+                  <SkyGlyph
+                    kind={skyKind}
+                    size={isProminentToday ? 32 : 26}
+                    className="drop-shadow-[0_1px_8px_rgba(0,0,0,0.3)]"
+                  />
                   {!isProminentToday && day.maxPop >= 10 && (
                     <span className="absolute -bottom-1 text-[8px] font-black text-cyan-400">
                       {Math.round(day.maxPop)}%

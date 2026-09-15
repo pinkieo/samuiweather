@@ -7,6 +7,7 @@ import { getFeelsLikeHumidityHint } from '../lib/feels-like-heat-index';
 import { rainChancePercentForRow } from '../lib/sammi-views';
 import { getSunInfo } from '../lib/sun';
 import WindCompass from './WindCompass';
+import SkyGlyph, { skyKindFromConditions } from './SkyGlyph';
 
 interface HourlyForecastProps {
   rows: SamuiWeatherForecastRow[];
@@ -235,11 +236,11 @@ export default function HourlyForecast({ rows, selectedIndex, onHourSelect }: Ho
             const sun = getSunInfo(d);
             const isDay = sun.isDay;
 
-            let Icon = isDay ? '☀️' : '🌙';
-            if (row.precipRate > 0.5) Icon = '🌧️';
-            else if (row.precipRate > 0.1) Icon = '🌦️';
-            else if (row.cloudCover > 60) Icon = '☁️';
-            else if (row.cloudCover > 20) Icon = isDay ? '⛅' : '☁️';
+            const skyKind = skyKindFromConditions({
+              isDay,
+              precipRate: row.precipRate,
+              cloudCover: row.cloudCover,
+            });
 
             const showSunsetAfter = i === sunsetInsertAfter;
 
@@ -275,7 +276,7 @@ export default function HourlyForecast({ rows, selectedIndex, onHourSelect }: Ho
                               {Math.round(pop)}%
                             </span>
                           )}
-                          <span className="text-2xl leading-none drop-shadow-md">{Icon}</span>
+                          <SkyGlyph kind={skyKind} size={28} />
                         </div>
                         <div className="flex items-center justify-center">
                           <span className="text-xs font-bold text-white">{formatTempC(row.temp)}°</span>
@@ -318,7 +319,7 @@ export default function HourlyForecast({ rows, selectedIndex, onHourSelect }: Ho
                             {Math.round(pop)}%
                           </span>
                         )}
-                        <span className="text-2xl drop-shadow-md">{Icon}</span>
+                        <SkyGlyph kind={skyKind} size={26} />
                       </div>
 
                       <span className="text-xs font-bold text-white">{formatTempC(row.temp)}°</span>
@@ -388,11 +389,11 @@ export function HourlyStripForCalendarDay({
         const sun = getSunInfo(d);
         const isDay = sun.isDay;
 
-        let Icon = isDay ? '☀️' : '🌙';
-        if (row.precipRate > 0.5) Icon = '🌧️';
-        else if (row.precipRate > 0.1) Icon = '🌦️';
-        else if (row.cloudCover > 60) Icon = '☁️';
-        else if (row.cloudCover > 20) Icon = isDay ? '⛅' : '☁️';
+        const skyKind = skyKindFromConditions({
+          isDay,
+          precipRate: row.precipRate,
+          cloudCover: row.cloudCover,
+        });
 
         return (
           <div
@@ -406,7 +407,7 @@ export function HourlyStripForCalendarDay({
                   {Math.round(pop)}%
                 </span>
               )}
-              <span className="text-xl drop-shadow-md">{Icon}</span>
+              <SkyGlyph kind={skyKind} size={22} />
             </div>
             <span className="text-xs font-bold text-white">{formatTempC(row.temp)}°</span>
           </div>

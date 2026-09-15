@@ -14,3 +14,6 @@ if not exist "%PY%" (
 "%PY%" -m pip install -r requirements-weather-engine.txt
 if errorlevel 1 exit /b 1
 "%PY%" weather_engine_hourly.py
+if errorlevel 1 exit /b 1
+REM Lock 00/06/12/18 ICT overview to the snapshot just written (no Vercel sub-daily cron).
+npx tsx scripts/forecast-overview-lock.ts

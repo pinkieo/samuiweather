@@ -19,6 +19,7 @@ import { applyPreferredPlaceLabels } from '../lib/maplibre-place-labels';
 import { useHudThrottleMove } from '../lib/map-move-hud';
 import RadarOverlay from './RadarOverlay';
 import WindyWindOverlay from './WindyWindOverlay';
+import BroadcastOnAir from './BroadcastOnAir';
 
 /** Streets/POI detail (restaurants, etc.); RainViewer raster stays native z≤7 and overzooms above that. */
 const MAP_MAX_ZOOM = 20;
@@ -98,6 +99,9 @@ export interface SamuiExploreMapProps {
   onMapReady?: () => void;
   /** Windy-look DWD ICON wind colour + particles (picture only). */
   weatherOverlayEnabled?: boolean;
+  onWeatherOverlayToggle?: () => void;
+  /** Left weather drawer open — on small screens Sammi must not cover it. */
+  weatherDrawerOpen?: boolean;
 }
 
 /**
@@ -193,6 +197,8 @@ export default function SamuiExploreMap({
   hideHud = false,
   onMapReady,
   weatherOverlayEnabled = false,
+  onWeatherOverlayToggle,
+  weatherDrawerOpen = false,
 }: SamuiExploreMapProps) {
   const mapRef = useRef<MapRef | null>(null);
   const startLng = initialLongitude ?? INITIAL_LNG;
@@ -251,8 +257,20 @@ export default function SamuiExploreMap({
   const [centerLat, setCenterLat] = useState(startLat);
   /** MapTiler streets (EN) when key set; else muted OSM raster — shared Krabi + Samui dashboard tabs. */
   const [mapStyle, setMapStyle] = useState<StyleSpecification | null>(null);
-  /** Sammi chat panel — toggle keeps same width as Zoom / Scale / Radar (11.5rem). */
-  const [sammiPanelOpen, setSammiPanelOpen] = useState(true);
+  /** Sammi chat panel — open on desktop; closed on phones so it cannot cover the weather drawer. */
+  const [sammiPanelOpen, setSammiPanelOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
+
+  useEffect(() => {
+    const wide = window.matchMedia('(min-width: 640px)');
+    const apply = () => {
+      if (wide.matches) setSammiPanelOpen(true);
+      else if (weatherDrawerOpen) setSammiPanelOpen(false);
+    };
+    apply();
+    wide.addEventListener('change', apply);
+    return () => wide.removeEventListener('change', apply);
+  }, [weatherDrawerOpen]);
 
   useEffect(() => {
     if (baseMapReady) onMapReady?.();
@@ -696,9 +714,9 @@ export default function SamuiExploreMap({
         </div>
       )}
 
-      {/* Right column: HUD 11.5rem; Sammi wider (up to 22rem) — both flush right so edges align */}
-      <div className="pointer-events-none absolute right-3 top-[4.25rem] z-[15] flex w-[min(22rem,calc(100%-1rem))] max-w-[22rem] flex-col items-end gap-1.5 sm:top-[4.5rem]">
-        <div className="flex w-[11.5rem] flex-col gap-2">
+      {/* Right column fills leftover viewport so Sammi cannot open off-screen. */}
+      <div className="pointer-events-none absolute bottom-3 right-3 top-[4.25rem] z-[15] flex w-[min(22rem,calc(100%-1rem))] max-w-[22rem] flex-col items-end gap-1.5 sm:bottom-4 sm:top-[4.5rem]">
+        <div className="flex w-[11.5rem] shrink-0 flex-col gap-2">
         <div className="pointer-events-none rounded-xl border border-white/15 bg-slate-950/90 px-3 py-2.5 shadow-xl backdrop-blur-md">
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Zoom</p>
           <p className="mt-0.5 font-mono text-sm font-bold tabular-nums text-white">
@@ -761,8 +779,36 @@ export default function SamuiExploreMap({
           </div>
         </div>
 
-        <div className="pointer-events-none rounded-xl border border-white/15 bg-slate-950/90 px-3 py-2.5 shadow-xl backdrop-blur-md">
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Legend</p>
+        {onWeatherOverlayToggle && (
+          <button
+            type="button"
+            onClick={() => onWeatherOverlayToggle()}
+            aria-pressed={weatherOverlayEnabled}
+            className={[
+              'pointer-events-auto rounded-xl border px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest shadow-xl backdrop-blur-md',
+              weatherOverlayEnabled
+                ? 'border-cyan-400/50 bg-cyan-950/90 text-cyan-100'
+                : 'border-white/15 bg-slate-950/90 text-slate-200',
+            ].join(' ')}
+          >
+            Weather overlay {weatherOverlayEnabled ? 'on' : 'off'}
+          </button>
+        )}
+        <div className="pointer-events-auto">
+          <BroadcastOnAir variant="chip" />
+        </div>
+
+        <div className="pointer-events-auto rounded-xl border border-white/15 bg-slate-950/90 px-3 py-2.5 shadow-xl backdrop-blur-md">
+          <button
+            type="button"
+            onClick={() => setLegendOpen((o) => !o)}
+            aria-expanded={legendOpen}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Legend</p>
+            <span className="text-[10px] text-slate-500">{legendOpen ? '▲' : '▼'}</span>
+          </button>
+          {legendOpen && (
           <ul className="mt-1.5 space-y-1.5 text-[8px] leading-snug text-slate-400">
             <li>
               <span className="font-semibold text-slate-300">Basemap</span>
@@ -817,10 +863,17 @@ export default function SamuiExploreMap({
               </li>
             ))}
           </ul>
+          )}
         </div>
         </div>
 
-        <div className="pointer-events-auto relative z-20 w-full min-w-0 max-w-[22rem] flex flex-col gap-0">
+        <div
+          className={[
+            'pointer-events-auto relative z-20 flex w-full min-w-0 max-w-[22rem] flex-col',
+            sammiPanelOpen ? 'mt-auto min-h-0 flex-1' : 'mt-auto shrink-0',
+            weatherDrawerOpen ? 'max-sm:hidden' : '',
+          ].join(' ')}
+        >
           <button
             type="button"
             onClick={e => {
@@ -871,7 +924,7 @@ export default function SamuiExploreMap({
             id="sammi-chat-anchor"
             className={
               sammiPanelOpen
-                ? 'pointer-events-auto relative z-20 flex h-[min(58vh,32rem)] min-h-[16rem] w-full max-h-[calc(100dvh-7rem)] flex-col overflow-hidden overscroll-contain rounded-b-xl border border-t-0 border-white/15 bg-slate-950 shadow-xl [scrollbar-gutter:stable]'
+                ? 'pointer-events-auto relative z-20 flex min-h-0 w-full flex-1 flex-col overflow-hidden overscroll-contain rounded-b-xl border border-t-0 border-white/15 bg-slate-950 shadow-xl [scrollbar-gutter:stable]'
                 : 'pointer-events-none max-h-0 min-h-0 w-full overflow-hidden border-0 p-0 opacity-0 shadow-none'
             }
             aria-hidden={!sammiPanelOpen}

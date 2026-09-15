@@ -22,6 +22,7 @@ import MetarCard from './MetarCard';
 import EcowittPlaceholder from './EcowittPlaceholder';
 import StormAlertBanner from './StormAlertBanner';
 import BroadcastOnAir from './BroadcastOnAir';
+import DailyForecastChecks from './DailyForecastChecks';
 import { getPoiById, type IslandPoi } from '../lib/island-pois';
 import PoiIntelligenceCard from './PoiIntelligenceCard';
 import {
@@ -99,7 +100,7 @@ function SammiChatPortal({
 
   if (!host) return null;
   return createPortal(
-    <div className="pointer-events-auto flex h-full min-h-[18rem] flex-col">
+    <div className="pointer-events-auto flex h-full min-h-0 flex-col">
       <SammiConcierge
         className="!mb-0 h-full min-h-0"
         forecastRows={forecastRows}
@@ -746,6 +747,8 @@ export default function MapViewer() {
           onRadarOverlayClear={handleRadarOverlayClear}
           onRefreshLive={radarFeed.refresh}
           weatherOverlayEnabled={weatherOverlayEnabled}
+          onWeatherOverlayToggle={() => setWeatherOverlayEnabled((on) => !on)}
+          weatherDrawerOpen={isDashboardOpen}
         />
 
       </div>
@@ -985,6 +988,7 @@ export default function MapViewer() {
                 </div>
 
                 <BroadcastOnAir variant="drawer" />
+                <DailyForecastChecks />
 
                 {/* Live webcams */}
                 <div className="mb-3">
@@ -1003,22 +1007,7 @@ export default function MapViewer() {
         </div>
       </div>
 
-      <div className="pointer-events-none absolute bottom-6 right-3 z-40 flex flex-col items-end gap-2 sm:bottom-8 sm:right-4">
-        <button
-          type="button"
-          onClick={() => setWeatherOverlayEnabled((on) => !on)}
-          aria-pressed={weatherOverlayEnabled}
-          className={[
-            'pointer-events-auto rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest shadow-xl backdrop-blur-md',
-            weatherOverlayEnabled
-              ? 'border-cyan-400/50 bg-cyan-950/90 text-cyan-100'
-              : 'border-white/20 bg-slate-950/90 text-slate-200',
-          ].join(' ')}
-        >
-          Weather overlay {weatherOverlayEnabled ? 'on' : 'off'}
-        </button>
-        <BroadcastOnAir variant="chip" />
-      </div>
+
 
       {/* Sammi — portaled into map under Zoom / Scale / Radar (see #sammi-chat-anchor) */}
       {forecastStatus === 'ok' && forecastRows.length > 0 && (

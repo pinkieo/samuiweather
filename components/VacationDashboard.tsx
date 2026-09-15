@@ -529,8 +529,8 @@ export default function VacationDashboard({
             ].join(' ')}
           >
             <Sun
-              className="absolute h-14 w-14 text-amber-300/50"
-              strokeWidth={1.25}
+              className="absolute h-16 w-16 text-amber-300/85"
+              strokeWidth={1.5}
               aria-hidden
             />
             <span className="relative z-[1] text-3xl font-black tabular-nums text-white">

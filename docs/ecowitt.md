@@ -1,8 +1,8 @@
 # Ecowitt station — Baan Ton Kluay
 
 Status: CANONICAL
-Document version: 2.0
-Last updated: 2026-09-13
+Document version: 2.2
+Last updated: 2026-09-15
 Last verified: 2026-09-13
 Owner: ProSeadure
 
@@ -148,6 +148,8 @@ Code: `app/api/ecowitt/ingest/route.ts`
 - `GET /api/ecowitt/latest` — latest row for `baan_ton_kluay` (now). `rainDayMm` is **today’s** station counter and resets at midnight ICT. It cannot score yesterday.
 - `GET /api/ecowitt/daily?date=YYYY-MM-DD` — one **ICT** calendar day from `ecowitt_observations`: sample count, high/low temperature, peak `rain_day_mm`, max wind/gust. Omit `date` for **yesterday ICT**. Empty day returns `available: false` (200), not 404.
 - `GET /api/forecast/accuracy?date=YYYY-MM-DD` — Spire (`weather_history` ∪ `weather_forecast`, latest issuance per hour) vs that station day. Hourly MAE plus day min/max/rain. Same default date.
+- `GET /api/forecast/accuracy/trend?from=&to=` — one row per ICT day in the range (default last 60 days through yesterday). Same pairing rules. `npm run forecast:score-trend`.
+- `GET /api/forecast/overview` — 4× daily locked issuance vs station (raw mm and chance of rain; no wet/dry cutoff). Page: `/overview`. See `docs/forecast-overview.md`.
 - There is no `/api/ecowitt/history` or `/observations` list. Minute rows stay in Supabase.
 - UI: `components/EcowittPlaceholder.tsx`, blended into row 0 in `components/MapViewer.tsx`
 

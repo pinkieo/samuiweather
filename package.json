@@ -26,12 +26,14 @@
     "ecowitt:import-xlsx": "python scripts/import-ecowitt-xlsx.py",
     "forecast:verify-backfill": "python scripts/backfill-forecast-verification.py",
     "forecast:score-day": "npx tsx scripts/forecast-score-day.ts",
+    "forecast:score-trend": "npx tsx scripts/forecast-score-trend.ts",
+    "forecast:overview-lock": "npx tsx scripts/forecast-overview-lock.ts",
     "test": "python -m unittest discover -s tests -p \"test_*.py\"",
     "broadcast:script": "npx tsx scripts/broadcast-script.ts",
     "broadcast:render": "npx tsx scripts/broadcast-render.ts",
     "broadcast:schedule": "npx tsx scripts/broadcast-schedule.ts",
     "broadcast:schedule:dry": "npx tsx scripts/broadcast-schedule.ts --dry-run",
-    "test:unit": "npx tsx --test tests/daily-vacation-brief.test.ts tests/dashboard-region.test.ts tests/broadcast-script.test.ts tests/broadcast-catalog.test.ts tests/wind-overlay.test.ts tests/ecowitt-daily.test.ts"
+    "test:unit": "npx tsx --test tests/daily-vacation-brief.test.ts tests/dashboard-region.test.ts tests/broadcast-script.test.ts tests/broadcast-catalog.test.ts tests/wind-overlay.test.ts tests/ecowitt-daily.test.ts tests/forecast-overview.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
