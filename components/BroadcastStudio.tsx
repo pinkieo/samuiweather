@@ -12,10 +12,17 @@ const SamuiExploreMap = dynamic(() => import('./SamuiExploreMap'), {
 });
 
 function poseClass(pose: PresenterPose): string {
-  if (pose === 'stand-right') return '-scale-x-100';
-  if (pose === 'hands-folded') return 'origin-bottom scale-110';
-  if (pose === 'point-south') return 'translate-y-3';
+  if (pose === 'hands-folded') return 'origin-bottom scale-105';
+  if (pose === 'point-south') return 'translate-x-4 translate-y-2';
+  if (pose === 'point-chaweng') return 'translate-x-2';
   return '';
+}
+
+function flyZoom(actId: string): number {
+  if (actId === 'open' || actId === 'now') return 10.4;
+  if (actId === 'rain') return 12.4;
+  if (actId === 'evening' || actId === 'close') return 13.4;
+  return 13.2;
 }
 
 export default function BroadcastStudio({
@@ -29,6 +36,7 @@ export default function BroadcastStudio({
   const [script, setScript] = useState<BroadcastScript | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [overlayReady, setOverlayReady] = useState(false);
   const [actIndex, setActIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState(false);
@@ -40,6 +48,13 @@ export default function BroadcastStudio({
   } | null>(null);
 
   const onMapReady = useCallback(() => setMapReady(true), []);
+  const onWeatherOverlayReady = useCallback(() => setOverlayReady(true), []);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const t = window.setTimeout(() => setOverlayReady(true), 8000);
+    return () => window.clearTimeout(t);
+  }, [mapReady]);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +72,7 @@ export default function BroadcastStudio({
     };
   }, [slot]);
 
-  const ready = Boolean(script) && mapReady;
+  const ready = Boolean(script) && mapReady && overlayReady;
   const act = script?.acts[actIndex] ?? null;
 
   useEffect(() => {
@@ -66,7 +81,7 @@ export default function BroadcastStudio({
       key: Date.now(),
       lng: act.flyTo.lon,
       lat: act.flyTo.lat,
-      zoom: act.id === 'open' || act.id === 'now' ? 11 : 13.2,
+      zoom: flyZoom(act.id),
     });
   }, [mapReady, act?.id, act?.flyTo]);
 
@@ -121,19 +136,50 @@ export default function BroadcastStudio({
           mapScaleContextLabel="island"
           mapFooterHolidayLine={HOLIDAY_MAP_FOOTER_LINE}
           hideHud
+          weatherOverlayEnabled
+          onWeatherOverlayReady={onWeatherOverlayReady}
           onMapReady={onMapReady}
         />
       </div>
 
       {act && (
-        <img
-          src="/broadcast/sammi/cutout.png"
-          alt=""
+        <video
+          key={act.pose}
+          src="/broadcast/sammi/loops/present.mp4"
+          poster="/broadcast/sammi/cutout.png"
+          autoPlay
+          muted
+          loop
+          playsInline
+          aria-hidden
           className={[
-            'pointer-events-none absolute bottom-0 left-[8%] z-20 h-[88%] w-auto max-w-[42%] object-contain object-bottom drop-shadow-[0_12px_24px_rgba(0,0,0,0.45)] transition-transform duration-700',
+            'pointer-events-none absolute bottom-0 left-[4%] z-20 h-[90%] w-auto max-w-[46%] object-contain object-bottom mix-blend-screen drop-shadow-[0_12px_24px_rgba(0,0,0,0.45)] transition-transform duration-700',
             poseClass(act.pose),
           ].join(' ')}
         />
+      )}
+
+      {act && script && (
+        <div className="pointer-events-none absolute right-6 top-8 z-30 flex w-[min(16rem,38%)] flex-col gap-2">
+          {script.lowerThird.subtitle.split(' · ').slice(0, 2).map((chip) => (
+            <div
+              key={chip}
+              className="rounded-lg border border-cyan-300/40 bg-slate-950/80 px-3 py-2 text-[15px] font-bold text-cyan-50 shadow-lg backdrop-blur-sm"
+            >
+              {chip}
+            </div>
+          ))}
+          {act.id === 'rain' && (
+            <div className="rounded-lg border border-amber-300/50 bg-amber-950/80 px-3 py-2 text-[14px] font-semibold text-amber-50 shadow-lg">
+              Radar showers · thunder clock
+            </div>
+          )}
+          {(act.id === 'open' || act.id === 'evening' || act.id === 'close') && (
+            <div className="rounded-lg border border-emerald-300/40 bg-emerald-950/80 px-3 py-2 text-[14px] font-semibold text-emerald-50 shadow-lg">
+              Wind · isobars · sun
+            </div>
+          )}
+        </div>
       )}
 
       <div className="pointer-events-none absolute bottom-24 left-6 z-30">

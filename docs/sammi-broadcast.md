@@ -1,7 +1,7 @@
 # Sammi Broadcast
 
 Status: CANONICAL
-Document version: 5.0
+Document version: 7.1
 Last updated: 2026-09-17
 Last verified: NOT VERIFIED
 Owner: ProSeadure
@@ -19,6 +19,11 @@ Canonical still: `public/broadcast/sammi/presenter.png`
 
 Not the chat avatar in `public/assets/sammi-avatar.png`. Wardrobe stays the
 teal dress. Every later pose or 6s loop must be derived from this still.
+Studio overlays `public/broadcast/sammi/loops/present.mp4` (6s idle from the
+cutout). Do not mirror her into a new person.
+
+Voice is a **woman**: OpenAI TTS `nova` when the key works; Windows fallback
+must be a **female** English voice (Zira on LENOVOX13). Never David.
 
 Lower-thirds, dates, temperatures, and place names are **code overlays**.
 Do not bake numbers into generated pixels.
@@ -52,7 +57,8 @@ See `docs/weather-ingest.md` for the four ingest slots.
 ## Data and honesty
 
 - Forecasts: Spire only (same merge as the dashboard).
-- Live rain: RainViewer / TMD via the existing proxy.
+- Live rain / showers: RainViewer / TMD via the existing proxy — **on in the studio picture**.
+- Wind particles + colour: Spire via Theyr RouteData, same overlay as the dashboard (`GET /api/weather/wind-overlay`). MSLP isobars / sunshine wash still ICON when that fetch works. **On for the whole feature**, not one act. Picture only — not a second number source.
 - Windows: `buildDailyVacationBrief` — never interpolate missing hours.
 - Stale or thin hourly coverage: `delayed: true`, **do not** name a beach or dinner window, lower-third says the show is delayed.
 - High reliability ≤48h: exact % when the brief has it. Low: no hard %.
@@ -75,7 +81,9 @@ Studio (internal, `noindex`, robots disallow):
 - Presenter overlay: `public/broadcast/sammi/cutout.png` (chroma from the locked still)
 - Capture: `npm run broadcast:render -- --slot 7` and `--hourly`
 
-Needs Chrome, ffmpeg, `OPENAI_API_KEY` (TTS, English, voice nova; Windows SAPI fallback), and Next on :3000 (`next dev` is started if it is down).
+Needs Chrome, ffmpeg, `OPENAI_API_KEY` (TTS, English, voice **nova**; Windows
+**Zira** / female SAPI fallback), and Next on :3000 (`next dev` is started if
+it is down).
 
 ## LENOVOX13 schedule
 

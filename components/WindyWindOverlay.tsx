@@ -3,16 +3,23 @@
 import { useEffect, type RefObject } from 'react';
 import type { MapRef } from 'react-map-gl/maplibre';
 import type { Map as MapLibreMap } from 'maplibre-gl';
+import SunCalc from 'suncalc';
+import { SAMUI_CENTER } from '@/lib/spire';
 import {
   KN_PER_MS,
   WIND_RASTER_OPACITY,
+  contourIsobars,
+  rasterizeSunshine,
   rasterizeWindField,
   sampleUv,
+  type IsobarLine,
   type WindOverlayField,
 } from '@/lib/wind-overlay';
 
 const SOURCE_ID = 'samui-wind-overlay';
 const LAYER_ID = 'samui-wind-overlay-layer';
+const SUN_SOURCE_ID = 'samui-sun-overlay';
+const SUN_LAYER_ID = 'samui-sun-overlay-layer';
 const RADAR_LAYER_ID = 'rainviewer-radar-layer';
 const PARTICLE_COUNT = 2200;
 const MAX_AGE = 140;
@@ -38,8 +45,9 @@ function seed(field: WindOverlayField): Particle {
   };
 }
 
-function fieldToImage(field: WindOverlayField): RasterUrl | null {
-  const rast = rasterizeWindField(field);
+function fieldToImageFromRaster(
+  rast: ReturnType<typeof rasterizeWindField>,
+): RasterUrl | null {
   if (!rast) return null;
   const canvas = document.createElement('canvas');
   canvas.width = rast.width;
@@ -50,6 +58,10 @@ function fieldToImage(field: WindOverlayField): RasterUrl | null {
   img.data.set(rast.data);
   ctx.putImageData(img, 0, 0);
   return { url: canvas.toDataURL('image/png'), coordinates: rast.coordinates };
+}
+
+function fieldToImage(field: WindOverlayField): RasterUrl | null {
+  return fieldToImageFromRaster(rasterizeWindField(field));
 }
 
 function waitForMap(mapRef: RefObject<MapRef | null>, signal: { cancelled: boolean }): Promise<MapLibreMap | null> {
@@ -120,12 +132,102 @@ function removeRaster(map: MapLibreMap) {
   }
 }
 
+function applySunshine(map: MapLibreMap, image: RasterUrl) {
+  const existing = map.getSource(SUN_SOURCE_ID) as { updateImage?: (opts: RasterUrl) => void } | undefined;
+  if (existing?.updateImage) {
+    existing.updateImage({ url: image.url, coordinates: image.coordinates });
+  } else if (!map.getSource(SUN_SOURCE_ID)) {
+    map.addSource(SUN_SOURCE_ID, {
+      type: 'image',
+      url: image.url,
+      coordinates: image.coordinates,
+    });
+  }
+  if (!map.getLayer(SUN_LAYER_ID)) {
+    const spec = {
+      id: SUN_LAYER_ID,
+      type: 'raster' as const,
+      source: SUN_SOURCE_ID,
+      paint: {
+        'raster-opacity': 0.55,
+        'raster-fade-duration': 0,
+        'raster-resampling': 'linear' as const,
+      },
+    };
+    if (map.getLayer(LAYER_ID)) map.addLayer(spec, LAYER_ID);
+    else if (map.getLayer(RADAR_LAYER_ID)) map.addLayer(spec, RADAR_LAYER_ID);
+    else map.addLayer(spec);
+  }
+}
+
+function removeSunshine(map: MapLibreMap) {
+  try {
+    if (map.getLayer(SUN_LAYER_ID)) map.removeLayer(SUN_LAYER_ID);
+  } catch {
+    /* already gone */
+  }
+  try {
+    if (map.getSource(SUN_SOURCE_ID)) map.removeSource(SUN_SOURCE_ID);
+  } catch {
+    /* already gone */
+  }
+}
+
+function drawIsobars(
+  ctx: CanvasRenderingContext2D,
+  map: MapLibreMap,
+  lines: IsobarLine[],
+) {
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(255,255,255,0.78)';
+  ctx.lineWidth = 1.4;
+  ctx.shadowColor = 'rgba(8,20,40,0.55)';
+  ctx.shadowBlur = 2;
+  for (const line of lines) {
+    const pts = line.points;
+    for (let i = 0; i + 1 < pts.length; i += 2) {
+      const a = map.project(pts[i]!);
+      const b = map.project(pts[i + 1]!);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawSunDisc(ctx: CanvasRenderingContext2D, map: MapLibreMap) {
+  const pos = SunCalc.getPosition(new Date(), SAMUI_CENTER.lat, SAMUI_CENTER.lon);
+  if (pos.altitude <= 0.04) return;
+  const azFromNorth = pos.azimuth + Math.PI;
+  const dist = 0.48;
+  const lat = SAMUI_CENTER.lat + dist * Math.cos(azFromNorth);
+  const lon =
+    SAMUI_CENTER.lon +
+    (dist * Math.sin(azFromNorth)) / Math.max(0.2, Math.cos((SAMUI_CENTER.lat * Math.PI) / 180));
+  const p = map.project([lon, lat]);
+  const r = 18 + Math.max(0, pos.altitude) * 22;
+  const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, r * 3.2);
+  g.addColorStop(0, 'rgba(255,236,140,0.95)');
+  g.addColorStop(0.35, 'rgba(255,196,64,0.55)');
+  g.addColorStop(1, 'rgba(255,160,40,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r * 3.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 export default function WindyWindOverlay({
   mapRef,
   enabled,
+  onReady,
 }: {
   mapRef: RefObject<MapRef | null>;
   enabled: boolean;
+  onReady?: () => void;
 }) {
   useEffect(() => {
     if (!enabled) return;
@@ -145,8 +247,15 @@ export default function WindyWindOverlay({
       const field = (await res.json()) as WindOverlayField;
       if (signal.cancelled) return;
       const image = fieldToImage(field);
-      if (!image) return;
+      if (!image) {
+        onReady?.();
+        return;
+      }
       applyRaster(map, image);
+      const sunImage = fieldToImageFromRaster(rasterizeSunshine(field));
+      if (sunImage) applySunshine(map, sunImage);
+      const isobars = contourIsobars(field);
+      onReady?.();
 
       const host = map.getCanvasContainer();
       const gl = map.getCanvas();
@@ -248,11 +357,13 @@ export default function WindyWindOverlay({
           }
           ctx.stroke();
         }
+        drawIsobars(ctx, map!, isobars);
+        drawSunDisc(ctx, map!);
         frame = requestAnimationFrame(tick);
       };
       frame = requestAnimationFrame(tick);
     })().catch(() => {
-      /* overlay stays off if ICON picture fails */
+      onReady?.();
     });
 
     return () => {
@@ -260,9 +371,12 @@ export default function WindyWindOverlay({
       cancelAnimationFrame(frame);
       if (map && onResize) map.off('resize', onResize);
       canvas?.remove();
-      if (map) removeRaster(map);
+      if (map) {
+        removeRaster(map);
+        removeSunshine(map);
+      }
     };
-  }, [enabled, mapRef]);
+  }, [enabled, mapRef, onReady]);
 
   return null;
 }

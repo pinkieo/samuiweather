@@ -94,9 +94,13 @@ describe('feature on a dry sunny day', () => {
     assert.match(script.lowerThird.kicker, /Sammi/);
     assert.match(script.lowerThird.subtitle, /High 32°C/);
     assert.match(script.lowerThird.subtitle, /Low 30°C/);
+    const open = script.acts.find((a) => a.id === 'open')!;
+    assert.equal(open.flyTo?.id, 'koh_samui');
     const beach = script.acts.find((a) => a.id === 'beach')!;
     assert.match(beach.caption, /Best beach window:/);
     assert.equal(beach.flyTo?.id, 'carnival_beach_club');
+    assert.equal(script.acts.find((a) => a.id === 'rain')!.flyTo?.id, 'dining_on_the_rocks');
+    assert.equal(script.acts.find((a) => a.id === 'evening')!.flyTo?.id, 'fishermans_village');
     const rain = script.acts.find((a) => a.id === 'rain')!;
     assert.match(rain.caption, /quiet|No named rain/i);
     const evening = script.acts.find((a) => a.id === 'evening')!;

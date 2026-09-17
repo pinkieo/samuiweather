@@ -102,8 +102,14 @@ function speakWindows(text: string, wavPath: string) {
 Add-Type -AssemblyName System.Speech
 $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer
 $speak.Rate = -1
-$en = $speak.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -like 'en*' } | Select-Object -First 1
+$en = $speak.GetInstalledVoices() | Where-Object {
+  $_.VoiceInfo.Culture.Name -like 'en*' -and $_.VoiceInfo.Gender -eq 'Female'
+} | Select-Object -First 1
+if (-not $en) {
+  $en = $speak.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Name -like '*Zira*' } | Select-Object -First 1
+}
 if ($en) { $speak.SelectVoice($en.VoiceInfo.Name) }
+Write-Host ("Windows TTS voice: " + $speak.Voice.Name + " " + $speak.Voice.Gender)
 $text = Get-Content -Raw -Encoding UTF8 ${JSON.stringify(txt)}
 $speak.SetOutputToWaveFile(${JSON.stringify(wavPath)})
 $speak.Speak($text)

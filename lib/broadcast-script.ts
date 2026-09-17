@@ -390,13 +390,24 @@ function buildFeature(
   tomorrow: DailyVacationBrief | null,
 ): BroadcastScript {
   const delayed = brief.confidence !== 'ok';
+  const islandFly: BroadcastFlyTo = {
+    id: 'koh_samui',
+    name: 'Koh Samui',
+    lat: 9.5127,
+    lon: 100.0137,
+  };
   const beachFly = poiFly('carnival_beach_club');
-  const rainFly = poiFly('ark_bar');
+  const rainFly = poiFly('dining_on_the_rocks');
   const eveningFly = poiFly('fishermans_village');
   const acts: BroadcastAct[] = [
-    act('open', 'stand-left', openLines(brief, slot), beachFly),
+    act('open', 'stand-left', openLines(brief, slot), islandFly),
     act('beach', 'point-chaweng', beachLines(brief, slot), beachFly),
-    act('rain', delayed || brief.windows.rain || brief.windows.thunder ? 'point-south' : 'hands-folded', rainLines(brief, radarEcho, slot), rainFly),
+    act(
+      'rain',
+      delayed || brief.windows.rain || brief.windows.thunder ? 'point-south' : 'hands-folded',
+      rainLines(brief, radarEcho, slot),
+      rainFly,
+    ),
     act('evening', 'stand-right', eveningLines(brief, slot), eveningFly),
     act('close', 'hands-folded', closeLines(brief, slot, tomorrow), eveningFly),
   ];

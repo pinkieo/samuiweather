@@ -35,7 +35,7 @@
     "broadcast:render": "npx tsx scripts/broadcast-render.ts",
     "broadcast:schedule": "npx tsx scripts/broadcast-schedule.ts",
     "broadcast:schedule:dry": "npx tsx scripts/broadcast-schedule.ts --dry-run",
-    "test:unit": "npx tsx --test tests/daily-vacation-brief.test.ts tests/dashboard-region.test.ts tests/broadcast-script.test.ts tests/broadcast-catalog.test.ts tests/wind-overlay.test.ts tests/ecowitt-daily.test.ts tests/forecast-overview.test.ts tests/weather-ingest.test.ts"
+    "test:unit": "npx tsx --test tests/daily-vacation-brief.test.ts tests/dashboard-region.test.ts tests/broadcast-script.test.ts tests/broadcast-catalog.test.ts tests/wind-overlay.test.ts tests/theyr-rdas-wind.test.ts tests/ecowitt-daily.test.ts tests/forecast-overview.test.ts tests/weather-ingest.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

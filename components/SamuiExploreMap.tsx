@@ -97,8 +97,9 @@ export interface SamuiExploreMapProps {
   /** Hide zoom/legend/Sammi HUD — used by the broadcast studio. */
   hideHud?: boolean;
   onMapReady?: () => void;
-  /** Windy-look DWD ICON wind colour + particles (picture only). */
+  /** Windy-look Spire (Theyr RDAS) wind colour + particles (picture only). */
   weatherOverlayEnabled?: boolean;
+  onWeatherOverlayReady?: () => void;
   onWeatherOverlayToggle?: () => void;
   /** Left weather drawer open — on small screens Sammi must not cover it. */
   weatherDrawerOpen?: boolean;
@@ -197,6 +198,7 @@ export default function SamuiExploreMap({
   hideHud = false,
   onMapReady,
   weatherOverlayEnabled = false,
+  onWeatherOverlayReady,
   onWeatherOverlayToggle,
   weatherDrawerOpen = false,
 }: SamuiExploreMapProps) {
@@ -680,7 +682,9 @@ export default function SamuiExploreMap({
 
         {!hideHud && <NavigationControl position="top-right" />}
       </Map>
-      {weatherOverlayEnabled && <WindyWindOverlay mapRef={mapRef} enabled />}
+      {weatherOverlayEnabled && (
+        <WindyWindOverlay mapRef={mapRef} enabled onReady={onWeatherOverlayReady} />
+      )}
       </div>
 
       <div className="pointer-events-none absolute inset-0 z-20 isolate">

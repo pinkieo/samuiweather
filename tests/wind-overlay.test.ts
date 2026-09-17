@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  contourIsobars,
+  rasterizeSunshine,
   rasterizeWindField,
   sampleUv,
   windColorForKn,
@@ -52,6 +54,51 @@ describe('wind overlay sample', () => {
     const nw = sampleUv(field, 100.01, 9.99);
     assert.ok(nw);
     assert.ok(Math.abs(nw!.u - 1) < 0.15);
+  });
+});
+
+describe('isobars and sunshine', () => {
+  it('draws north-south isobars on a west-east pressure slope', () => {
+    const p = [1004, 1012, 1004, 1012];
+    const field: WindOverlayField = {
+      source_label: 'test',
+      units: 'm s**-1',
+      width: 2,
+      height: 2,
+      west: 100,
+      south: 9,
+      east: 101,
+      north: 10,
+      u: [1, 1, 1, 1],
+      v: [0, 0, 0, 0],
+      p,
+      validTime: null,
+    };
+    const lines = contourIsobars(field, 2);
+    assert.ok(lines.length >= 1);
+    assert.ok(lines.some((l) => l.points.length >= 2));
+  });
+
+  it('paints a sunshine wash when shortwave is high', () => {
+    const field: WindOverlayField = {
+      source_label: 'test',
+      units: 'm s**-1',
+      width: 2,
+      height: 2,
+      west: 100,
+      south: 9,
+      east: 101,
+      north: 10,
+      u: [1, 1, 1, 1],
+      v: [0, 0, 0, 0],
+      sw: [700, 700, 700, 700],
+      validTime: null,
+    };
+    const rast = rasterizeSunshine(field, 4);
+    assert.ok(rast);
+    const mid = (Math.floor(rast!.height / 2) * rast!.width + Math.floor(rast!.width / 2)) * 4;
+    assert.ok(rast!.data[mid] > 200);
+    assert.ok(rast!.data[mid + 3] > 20);
   });
 });
 
