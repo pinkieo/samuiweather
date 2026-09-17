@@ -4,6 +4,10 @@
  */
 
 import { ageLabel, ageMinutes } from './data-freshness';
+import {
+  SPIRE_HOUR_STALE_AFTER_MINUTES,
+  SPIRE_INGEST_STALE_AFTER_MINUTES,
+} from './weather-provenance';
 import { rainChancePercentForRow } from './sammi-views';
 import type { SammiDailyForecastViewRow } from './sammi-views';
 import type { SamuiWeatherForecastRow } from './spire';
@@ -76,7 +80,7 @@ export interface DailyVacationBrief {
 }
 
 const TIME_ZONE = 'Asia/Bangkok';
-const STALE_AFTER_MINUTES = 90;
+const STALE_AFTER_MINUTES = SPIRE_HOUR_STALE_AFTER_MINUTES;
 const BEACH_START = 7;
 const BEACH_END = 18;
 const EVENING_START = 18;
@@ -493,7 +497,7 @@ function assessCoverage(
       : null;
   const staleFromInput = freshness?.stale === true;
   const staleFromAge =
-    (freshness?.ageMinutes != null && freshness.ageMinutes > STALE_AFTER_MINUTES) ||
+    (freshness?.ageMinutes != null && freshness.ageMinutes > SPIRE_INGEST_STALE_AFTER_MINUTES) ||
     (leadAge != null && leadAge > STALE_AFTER_MINUTES);
   const stale = staleFromInput || staleFromAge;
   const insufficient =

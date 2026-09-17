@@ -56,15 +56,18 @@ function dayHours(
 }
 
 describe('broadcast slots', () => {
-  it('treats 07/11/15/19 ICT as features and other 06–22 hours as bumpers', () => {
+  it('treats 07/13/19 ICT as the only scheduled shows', () => {
     assert.equal(isFeatureIctHour(7), true);
+    assert.equal(isFeatureIctHour(11), false);
+    assert.equal(isFeatureIctHour(13), true);
     assert.equal(featureSlotForHour(7), 'feature_0700');
+    assert.equal(featureSlotForHour(13), 'feature_1300');
     assert.equal(featureSlotForHour(19), 'feature_1900');
     assert.equal(shouldRenderHourlyBumper(7), false);
-    assert.equal(shouldRenderHourlyBumper(8), true);
-    assert.equal(shouldRenderHourlyBumper(5), false);
-    assert.equal(parseBroadcastSlot('7'), 'feature_0700');
+    assert.equal(shouldRenderHourlyBumper(8), false);
+    assert.equal(parseBroadcastSlot('13'), 'feature_1300');
     assert.equal(parseBroadcastSlot('hourly'), 'hourly');
+    assert.equal(parseBroadcastSlot('11'), null);
     assert.equal(parseBroadcastSlot('nope'), null);
   });
 });
@@ -112,7 +115,7 @@ describe('afternoon rain day', () => {
 
   it('keeps the morning beach clock and tells tourists to pack up before 15:00', () => {
     const script = buildBroadcastScriptFromRows(rows, {
-      slot: 'feature_1500',
+      slot: 'feature_1300',
       now: NOW,
       radarEcho: 'precip',
     });

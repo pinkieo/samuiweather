@@ -12,13 +12,12 @@ import type { SammiDailyForecastViewRow } from './sammi-views';
 import type { SamuiWeatherForecastRow } from './spire';
 
 export const BROADCAST_TIME_ZONE = 'Asia/Bangkok';
-export const FEATURE_ICT_HOURS = [7, 11, 15, 19] as const;
+export const FEATURE_ICT_HOURS = [7, 13, 19] as const;
 export type FeatureIctHour = (typeof FEATURE_ICT_HOURS)[number];
 
 export type BroadcastSlot =
   | 'feature_0700'
-  | 'feature_1100'
-  | 'feature_1500'
+  | 'feature_1300'
   | 'feature_1900'
   | 'hourly';
 
@@ -89,22 +88,21 @@ export function isFeatureIctHour(hour: number): hour is FeatureIctHour {
   return (FEATURE_ICT_HOURS as readonly number[]).includes(hour);
 }
 
-export function shouldRenderHourlyBumper(hour: number): boolean {
-  return hour >= 6 && hour <= 22 && !isFeatureIctHour(hour);
+/** Hourly bumpers are not scheduled. Studio `--hourly` still builds a bumper. */
+export function shouldRenderHourlyBumper(_hour: number): boolean {
+  return false;
 }
 
-/** Which episode the LENOVOX13 hourly task should cut, or skip overnight. */
+/** LENOVOX13 task: 07 / 13 / 19 ICT only (one hour after 06 / 12 / 18 ingest). */
 export function slotForSchedule(now: number = Date.now()): BroadcastSlot | 'skip' {
   const hour = localIctHour(now);
-  if (hour < 6 || hour > 22) return 'skip';
   if (isFeatureIctHour(hour)) return featureSlotForHour(hour);
-  return 'hourly';
+  return 'skip';
 }
 
 export function featureSlotForHour(hour: FeatureIctHour): Exclude<BroadcastSlot, 'hourly'> {
   if (hour === 7) return 'feature_0700';
-  if (hour === 11) return 'feature_1100';
-  if (hour === 15) return 'feature_1500';
+  if (hour === 13) return 'feature_1300';
   return 'feature_1900';
 }
 
@@ -113,8 +111,7 @@ export function parseBroadcastSlot(raw: string | null | undefined): BroadcastSlo
   if (!s) return null;
   if (s === 'hourly' || s === 'hour') return 'hourly';
   if (s === '7' || s === '07' || s === '0700' || s === 'feature_0700') return 'feature_0700';
-  if (s === '11' || s === '1100' || s === 'feature_1100') return 'feature_1100';
-  if (s === '15' || s === '1500' || s === 'feature_1500') return 'feature_1500';
+  if (s === '13' || s === '1300' || s === 'feature_1300') return 'feature_1300';
   if (s === '19' || s === '1900' || s === 'feature_1900') return 'feature_1900';
   return null;
 }
@@ -195,13 +192,7 @@ function beachLines(brief: DailyVacationBrief, slot: BroadcastSlot): string[] {
   }
   if (brief.windows.beach) {
     const windowText = brief.windows.beach.text.replace(/^Best beach window:\s*/i, '');
-    if (slot === 'feature_1100') {
-      return [
-        `The morning plan still holds: beach ${windowText}.`,
-        'Choeng Mon and Chaweng first — that is the easy water.',
-      ];
-    }
-    if (slot === 'feature_1500') {
+    if (slot === 'feature_1300') {
       return [
         `If you have not had a swim yet, the remaining beach window is ${windowText}.`,
         'Do not push past that clock if thunder is on the board.',
@@ -241,7 +232,7 @@ function rainLines(
   } else if (!radar) {
     bits.push('No named rain window on the hourly strip.');
   }
-  if (slot === 'feature_1500' && (brief.windows.thunder || brief.windows.rain)) {
+  if (slot === 'feature_1300' && (brief.windows.thunder || brief.windows.rain)) {
     bits.push('If you are still on the sand, pack up before that clock.');
   }
   if (brief.windows.rain || brief.windows.thunder) {
@@ -299,18 +290,26 @@ function closeLines(brief: DailyVacationBrief, slot: BroadcastSlot, tomorrow?: D
     if (tomorrow && tomorrow.confidence === 'ok') {
       return [
         `Tomorrow leans ${tomorrow.verdict.toLowerCase()}.`,
-        'I will be back on the hour. I am Sammi.',
+        'I will be back at 07:00. I am Sammi.',
       ];
     }
     return [
       'Tomorrow stays qualitative until the next hourly fill.',
-      'I will be back on the hour. I am Sammi.',
+      'I will be back at 07:00. I am Sammi.',
     ];
   }
   if (brief.confidence !== 'ok') {
-    return ['Watch the live map. I will be back on the hour.'];
+    return [
+      slot === 'feature_0700'
+        ? 'Watch the live map. I will be back at 13:00.'
+        : 'Watch the live map. I will be back at 19:00.',
+    ];
   }
-  return ['I will be back on the hour with a short update. I am Sammi.'];
+  return [
+    slot === 'feature_0700'
+      ? 'I will be back at 13:00. I am Sammi.'
+      : 'I will be back at 19:00. I am Sammi.',
+  ];
 }
 
 function nextThreeHourAction(
@@ -378,7 +377,7 @@ function buildHourly(
     },
     acts: [nowAct],
     totalDurationSec: nowAct.durationSec,
-    closeLine: delayed ? 'Live map until the hours fill in.' : 'I am Sammi — full show at 07:00, 11:00, 15:00 and 19:00.',
+    closeLine: delayed ? 'Live map until the hours fill in.' : 'I am Sammi — full show at 07:00, 13:00 and 19:00.',
     sourceLine: brief.sourceLine,
   };
 }
@@ -437,13 +436,7 @@ export function buildBroadcastScript(opts: {
   }
   const hour =
     opts.ictHour ??
-    (opts.slot === 'feature_0700'
-      ? 7
-      : opts.slot === 'feature_1100'
-        ? 11
-        : opts.slot === 'feature_1500'
-          ? 15
-          : 19);
+    (opts.slot === 'feature_0700' ? 7 : opts.slot === 'feature_1300' ? 13 : 19);
   return buildFeature(opts.brief, opts.slot, hour, radarEcho, opts.tomorrowBrief ?? null);
 }
 

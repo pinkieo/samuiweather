@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
-import { CACHE_CONTROL_NO_STORE, buildProvenance } from '@/lib/weather-provenance';
+import {
+  CACHE_CONTROL_NO_STORE,
+  SPIRE_INGEST_STALE_AFTER_MINUTES,
+  buildProvenance,
+} from '@/lib/weather-provenance';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -67,7 +71,7 @@ export async function GET(req: NextRequest) {
     | undefined;
   const freshness = buildProvenance({
     source: 'sammi_forecast',
-    staleAfterMinutes: 90,
+    staleAfterMinutes: SPIRE_INGEST_STALE_AFTER_MINUTES,
     issuedAtIso: first?.issuance_time_utc ?? first?.last_updated ?? null,
     observedAtIso: first?.last_updated ?? null,
     place: 'Koh Samui',

@@ -1,9 +1,9 @@
 # Sammi Broadcast
 
 Status: CANONICAL
-Document version: 3.0
-Last updated: 2026-09-12
-Last verified: 2026-09-12
+Document version: 5.0
+Last updated: 2026-09-17
+Last verified: NOT VERIFIED
 Owner: ProSeadure
 
 Tourist weather TV on samuiweather.com. Sammi presents. English only.
@@ -27,19 +27,19 @@ Do not bake numbers into generated pixels.
 
 Times are Asia/Bangkok.
 
-| Show | ICT | Length | Job |
-|---|---|---|---|
-| Feature | 07:00, 11:00, 15:00, 19:00 | ~2:00 | Day plan: beach, rain, dinner, strip |
-| Hourly Now | :00 from 06:00–22:00 except the four feature hours | 15–20s | Now + next 3 hours + one action |
+| Show | ICT | After ingest | Length | Job |
+|---|---|---|---|---|
+| Morning feature | 07:00 | 06:00 cycle | ~2:00 | Full day, beach/boat first |
+| Midday feature | 13:00 | 12:00 cycle | ~2:00 | Rain/thunder clock; remaining beach; save the evening |
+| Evening feature | 19:00 | 18:00 cycle | ~2:00 | Tonight + tomorrow (qualitative if reliability is low) |
 
-Hourly is a bumper, not a second 2-minute film.
+Three films per day. Each show is **one hour after** a new Spire cycle.
+There is **no** 11:00 show — that hour still has only the 06:00 issuance.
+Midnight (00:00 ingest) is **not** TV: overnight lock / a written night
+summary if we add one later. No hourly bumper. Studio `--hourly` is
+manual only.
 
-Feature flavour:
-
-- **07:00** — full day, beach/boat first
-- **11:00** — is the morning plan still true
-- **15:00** — rain/thunder clock; save the evening
-- **19:00** — tonight + tomorrow (qualitative if reliability is low)
+See `docs/weather-ingest.md` for the four ingest slots.
 
 ## Tourist questions (feature order)
 
@@ -59,8 +59,8 @@ Feature flavour:
 
 ## Render and schedule
 
-Vercel Hobby **must not** cron this (`docs/ecowitt.md`). Do not add 4× or hourly
-jobs to `vercel.json`.
+Vercel Hobby **must not** cron this (`docs/ecowitt.md`). Do not add 4× jobs to
+`vercel.json`.
 
 Render on LENOVOX13 (same family as `weather-hourly.cmd`). Assemble shots with
 ffmpeg. xAI video is 6s/10s plates only — never one 2-minute generated clip.
@@ -79,7 +79,8 @@ Needs Chrome, ffmpeg, `OPENAI_API_KEY` (TTS, English, voice nova; Windows SAPI f
 
 ## LENOVOX13 schedule
 
-Laptop timezone is ICT (`SE Asia Standard Time`). One Windows task, hourly, no Vercel cron.
+Laptop timezone is ICT (`SE Asia Standard Time`). One Windows task, three daily
+triggers (07/13/19), no Vercel cron.
 
 | File | Role |
 |---|---|
@@ -87,11 +88,12 @@ Laptop timezone is ICT (`SE Asia Standard Time`). One Windows task, hourly, no V
 | `broadcast-hourly-silent.vbs` | Task Scheduler (hidden; do not call cmd.exe from the task) |
 | `scripts/broadcast-schedule.ts` | Picks slot from ICT clock, skip rules, ensure Next, render |
 
-Task name: **Samui Broadcast**. Trigger: hourly from 06:00 local. Overnight hours no-op.
+Task name: **Samui Broadcast**. Triggers: 07:00, 13:00, 19:00 local.
+Any other hour no-ops if the task is still set more often.
 
 Skip rules (unless `--force`):
 
-- ICT 23:00–05:59: skip
+- Not a 07/13/19 ICT hour: skip
 - Same slot already published in the last 50 minutes: skip
 - New **feature** would be `delayed` and a **non-delayed** feature from today already exists: skip (keep the good film; player shows delayed only when that is the truth)
 
@@ -101,7 +103,7 @@ Live-tested 2026-09-12 on LENOVOX13: task **Samui Broadcast** enabled, next run 
 
 ## Website player
 
-- **`/broadcast`** — 16:9 TV page. Latest **feature** loops, muted autoplay + captions; tap **Sound on**. At ICT `:00` on a non-feature hour, play the fresh **hourly** bumper once, then return to the feature.
+- **`/broadcast`** — 16:9 TV page. Latest **feature** loops, muted autoplay + captions; tap **Sound on**. No hourly bumper insert.
 - **On air chip** — bottom-right of the map (`z-40`), not over the left weather drawer. Opens `/broadcast`.
 - **Drawer** — “Sammi on air” above the webcam block.
 
@@ -109,7 +111,6 @@ Live-tested 2026-09-12 on LENOVOX13: task **Samui Broadcast** enabled, next run 
 
 Honesty on air:
 
-- Hourly older than **90 minutes** is not inserted as “now”.
 - Missing today’s feature, or a feature recorded `delayed: true` → **Show delayed** badge. The last file may still play; it is not labelled as live now.
 - Empty catalog → delayed empty state + live map link.
 

@@ -30,7 +30,7 @@ function parseSlot(): BroadcastSlot {
     const raw = Number(process.argv[idx + 1]);
     if (isFeatureIctHour(raw)) return featureSlotForHour(raw as FeatureIctHour);
     if (process.argv[idx + 1] === 'hourly') return 'hourly';
-    throw new Error('--slot must be 7, 11, 15, 19, or hourly');
+    throw new Error('--slot must be 7, 13, 19, or hourly');
   }
   const hour = localIctHour();
   return isFeatureIctHour(hour) ? featureSlotForHour(hour) : 'hourly';

@@ -41,7 +41,7 @@ description: >-
 **Implementation (keep in sync):**
 
 - App merge: `lib/spire.ts` → `getForecastMergedAt` — tries **combined** `time_bundle=hourly,3_hourly,6_hourly_15day` @ 360h when span ≥ ~200h; else tier-merge (`6_hourly_15day` → `6_hourly` → `medium_range_std_freq` + `3_hourly` + `hourly`). Then **OPF overlay**: parallel `/forecast/point/optimized` hourly (~72h) merges POP/thunder/fog onto matching `valid_time` (`SPIRE_OPF_*` env — see below).
-- Cron ingest: `weather_engine_hourly.py` → same combined-first + tier fallback + parallel OPF `overlay_opf_probabilities` before `flatten_for_db`.
+- Cron ingest: `GET /api/cron/weather-ingest` (cron-job.org 4× ICT) and `weather_engine_hourly.py` (manual) → same combined-first + tier fallback + parallel OPF before flatten.
 - Sammi SQL: **`supabase/013_sammi_forecast_views.sql`** — `sammi_forecast` + `sammi_daily_forecast` (English reliability `high`/`medium`/`low`, columns aligned for app). Older `010`–`012` files are superseded; run `013` after `weather_forecast` exists.
 
 **Optional query params** (per Spire example; set only if your account requires them — URLs built when env is non-empty):

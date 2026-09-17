@@ -4,6 +4,8 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import {
   CACHE_CONTROL_NO_STORE,
   SAMUI_PLACE,
+  SPIRE_HOUR_STALE_AFTER_MINUTES,
+  SPIRE_INGEST_STALE_AFTER_MINUTES,
   buildProvenance,
   provenanceHeaders,
   type WeatherProvenance,
@@ -87,7 +89,7 @@ export async function GET() {
     }
     const freshness = buildProvenance({
       source: 'spire',
-      staleAfterMinutes: 90,
+      staleAfterMinutes: SPIRE_HOUR_STALE_AFTER_MINUTES,
       issuedAtIso: forecast[0]?.time ?? null,
       nowUnix: fetchedAt,
       place: SAMUI_PLACE.name,
@@ -107,8 +109,9 @@ export async function GET() {
     if (fallback && fallback.rows.length > 0) {
       const freshness = buildProvenance({
         source: 'supabase_forecast',
-        staleAfterMinutes: 90,
-        issuedAtIso: fallback.issuedAt ?? fallback.updatedAt,
+        staleAfterMinutes: SPIRE_INGEST_STALE_AFTER_MINUTES,
+        issuedAtIso: fallback.issuedAt,
+        observedAtIso: fallback.updatedAt,
         nowUnix: fetchedAt,
         place: SAMUI_PLACE.name,
         lat: SAMUI_PLACE.lat,

@@ -1,8 +1,8 @@
 # 4× daily Spire OPF overview
 
 Status: CANONICAL
-Document version: 1.1
-Last updated: 2026-09-15
+Document version: 2.0
+Last updated: 2026-09-17
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -26,7 +26,10 @@ Each slot **locks** one Spire issuance (Standard Point + OPF probability overlay
 - `POST /api/forecast/overview` — lock current+previous, or `?date=&slot=0600` for one slot
 - `GET|POST /api/cron/overview-lock?secret=` — same lock, cron-job.org / LENOVOX13
 
-Do **not** add this to Vercel Hobby crons (sub-daily). Hourly LENOVOX13 ingest (`weather-hourly.cmd`) runs `npm run forecast:overview-lock` after `weather_engine_hourly.py`. Same pattern as Ecowitt: cron-job.org if you want 00/06/12/18 without the laptop.
+Do **not** add this to Vercel Hobby crons (sub-daily). Production: cron-job.org
+calls `/api/cron/overview-lock` at 00:10 / 06:10 / 12:10 / 18:10 ICT, five
+minutes after forecast ingest. See `docs/weather-ingest.md`. LENOVOX13
+`weather-hourly.cmd` may still lock after a manual ingest.
 
 ## Scoring
 

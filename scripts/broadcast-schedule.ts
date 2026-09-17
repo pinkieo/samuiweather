@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * LENOVOX13 hourly driver: pick 07/11/15/19 feature or hourly bumper, skip overnight.
+ * LENOVOX13 3× daily driver: 07/13/19 ICT features only. Other hours skip.
  *
  *   npx tsx scripts/broadcast-schedule.ts
  *   npx tsx scripts/broadcast-schedule.ts --dry-run
@@ -90,13 +90,7 @@ function runRender(slot: BroadcastSlot) {
           'tsx',
           'scripts/broadcast-render.ts',
           '--slot',
-          slot === 'feature_0700'
-            ? '7'
-            : slot === 'feature_1100'
-              ? '11'
-              : slot === 'feature_1500'
-                ? '15'
-                : '19',
+          slot === 'feature_0700' ? '7' : slot === 'feature_1300' ? '13' : '19',
         ];
   const r = spawnSync('npx', args, { cwd: ROOT, stdio: 'inherit', shell: true, env: process.env });
   if (r.status !== 0) throw new Error(`broadcast-render exit ${r.status}`);

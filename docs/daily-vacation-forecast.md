@@ -1,8 +1,8 @@
 # Daily vacation forecast
 
 Status: CANONICAL
-Document version: 1.1
-Last updated: 2026-09-12
+Document version: 2.0
+Last updated: 2026-09-17
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -75,7 +75,12 @@ spine. It must not invent windows the brief withheld. See `docs/sammi-broadcast.
 
 ## Freshness and honesty
 
-Uses the existing 90-minute Spire stale threshold (`ageMinutes` / provenance).
+Two clocks:
+
+- **Hour coverage** — nearest forecast hour vs now, stale after 90 minutes
+  (the current hour is missing from the table).
+- **Ingest age** — last `weather_forecast` write, stale after ~7 hours
+  (missed a 4× daily Spire cycle). See `docs/weather-ingest.md`.
 
 If the forecast is **stale** or **hourly coverage is too thin**:
 

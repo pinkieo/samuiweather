@@ -5,9 +5,6 @@
 
 import {
   BROADCAST_TIME_ZONE,
-  isFeatureIctHour,
-  localIctHour,
-  shouldRenderHourlyBumper,
   slotForSchedule,
   type BroadcastKind,
   type BroadcastLowerThird,
@@ -34,7 +31,7 @@ export function decideScheduledRender(opts: {
   const now = opts.now ?? Date.now();
   const slot = slotForSchedule(now);
   if (slot === 'skip') {
-    return { action: 'skip', reason: 'outside 06:00–22:00 ICT', slot };
+    return { action: 'skip', reason: 'not a 07/13/19 ICT feature hour', slot };
   }
   if (opts.force) {
     return { action: 'render', reason: 'forced', slot };
@@ -146,15 +143,12 @@ export function evaluateBroadcastLatest(
   };
 }
 
-/** Play the hourly bumper once at the top of a non-feature ICT hour, if it is fresh. */
+/** Hourly bumpers are not on the 4× schedule. Player loops the latest feature. */
 export function shouldInsertHourlyBumper(
-  latest: BroadcastLatest,
-  now: number = Date.now(),
+  _latest: BroadcastLatest,
+  _now: number = Date.now(),
 ): boolean {
-  if (!latest.hourly || !latest.hourlyIsFresh) return false;
-  const hour = localIctHour(now);
-  if (!shouldRenderHourlyBumper(hour) || isFeatureIctHour(hour)) return false;
-  return ictMinute(now) === 0;
+  return false;
 }
 
 export function vttTimestamp(totalSec: number): string {

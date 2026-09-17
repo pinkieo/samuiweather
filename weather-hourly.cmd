@@ -1,5 +1,6 @@
 @echo off
-REM Interactive/manual only. For a scheduled/background run use weather-hourly-silent.vbs
+REM Interactive/manual only. Production clock is cron-job.org 4x ICT (docs/weather-ingest.md).
+REM For a scheduled/background run use weather-hourly-silent.vbs
 REM (wscript.exe //nologo //B) so no console window flashes.
 REM Run ingest with a project-local venv (always use .venv\Scripts\python.exe — not global "python").
 setlocal

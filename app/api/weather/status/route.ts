@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import {
   CACHE_CONTROL_NO_STORE,
   SAMUI_PLACE,
+  SPIRE_INGEST_STALE_AFTER_MINUTES,
   buildProvenance,
 } from '@/lib/weather-provenance';
 
@@ -43,7 +44,7 @@ export async function GET() {
   const valids = rows.map(r => String(r.valid_time_utc)).sort();
   const freshness = buildProvenance({
     source: 'supabase_forecast',
-    staleAfterMinutes: 90,
+    staleAfterMinutes: SPIRE_INGEST_STALE_AFTER_MINUTES,
     issuedAtIso: issuance,
     observedAtIso: updatedAt,
     nowUnix: fetchedAt,

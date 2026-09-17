@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   const slot = parseBroadcastSlot(searchParams.get('slot') ?? 'feature_0700');
   if (!slot) {
     return NextResponse.json(
-      { error: 'slot must be feature_0700, feature_1100, feature_1500, feature_1900, or hourly' },
+      { error: 'slot must be feature_0700, feature_1300, feature_1900, or hourly' },
       { status: 400 },
     );
   }

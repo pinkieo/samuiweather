@@ -23,6 +23,8 @@
     "db:reset": "supabase db reset",
     "ecowitt:sync": "npx tsx scripts/ecowitt-sync-once.ts",
     "ecowitt:cronjob-setup": "npx tsx scripts/setup-ecowitt-cronjob.ts",
+    "weather:cronjob-setup": "npx tsx scripts/setup-weather-cronjob.ts",
+    "weather:ingest": "npx tsx scripts/weather-ingest-once.ts",
     "ecowitt:import-xlsx": "python scripts/import-ecowitt-xlsx.py",
     "forecast:verify-backfill": "python scripts/backfill-forecast-verification.py",
     "forecast:score-day": "npx tsx scripts/forecast-score-day.ts",
@@ -33,7 +35,7 @@
     "broadcast:render": "npx tsx scripts/broadcast-render.ts",
     "broadcast:schedule": "npx tsx scripts/broadcast-schedule.ts",
     "broadcast:schedule:dry": "npx tsx scripts/broadcast-schedule.ts --dry-run",
-    "test:unit": "npx tsx --test tests/daily-vacation-brief.test.ts tests/dashboard-region.test.ts tests/broadcast-script.test.ts tests/broadcast-catalog.test.ts tests/wind-overlay.test.ts tests/ecowitt-daily.test.ts tests/forecast-overview.test.ts"
+    "test:unit": "npx tsx --test tests/daily-vacation-brief.test.ts tests/dashboard-region.test.ts tests/broadcast-script.test.ts tests/broadcast-catalog.test.ts tests/wind-overlay.test.ts tests/ecowitt-daily.test.ts tests/forecast-overview.test.ts tests/weather-ingest.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

@@ -1,10 +1,9 @@
 # Koh Samui — Spire ingest (same contract-merge as lib/spire.ts → Supabase).
 # Lange horizon: time_bundle 6_hourly_15day @ 360h (+ 3h/1h); zie .cursor/skills/samui-concierge/SKILL.md
 #
-# GitHub's `schedule` trigger is delayed or skipped on this repo (observed ~12
-# successful runs/day, not 24; gaps of several hours). Catch-up: run every
-# 15 minutes UTC; weather_engine_hourly.py skips the Spire call when the last
-# weather_forecast.updated_at is younger than SKIP_IF_FRESH_MINUTES (50).
+# Production clock is cron-job.org (4× ICT) → /api/cron/weather-ingest.
+# Do not use this workflow as a schedule — GitHub Actions minutes are expensive
+# and `schedule` was already skipping. Keep workflow_dispatch for a manual run.
 #
 # Vereiste repository secrets (Settings -> Secrets and variables -> Actions):
 #   SPIRE_API_TOKEN  (of SPIRE_API_KEY als fallback)
@@ -21,9 +20,6 @@
 name: Weather hourly ingest
 
 on:
-  schedule:
-    # Catch-up for GitHub cron skips. Engine no-ops when ingest is still fresh.
-    - cron: '0,15,30,45 * * * *'
   workflow_dispatch:
     inputs:
       force:

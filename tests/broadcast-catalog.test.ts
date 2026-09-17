@@ -67,7 +67,7 @@ describe('broadcast catalog freshness', () => {
 });
 
 describe('hourly bumper insert', () => {
-  it('inserts at 08:00 ICT when the hourly file is fresh', () => {
+  it('never inserts an hourly bumper on the 4× feature schedule', () => {
     const now = Date.parse('2026-09-12T08:00:20+07:00');
     const latest = evaluateBroadcastLatest(
       {
@@ -76,33 +76,23 @@ describe('hourly bumper insert', () => {
       },
       now,
     );
-    assert.equal(shouldInsertHourlyBumper(latest, now), true);
-  });
-
-  it('does not insert at a feature hour', () => {
-    const now = Date.parse('2026-09-12T07:00:10+07:00');
-    const latest = evaluateBroadcastLatest(
-      {
-        feature: ep('feature', '2026-09-12T00:20:00.000Z'),
-        hourly: ep('hourly', '2026-09-12T00:05:00.000Z'),
-      },
-      now,
-    );
     assert.equal(shouldInsertHourlyBumper(latest, now), false);
   });
 });
 
 describe('schedule clock', () => {
-  it('skips overnight and picks feature vs hourly in ICT', () => {
+  it('skips non-feature hours and picks 07/13/19 ICT features', () => {
     assert.equal(slotForSchedule(Date.parse('2026-09-12T03:00:00+07:00')), 'skip');
     assert.equal(slotForSchedule(Date.parse('2026-09-12T07:10:00+07:00')), 'feature_0700');
-    assert.equal(slotForSchedule(Date.parse('2026-09-12T08:00:00+07:00')), 'hourly');
-    assert.equal(slotForSchedule(Date.parse('2026-09-12T15:05:00+07:00')), 'feature_1500');
+    assert.equal(slotForSchedule(Date.parse('2026-09-12T11:00:00+07:00')), 'skip');
+    assert.equal(slotForSchedule(Date.parse('2026-09-12T13:05:00+07:00')), 'feature_1300');
+    assert.equal(slotForSchedule(Date.parse('2026-09-12T15:05:00+07:00')), 'skip');
+    assert.equal(slotForSchedule(Date.parse('2026-09-12T19:00:00+07:00')), 'feature_1900');
     assert.equal(slotForSchedule(Date.parse('2026-09-12T23:00:00+07:00')), 'skip');
   });
 
   it('keeps a good today feature when the new script is delayed', () => {
-    const now = Date.parse('2026-09-12T15:05:00+07:00');
+    const now = Date.parse('2026-09-12T13:05:00+07:00');
     const d = decideScheduledRender({
       now,
       scriptDelayed: true,

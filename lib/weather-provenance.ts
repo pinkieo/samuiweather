@@ -9,6 +9,12 @@ import { ageLabel, ageMinutes, type SourceFreshness } from './data-freshness';
 export const CACHE_CONTROL_NO_STORE =
   'private, no-store, max-age=0, must-revalidate';
 
+/** Missing a current-hour row (valid_time vs now). */
+export const SPIRE_HOUR_STALE_AFTER_MINUTES = 90;
+
+/** Missed a 4× daily ingest cycle (00/06/12/18 ICT). Not the hour-coverage clock. */
+export const SPIRE_INGEST_STALE_AFTER_MINUTES = 7 * 60;
+
 export const SAMUI_PLACE = {
   name: 'Koh Samui',
   lat: SAMUI_CENTER.lat,

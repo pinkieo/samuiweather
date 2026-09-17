@@ -1,8 +1,8 @@
 # Sammi AI - Project skills & architecture (V2)
 
 Status: CANONICAL
-Document version: 3.5
-Last updated: 2026-09-15
+Document version: 5.0
+Last updated: 2026-09-17
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -55,13 +55,13 @@ Sammi keeps a clear split between what is happening *now* and what will *happen*
 
 Contract: `docs/sammi-broadcast.md`. Scripts: `lib/broadcast-script.ts` (Daily Vacation Brief spine).
 
-- **Feature** 07:00 / 11:00 / 15:00 / 19:00 ICT, ~2:00.
-- **Hourly Now** 06:00–22:00 ICT except those four hours, 15–20s.
+- **Feature** 07:00 / 13:00 / 19:00 ICT, ~2:00 (one hour after 06/12/18 ingest). No 11:00 film. No midnight TV. No hourly bumper.
 - Presenter still: `public/broadcast/sammi/presenter.png`. Overlay cutout: `public/broadcast/sammi/cutout.png`.
 - Studio: `/studio?slot=` (noindex). Script API: `/api/broadcast/script`. Render: `npm run broadcast:render`.
 - Public player: `/broadcast`. Catalog: `GET /api/broadcast/latest`. On-air chip is bottom-right, not over the weather drawer.
 - Do **not** cron this on Vercel Hobby. Render/assemble off-site (LENOVOX13).
-- Windows task **Samui Broadcast** (`broadcast-hourly-silent.vbs`), hourly ICT; see `docs/sammi-broadcast.md`.
+- Windows task **Samui Broadcast** (`broadcast-hourly-silent.vbs`), 07/13/19 ICT; see `docs/sammi-broadcast.md`.
+- **Forecast ingest** is 4× daily via cron-job.org (`docs/weather-ingest.md`). Not GitHub Actions, not Vercel Hobby cron.
 
 ## Automation
 - **Cron jobs:** Daily Reddit post sync → Supabase embeddings.

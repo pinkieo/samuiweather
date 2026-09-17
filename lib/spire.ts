@@ -881,18 +881,15 @@ function overlayOpfProbabilitiesOnRows(base: unknown[], opf: unknown[]): void {
  * ({@link isSamuiOpfOverlayPoint}). Sammi reliability in SQL: high ≤48h, medium ≤120h, low >120h
  * vs `issuance_time_utc` (`sammi_forecast` view).
  */
-export async function getForecastMergedAt(
+export async function fetchSpireMergedRawAt(
   lat: number,
   lon: number,
   signal?: AbortSignal,
-): Promise<SamuiWeatherForecastRow[]> {
+): Promise<unknown[]> {
   const token = getSpireApiToken();
   if (!token) {
     throw new Error('SPIRE_API_TOKEN is missing');
   }
-
-  const waqiToken = (process.env.WAQI_API_TOKEN || process.env.NEXT_PUBLIC_AQICN_TOKEN)?.trim();
-  const uvKey = process.env.NEXT_PUBLIC_OPENUV_API_KEY?.trim();
 
   const spireFetchSignal = () => combinedSignal(signal, 25000);
 
@@ -976,10 +973,33 @@ export async function getForecastMergedAt(
     return mergeSpireContractTiers(layers);
   };
 
-  /**
-   * WAQI + OpenUV are optional polish; abort after 4s so they never block Spire merge.
-   * OpenUV `/forecast` alone supplies hourly UV (no separate `/uv` call).
-   */
+  const opfPromise = isSamuiOpfOverlayPoint(lat, lon)
+    ? fetchOpfProbabilities(token, spireFetchSignal, pointOptions).catch(() => [] as unknown[])
+    : Promise.resolve([] as unknown[]);
+
+  const [rows, opfRows] = await Promise.all([
+    fetchSpireContractMerged().catch((e) => {
+      console.error('Spire contract merge err:', e);
+      return [] as unknown[];
+    }),
+    opfPromise,
+  ]);
+
+  if (rows.length === 0) {
+    throw new Error('Spire: no forecast data (contract tiers)');
+  }
+
+  overlayOpfProbabilitiesOnRows(rows, opfRows);
+  return rows;
+}
+
+export async function getForecastMergedAt(
+  lat: number,
+  lon: number,
+  signal?: AbortSignal,
+): Promise<SamuiWeatherForecastRow[]> {
+  const waqiToken = (process.env.WAQI_API_TOKEN || process.env.NEXT_PUBLIC_AQICN_TOKEN)?.trim();
+  const uvKey = process.env.NEXT_PUBLIC_OPENUV_API_KEY?.trim();
   const AUX_MS = 4000;
   const auxSig = () => combinedSignal(signal, AUX_MS);
 
@@ -994,7 +1014,6 @@ export async function getForecastMergedAt(
       });
   };
 
-  /** Hourly UV per `uv_time` — needed because Spire often omits per-hour `uv_index`. */
   const fetchUvForecast = (): Promise<unknown> => {
     if (!uvKey) return Promise.resolve(null);
     const url = `https://api.openuv.io/api/v1/forecast?lat=${lat}&lng=${lon}&alt=0`;
@@ -1010,32 +1029,16 @@ export async function getForecastMergedAt(
       });
   };
 
-  const opfPromise = isSamuiOpfOverlayPoint(lat, lon)
-    ? fetchOpfProbabilities(token, spireFetchSignal, pointOptions).catch(() => [] as unknown[])
-    : Promise.resolve([] as unknown[]);
-
-  const [rows, waqiJson, uvForecastJson, opfRows] = await Promise.all([
-    fetchSpireContractMerged().catch((e) => {
-      console.error('Spire contract merge err:', e);
-      return [] as unknown[];
-    }),
+  const [rows, waqiJson, uvForecastJson] = await Promise.all([
+    fetchSpireMergedRawAt(lat, lon, signal),
     fetchWaqi(),
     fetchUvForecast(),
-    opfPromise,
   ]);
 
-  if (rows.length === 0) {
-    throw new Error('Spire: no forecast data (contract tiers)');
-  }
-
-  overlayOpfProbabilitiesOnRows(rows, opfRows);
-
-  // Filter historical data out, only keep from the current hour forward
   const nowMs = Date.now();
   const currentHourMs = nowMs - (nowMs % (60 * 60 * 1000));
-
-  const filtered = rows.filter((row: any) => {
-    const vt = row?.times?.valid_time;
+  const filtered = rows.filter((row) => {
+    const vt = (row as { times?: { valid_time?: string } })?.times?.valid_time;
     if (!vt) return true;
     return new Date(vt).getTime() >= currentHourMs;
   });
