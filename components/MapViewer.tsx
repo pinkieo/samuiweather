@@ -173,7 +173,7 @@ export default function MapViewer() {
   } | null>(null);
   /** Pin-centered tile snapshot over the map (hour bar / Play); `null` = tiled live radar. */
   const [radarOverlayUrl, setRadarOverlayUrl] = useState<string | null>(null);
-  const [weatherOverlayEnabled, setWeatherOverlayEnabled] = useState(false);
+  const [weatherOverlayEnabled, setWeatherOverlayEnabled] = useState(true);
   const handleRadarOverlayClear = useCallback(() => {
     setRadarOverlayUrl(null);
     setRadarScrubFrame(null);

@@ -1,9 +1,9 @@
 # Sammi AI - Project skills & architecture (V2)
 
 Status: CANONICAL
-Document version: 7.0
+Document version: 7.1
 Last updated: 2026-09-17
-Last verified: 2026-09-17 (Theyr RouteData Spire 195/195 points; overlay on localhost:3000)
+Last verified: 2026-09-17 (production `/api/weather/wind-overlay` Spire 195/195, valid 12:00Z)
 Owner: ProSeadure
 
 This document is the source of truth for Cursor and the Sammi AI architecture.
@@ -33,7 +33,7 @@ Sammi keeps a clear split between what is happening *now* and what will *happen*
 - **Wind picture:** Spire 10 m via Theyr RouteData (`GET /api/weather/wind-overlay`). Same path as VIP: dataFeed `bd131aaa-…` (RDAS Spire), not Spire `/forecast/point` on a grid. Theyr is delivery; Spire is the model. Requires `THEYR_LICENSE_KEY`.
 - **Isobars / sunshine wash:** DWD ICON via Open-Meteo on the same box, optional. If ICON fails, wind still shows. Not used for Sammi or dashboard numbers.
 - Low-knot colours are saturated cyan so a tropical breeze reads on satellite water. Live radar (showers) stays above the wind raster. Sun disc follows SunCalc altitude/azimuth.
-- **UI:** one toggle, **Weather overlay** on/off. Default off on the dashboard. **On** for Sammi Broadcast studio so the TV picture has wind, isobars, showers, and sun.
+- **UI:** one toggle, **Weather overlay** on/off. **Default on** on the dashboard and in Sammi Broadcast studio (wind, isobars, showers, sun). Picture only.
 
 ### 4. Ecowitt ground truth (Baan Ton Kluay)
 - Live: `GET /api/ecowitt/latest`. Day archive: `GET /api/ecowitt/daily?date=YYYY-MM-DD` (ICT). Forecast skill vs that day: `GET /api/forecast/accuracy?date=YYYY-MM-DD`. Trend: `GET /api/forecast/accuracy/trend`.

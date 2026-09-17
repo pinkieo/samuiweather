@@ -31,7 +31,7 @@ description: >-
 **Forecasts** → always `SPIRE_API_TOKEN` via `/api/spire/forecast`.
 **Live radar** → RainViewer tiles (aggregates TMD Surat Thani Doppler), proxied via `/api/radar/[...path]`.
 **Never** use OpenWeather, OpenMeteo, or any other forecast source for dashboard / Sammi numbers.
-The optional **Weather overlay** (Windy look) is a DWD ICON *picture* only — see `ARCHITECTURE.md`. It does not feed Sammi or the vacation brief.
+The **Weather overlay** is a Spire-via-Theyr *picture* (wind) plus optional ICON isobars/sun — see `ARCHITECTURE.md`. Default **on**. It does not feed Sammi or the vacation brief.
 **Never** call RainViewer tiles directly from the browser — always go through the proxy.
 
 ## 🌤️ Spire forecast — 15-day Point API (ProSea / contract)
