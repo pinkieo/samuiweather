@@ -1,29 +1,35 @@
 # Daily vacation forecast
 
 Status: CANONICAL
-Document version: 2.0
-Last updated: 2026-09-17
+Document version: 3.0
+Last updated: 2026-09-25
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
 ## Purpose
 
-The dashboard opens with a **Today in Koh Samui** Daily Vacation Brief: a
-practical day plan for a visitor, built from hourly forecast rows rather than a
-single daily average.
+The dashboard opens with **Now**, then **Coming up**: the next three named parts
+of the day that still have forecast hours. A part that has already ended is not
+drawn, and an empty part is not drawn. The card does not say that a forecast
+cannot be given.
 
-It answers when to use the beach, when rain or thunder builds, and whether the
-evening still works outdoors.
+Rain chance on a part is the highest 1-hour chance inside those hours. The
+stored day average from `sammi_daily_forecast` is not shown on this card.
 
 ## Presentation
 
-The compact card sits at the top of the Samui vacation dashboard and shows:
+The top of the Samui drawer shows:
 
-1. the three most important conclusions for today;
-2. morning / afternoon / evening snapshots;
-3. min–max temperature, rain chance, rain intensity, wind, thunder;
-4. fog / low visibility and convective ceiling only when they matter;
-5. a short practical summary.
+1. **Now** — garden station temperature, raining or not, and wind, when the
+   reading is under 20 minutes old. If it is older, the line says the station
+   reading is late and shows the current forecast hour’s temperature and wind.
+   This block has no rain percentage.
+2. **Coming up** — three parts, each with its clock span, temperature range,
+   highest 1-hour rain chance, and strongest wind.
+3. The hourly strip, using that same 1-hour chance.
+
+Sammi’s badge repeats Now and the current forecast hour. It does not show a
+third percentage.
 
 Windows are generated from the hours (examples of form, not canned copy):
 
@@ -37,28 +43,35 @@ Koh Samui is the default place. This card is Samui-only (not Krabi, not voyage).
 ## Data flow
 
 ```text
-Spire hourly rows (+ OPF / sammi_forecast overlay)
-        + optional sammi_daily_forecast day totals
-        -> coverage + freshness check
-        -> period snapshots + time windows
-        -> three conclusions + summary
+Spire hourly rows still ahead (+ OPF / sammi_forecast overlay on the hour)
+        -> the three parts for this time of day
+        -> each part’s highest 1-hour chance, temperature, wind
 ```
 
-- **Hourly rows** decide time windows (beach, rain, heat, wind, thunder, evening).
-- **`sammi_daily_forecast`** may supply day min/max, day-level rain/thunder/fog
-  chance, and convective ceiling. It never invents a beach or dinner clock.
-- Existing rain-chance helper `rainChancePercentForRow` is reused (Sammi % when
-  present, else Spire POP). No second weather-normalisation path.
+- **Now** is the Baan Ton Kluay station. It is not copied onto a forecast hour.
+- The private now-cast is not copied onto a forecast hour and does not change
+  a rain chance.
+- **Hourly rows** decide the parts and any beach or dinner line.
+- **`sammi_daily_forecast` averages stay off this card.** The operator overview
+  may still show a day average, and it must keep the word “average”.
+- Rain chance uses `rainChancePercentForRow` (Sammi 1-hour % when present,
+  otherwise Spire POP). The daily outlook uses that same highest hour, not the
+  day average.
 
 ## Decision rules
 
 Times are Asia/Bangkok.
 
-| Period    | Hours (ICT) |
-|-----------|-------------|
-| Morning   | 06:00–12:00 |
-| Afternoon | 12:00–18:00 |
-| Evening   | 18:00–22:00 |
+| Local time | The three parts |
+|---|---|
+| 00:00–06:00 | Rest of the night · Morning · Midday |
+| 06:00–12:00 | Morning · Midday · Evening |
+| 12:00–18:00 | Midday · Evening · Tomorrow morning |
+| 18:00–24:00 | Tonight · Tomorrow morning · Tomorrow midday |
+
+Morning is 06:00–12:00, midday 12:00–18:00, evening 18:00–22:00. Tonight is
+18:00–06:00 and includes the hours after midnight. A part shows only the hours
+still ahead, with that real span. A part with no hours is omitted.
 
 - **Dry hour:** rain chance &lt; 30% and precip rate &lt; 0.3 mm/h.
 - **Wet hour:** rain chance ≥ 35% or precip rate ≥ 0.4 mm/h.
@@ -82,17 +95,16 @@ Two clocks:
 - **Ingest age** — last `weather_forecast` write, stale after ~7 hours
   (missed a 4× daily Spire cycle). See `docs/weather-ingest.md`.
 
-If the forecast is **stale** or **hourly coverage is too thin**:
+If the forecast is **stale**:
 
-- say so on the card;
+- say “Forecast is delayed.”;
 - do **not** name a beach window or outdoor-dinner window;
-- still show whatever period numbers exist, labelled as incomplete.
+- still show the parts that have hours.
 
-Missing hours are not interpolated. A period with zero hours says it has no data.
+Missing hours are not interpolated and are not labelled as an empty window.
 
 ## Provenance
 
-Source line: Spire hourly forecast with Samui Optimized Point probability overlay,
-plus `sammi_daily_forecast` day totals when that view row is present.
+Source line: Spire hourly forecast. Rain chance is the highest hour in each part.
 
 No new ingest job, no new database table, no radar change, no OPF clamping.

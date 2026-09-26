@@ -14,11 +14,18 @@ const SamuiExploreMap = dynamic(() => import('./SamuiExploreMap'), {
 function poseClass(pose: PresenterPose): string {
   if (pose === 'hands-folded') return 'origin-bottom scale-105';
   if (pose === 'point-south') return 'translate-x-4 translate-y-2';
-  if (pose === 'point-chaweng') return 'translate-x-2';
+  if (pose === 'point-chaweng' || pose === 'point-east') return 'translate-x-2';
   return '';
 }
 
+function poseLoop(pose: PresenterPose): string {
+  if (pose === 'point-east') return '/broadcast/sammi/loops/point-east.mp4';
+  if (pose === 'point-chaweng') return '/broadcast/sammi/loops/point-chaweng.mp4';
+  return '/broadcast/sammi/loops/present.mp4';
+}
+
 function flyZoom(actId: string): number {
+  if (actId === 'synoptic') return 9.6;
   if (actId === 'open' || actId === 'now') return 10.4;
   if (actId === 'rain') return 12.4;
   if (actId === 'evening' || actId === 'close') return 13.4;
@@ -145,7 +152,7 @@ export default function BroadcastStudio({
       {act && (
         <video
           key={act.pose}
-          src="/broadcast/sammi/loops/present.mp4"
+          src={poseLoop(act.pose)}
           poster="/broadcast/sammi/cutout.png"
           autoPlay
           muted
@@ -169,9 +176,14 @@ export default function BroadcastStudio({
               {chip}
             </div>
           ))}
+          {act.id === 'synoptic' && (
+            <div className="rounded-lg border border-sky-300/50 bg-sky-950/80 px-3 py-2 text-[14px] font-semibold text-sky-50 shadow-lg">
+              East / Gulf · Vietnam feed
+            </div>
+          )}
           {act.id === 'rain' && (
             <div className="rounded-lg border border-amber-300/50 bg-amber-950/80 px-3 py-2 text-[14px] font-semibold text-amber-50 shadow-lg">
-              Radar showers · thunder clock
+              Radar showers · Lamai clock
             </div>
           )}
           {(act.id === 'open' || act.id === 'evening' || act.id === 'close') && (

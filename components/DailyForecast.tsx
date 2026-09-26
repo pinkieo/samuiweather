@@ -312,19 +312,16 @@ function buildInsightWhenLeadHourDry(
   const maxRestOfDayPop = maxEffectivePop(futureOnly);
   const scan = scanRestOfDayForWet(todayRows, tNow);
 
-  let rRain = 0;
+  const peakRain = todayRows.length ? Math.max(...todayRows.map(rainChanceOnRow)) : 0;
   let rThunder = 0;
   if (sammiDaily) {
-    rRain =
-      sammiDaily.kans_regen_pct_sammi != null && Number.isFinite(Number(sammiDaily.kans_regen_pct_sammi))
-        ? Number(sammiDaily.kans_regen_pct_sammi)
-        : 0;
     rThunder =
       sammiDaily.kans_onweer_pct_sammi != null && Number.isFinite(Number(sammiDaily.kans_onweer_pct_sammi))
         ? Number(sammiDaily.kans_onweer_pct_sammi)
         : 0;
   }
-  const dailySaysWetLater = sammiDaily != null && (rRain >= 20 || rThunder >= 15);
+  const rRain = peakRain;
+  const dailySaysWetLater = rRain >= 20 || rThunder >= 15;
 
   if (!scan.hasAnySigLater && !dailySaysWetLater) {
     return {
@@ -456,8 +453,8 @@ function buildTodayCardInsightFromSammiDaily(
   }
 
   const rRain =
-    d.kans_regen_pct_sammi != null && Number.isFinite(Number(d.kans_regen_pct_sammi))
-      ? Number(d.kans_regen_pct_sammi)
+    leadContext && leadContext.todayRows.length > 0
+      ? Math.max(...leadContext.todayRows.map(rainChanceOnRow))
       : 0;
   const rThunder =
     d.kans_onweer_pct_sammi != null && Number.isFinite(Number(d.kans_onweer_pct_sammi))
@@ -480,11 +477,16 @@ function buildTodayCardInsightFromSammiDaily(
     today_icon = '🌦️';
   }
 
+  const advice =
+    rRain >= 45
+      ? 'Showers likely — use the hours above for timing'
+      : rRain >= 25
+        ? 'A shower is possible — use the hours above for timing'
+        : 'Quiet in the hours still on this day';
   return {
     today_icon,
-    today_advice: d.sammi_advice?.trim() || 'See hourly for timing.',
-    time_hint:
-      productRegion === 'krabi' ? 'All day (daily summary)' : 'All day (Sammi daily summary)',
+    today_advice: advice,
+    time_hint: 'Highest hour still on this calendar day',
     mood,
     reliability,
     chance_of_rain_pct: rRain >= MIN_CHANCE_TO_SHOW ? Math.round(rRain) : 0,
@@ -711,10 +713,7 @@ export default function DailyForecast({
     const hourStr = d.toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' });
     const hour = parseInt(hourStr, 10);
 
-    let pop = row.pop;
-    if (!pop && row.precipRate > 0) {
-      pop = Math.min(100, Math.round(row.precipRate * 20) + 20);
-    }
+    const pop = rainChanceOnRow(row);
 
     if (!dailyMap.has(dateStr)) {
       dailyMap.set(dateStr, {
@@ -920,7 +919,7 @@ export default function DailyForecast({
                     ) : null}
                     {showChance ? (
                       <p className="text-[6px] font-bold text-cyan-300/90 sm:text-[6.5px]">
-                        {Math.round(insight.chance_of_rain_pct)}% chance of rain
+                        {Math.round(insight.chance_of_rain_pct)}% highest chance
                       </p>
                     ) : null}
                   </div>

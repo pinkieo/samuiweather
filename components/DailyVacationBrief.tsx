@@ -3,7 +3,6 @@
 import { useMemo } from 'react';
 import {
   buildDailyVacationBrief,
-  rainIntensityForDisplay,
   type DailyVacationBrief as DailyVacationBriefModel,
   type PeriodSnapshot,
 } from '../lib/daily-vacation-forecast';
@@ -45,38 +44,36 @@ function periodSkyKind(period: PeriodSnapshot): SkyKind {
   if ((period.thunderRiskPct ?? 0) >= 20) return 'storm';
   if ((period.rainRateMmH ?? 0) >= 0.5) return 'rain';
   if ((period.rainRateMmH ?? 0) >= 0.1 || (period.rainChancePct ?? 0) >= 35) return 'showers';
-  if (period.id === 'evening') return 'moon';
+  if (period.id === 'evening' || period.id === 'tonight' || period.id === 'night') return 'moon';
   return 'sun';
 }
 
 function PeriodCard({ period }: { period: PeriodSnapshot }) {
-  const thin = period.hoursAvailable === 0;
   const kind = periodSkyKind(period);
   return (
     <article className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
       <div className="flex items-baseline justify-between gap-2">
         <p className="flex items-center gap-1.5 text-[11px] font-extrabold text-white">
-          {!thin && <SkyGlyph kind={kind} size={16} />}
+          <SkyGlyph kind={kind} size={16} />
           {period.label}
         </p>
         <p className="text-[9px] text-slate-500">{period.hourRange}</p>
       </div>
-      {thin ? (
-        <p className="mt-2 text-[11px] text-slate-400">No hourly data for this window.</p>
-      ) : (
-        <>
-          <p className="mt-1.5 text-[11px] leading-snug text-white/80">{period.summary}</p>
-          <p className="mt-2 text-[10px] text-slate-400">
-            {fmtTemp(period.temp.min)}–{fmtTemp(period.temp.max)}°C
-            {' · '}rain {fmtPct(period.rainChancePct)}
-            {' · '}{fmtRate(period.rainRateMmH)}
-            {' · '}wind {fmtWind(period.windMs)}
-            {period.thunderRiskPct != null && period.thunderRiskPct >= 20
-              ? ` · thunder ${fmtPct(period.thunderRiskPct)}`
-              : ''}
-          </p>
-        </>
-      )}
+      <p className="mt-2 text-[13px] font-bold text-white">
+        {fmtTemp(period.temp.min)}–{fmtTemp(period.temp.max)}°C
+      </p>
+      <p className="mt-1 text-[11px] text-sky-200">
+        Highest chance {fmtPct(period.rainChancePct)}
+      </p>
+      <p className="mt-1 text-[10px] text-slate-400">
+        Wind {fmtWind(period.windMs)}
+        {period.rainRateMmH != null && period.rainRateMmH >= 0.05
+          ? ` · rain ${fmtRate(period.rainRateMmH)}`
+          : ''}
+        {period.thunderRiskPct != null && period.thunderRiskPct >= 20
+          ? ` · thunder ${fmtPct(period.thunderRiskPct)}`
+          : ''}
+      </p>
     </article>
   );
 }
@@ -91,15 +88,17 @@ export default function DailyVacationBrief({
     [rows, sammiDaily, freshness],
   );
 
-  const intensity = rainIntensityForDisplay(brief.rainRateMmH);
-  const degraded = brief.confidence !== 'ok';
+  const delayed = brief.confidence === 'stale';
+  const notes = brief.conclusions.filter(
+    (line) => line !== brief.confidenceNote && !/^Daytime rain chance peaks/.test(line),
+  );
 
   return (
     <section className="rounded-3xl border border-cyan-400/20 bg-cyan-950/25 p-4 shadow-xl">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[9px] font-black uppercase tracking-[0.16em] text-cyan-300">
-            Today in Koh Samui
+            Coming up
           </p>
           <p className="mt-0.5 text-[10px] text-slate-400">
             {brief.dateLabel}
@@ -113,50 +112,25 @@ export default function DailyVacationBrief({
         </span>
       </div>
 
-      {degraded && (
+      {delayed && brief.confidenceNote && (
         <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-amber-100">
           {brief.confidenceNote}
         </p>
       )}
 
-      <ol className="mt-3 space-y-1.5">
-        {brief.conclusions.map((line, i) => (
-          <li key={`${i}-${line}`} className="flex gap-2 text-[13px] font-semibold leading-snug text-white">
-            <span className="mt-0.5 text-[10px] font-black text-cyan-300">{i + 1}</span>
-            <span>{line}</span>
-          </li>
-        ))}
-      </ol>
-
-      <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-4">
-        <div className="rounded-xl bg-white/5 px-3 py-2">
-          <p className="text-slate-500">Temperature</p>
-          <p className="mt-1 font-bold text-white">
-            {fmtTemp(brief.temperature.min)}–{fmtTemp(brief.temperature.max)}°C
-          </p>
-        </div>
-        <div className="rounded-xl bg-white/5 px-3 py-2">
-          <p className="text-slate-500">Rain chance</p>
-          <p className="mt-1 font-bold text-white">{fmtPct(brief.rainChancePct)}</p>
-        </div>
-        <div className="rounded-xl bg-white/5 px-3 py-2">
-          <p className="text-slate-500">Rain intensity</p>
-          <p className="mt-1 font-bold text-white">
-            {intensity ? `${intensity} · ${fmtRate(brief.rainRateMmH)}` : fmtRate(brief.rainRateMmH)}
-          </p>
-        </div>
-        <div className="rounded-xl bg-white/5 px-3 py-2">
-          <p className="text-slate-500">Wind / thunder</p>
-          <p className="mt-1 font-bold text-white">
-            {fmtWind(brief.windMs)}
-            {brief.thunderRiskPct != null ? ` · ${fmtPct(brief.thunderRiskPct)}` : ''}
-          </p>
-        </div>
-      </div>
+      {notes.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {notes.map((line) => (
+            <li key={line} className="text-[13px] font-semibold leading-snug text-white">
+              {line}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
         {brief.periods.map((period) => (
-          <PeriodCard key={period.id} period={period} />
+          <PeriodCard key={`${period.id}-${period.label}`} period={period} />
         ))}
       </div>
 

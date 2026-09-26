@@ -38,8 +38,6 @@ import { useRadarFeed } from './RadarFramesProvider';
 import { mergeSamuiHourlyIntoRows } from '../lib/merge-sammi-forecast';
 import type { SammiDailyForecastViewRow, SammiForecastViewRow } from '../lib/sammi-views';
 import {
-  blendEcowittIntoFirstRow,
-  blendReferenceNowcastIntoFirstRow,
   type EcowittGroundSnapshot,
   type ReferenceNowcastSnapshot,
 } from '../lib/forecast-reference';
@@ -62,12 +60,21 @@ function SammiChatPortal({
   onMapFlyTo,
   conflictRegion,
   mapRegionKey,
+  nowStation,
 }: {
   forecastRows: SamuiWeatherForecastRow[];
   onMapFlyTo?: (locationId: string) => void;
   conflictRegion: 'samui' | 'krabi';
   /** SamuiExploreMap remounts per region — re-attach portal to the new `#sammi-chat-anchor`. */
   mapRegionKey: string;
+  nowStation: {
+    fresh: boolean;
+    late: boolean;
+    tempC: number | null;
+    rainRateMmh: number | null;
+    windSpeedMs: number | null;
+    windDirDeg: number | null;
+  } | null;
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
 
@@ -106,6 +113,7 @@ function SammiChatPortal({
         forecastRows={forecastRows}
         onMapFlyTo={onMapFlyTo}
         conflictRegion={conflictRegion}
+        nowStation={nowStation}
       />
     </div>,
     host,
@@ -146,9 +154,9 @@ export default function MapViewer() {
   const [tideRaw, setTideRaw]             = useState<unknown>(null);
   const [forecastStatus, setForecastStatus] = useState<'loading' | 'ok' | 'error'>('loading');
   const [forecastError, setForecastError]   = useState<string | null>(null);
-  /** Nearest-hour local grid for row-0 blend only; hourly strip + DB Sammi = Spire. */
+  /** Private now-cast. Compared with radar only. Not copied onto a forecast hour. */
   const [mbState, setMbState] = useState<ReferenceGridClientState>({ status: 'loading' });
-  /** Baan Ton Kluay Ecowitt — overrides row 0 when fresh (Samui only). */
+  /** Baan Ton Kluay station — Now block only (Samui). */
   const [ecowittState, setEcowittState] = useState<EcowittClientState>({ status: 'idle' });
   /** Server-side `sammi_forecast` / `sammi_daily_forecast` (kans_*, advice, reliability). */
   const [sammiHourlyRows, setSammiHourlyRows] = useState<SammiForecastViewRow[]>([]);
@@ -521,7 +529,7 @@ export default function MapViewer() {
       .catch(() => setMetarSkyCover(null));
   }, []);
 
-  // ── Local 1h grid (private route) — blend into row 0; strip stays Spire-led ─
+  // ── Local 1h grid — radar cross-check only; forecast hours stay Spire ─
   useEffect(() => {
     let cancelled = false;
     const run = () => {
@@ -642,12 +650,7 @@ export default function MapViewer() {
     [forecastRows, sammiHourlyRows],
   );
 
-  const displayForecastRows = useMemo(() => {
-    const mbSnap = mbState.status === 'ok' ? mbState.snap : null;
-    const withMb = blendReferenceNowcastIntoFirstRow(spireWithSammi, mbSnap);
-    const ecSnap = ecowittState.status === 'ok' ? ecowittState.snap : null;
-    return blendEcowittIntoFirstRow(withMb, ecSnap);
-  }, [spireWithSammi, mbState, ecowittState]);
+  const displayForecastRows = spireWithSammi;
 
   const ecowittLive = useMemo(() => {
     if (ecowittState.status !== 'ok') return false;
@@ -655,6 +658,34 @@ export default function MapViewer() {
     if (Number.isNaN(t)) return false;
     return Date.now() - t <= 20 * 60_000;
   }, [ecowittState]);
+
+  const nowStation = useMemo(() => {
+    if (ecowittState.status === 'error') {
+      return {
+        fresh: false,
+        late: true,
+        tempC: null,
+        rainRateMmh: null,
+        windSpeedMs: null,
+        windDirDeg: null,
+      };
+    }
+    if (ecowittState.status !== 'ok') return null;
+    const snap = ecowittState.snap;
+    return {
+      fresh: ecowittLive,
+      late: !ecowittLive,
+      tempC: snap.tempC,
+      rainRateMmh: snap.rainRateMmh,
+      windSpeedMs: snap.windSpeedMs,
+      windDirDeg: snap.windDirDeg,
+    };
+  }, [ecowittState, ecowittLive]);
+
+  const radarWetWhileStationDry =
+    nowStation?.fresh === true &&
+    radarEcho === 'precip' &&
+    (nowStation.rainRateMmh ?? 0) < 0.05;
 
   const rainPossibleNext6h = useMemo(() => {
     if (displayForecastRows.length === 0) return radarEcho === 'precip';
@@ -899,6 +930,8 @@ export default function MapViewer() {
                   metarSkyCover={metarSkyCover}
                   sammiDailyByIsoDay={sammiDailyByIsoDay}
                   productRegion="samui"
+                  nowStation={nowStation}
+                  radarWetWhileStationDry={radarWetWhileStationDry}
                 />
 
                 <div className="mb-3 mt-4">
@@ -1016,6 +1049,7 @@ export default function MapViewer() {
           onMapFlyTo={handleMapFlyTo}
           conflictRegion="samui"
           mapRegionKey={dashboardRegionId}
+          nowStation={nowStation}
         />
       )}
     </div>

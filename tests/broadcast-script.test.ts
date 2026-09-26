@@ -80,7 +80,7 @@ describe('feature on a dry sunny day', () => {
     windSpeed: 3,
   }));
 
-  it('builds a ~2 minute tourist show with beach and dinner, no invented rain', () => {
+  it('builds a one-minute tourist show with beach and dinner, no invented rain', () => {
     const script = buildBroadcastScriptFromRows(rows, {
       slot: 'feature_0700',
       now: NOW,
@@ -89,13 +89,17 @@ describe('feature on a dry sunny day', () => {
     assert.equal(script.kind, 'feature');
     assert.equal(script.delayed, false);
     assert.equal(script.place, 'Koh Samui');
-    assert.equal(script.totalDurationSec, 120);
-    assert.equal(script.acts.map((a) => a.id).join(','), 'open,beach,rain,evening,close');
+    assert.equal(script.totalDurationSec, 60);
+    assert.equal(script.acts.map((a) => a.id).join(','), 'open,synoptic,beach,rain,evening');
     assert.match(script.lowerThird.kicker, /Sammi/);
     assert.match(script.lowerThird.subtitle, /High 32°C/);
     assert.match(script.lowerThird.subtitle, /Low 30°C/);
     const open = script.acts.find((a) => a.id === 'open')!;
     assert.equal(open.flyTo?.id, 'koh_samui');
+    const synoptic = script.acts.find((a) => a.id === 'synoptic')!;
+    assert.equal(synoptic.flyTo?.id, 'gulf_east');
+    assert.match(synoptic.caption, /not a named low/i);
+    assert.ok(!/Vietnam is feeding/i.test(synoptic.caption));
     const beach = script.acts.find((a) => a.id === 'beach')!;
     assert.match(beach.caption, /Best beach window:/);
     assert.equal(beach.flyTo?.id, 'carnival_beach_club');
@@ -126,7 +130,8 @@ describe('afternoon rain day', () => {
     assert.equal(script.delayed, false);
     assert.match(script.acts.find((a) => a.id === 'beach')!.caption, /window/i);
     assert.match(script.acts.find((a) => a.id === 'rain')!.caption, /Rain is on the map/);
-    assert.match(script.acts.find((a) => a.id === 'rain')!.caption, /15:00/);
+    assert.match(script.acts.find((a) => a.id === 'rain')!.caption, /15:00|Lamai/i);
+    assert.match(script.acts.find((a) => a.id === 'synoptic')!.caption, /Vietnam|Gulf/i);
   });
 });
 

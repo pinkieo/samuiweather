@@ -10,6 +10,7 @@ import {
 import { getPoiById, type IslandPoi } from './island-pois';
 import type { SammiDailyForecastViewRow } from './sammi-views';
 import type { SamuiWeatherForecastRow } from './spire';
+import { inferSynopticStory, meanWindDirDeg, type SynopticStory } from './broadcast-synoptic';
 
 export const BROADCAST_TIME_ZONE = 'Asia/Bangkok';
 export const FEATURE_ICT_HOURS = [7, 13, 19] as const;
@@ -25,6 +26,7 @@ export type BroadcastKind = 'feature' | 'hourly';
 export type PresenterPose =
   | 'stand-left'
   | 'stand-right'
+  | 'point-east'
   | 'point-chaweng'
   | 'point-south'
   | 'hands-folded';
@@ -37,7 +39,7 @@ export type BroadcastFlyTo = {
 };
 
 export type BroadcastAct = {
-  id: 'open' | 'beach' | 'rain' | 'evening' | 'close' | 'now';
+  id: 'open' | 'synoptic' | 'beach' | 'rain' | 'evening' | 'close' | 'now';
   durationSec: number;
   pose: PresenterPose;
   flyTo: BroadcastFlyTo | null;
@@ -69,13 +71,29 @@ export type BroadcastScript = {
 
 export type RadarEcho = 'unknown' | 'none' | 'precip';
 
+/** One-minute feature: five 12s beats. */
 const FEATURE_DURATION: Record<BroadcastAct['id'], number> = {
-  open: 20,
-  beach: 35,
-  rain: 30,
-  evening: 25,
-  close: 10,
+  open: 12,
+  synoptic: 12,
+  beach: 12,
+  rain: 12,
+  evening: 12,
+  close: 8,
   now: 18,
+};
+
+const GULF_EAST: BroadcastFlyTo = {
+  id: 'gulf_east',
+  name: 'Gulf toward Vietnam',
+  lat: 10.15,
+  lon: 101.35,
+};
+
+const ISLAND_FLY: BroadcastFlyTo = {
+  id: 'koh_samui',
+  name: 'Koh Samui',
+  lat: 9.5127,
+  lon: 100.0137,
 };
 
 function poiFly(id: string): BroadcastFlyTo | null {
@@ -144,7 +162,7 @@ function verdictTagline(brief: DailyVacationBrief): string {
   if (brief.confidence !== 'ok') {
     return brief.confidence === 'stale'
       ? 'Show delayed · forecast too old'
-      : 'Hourly coverage too thin for a beach clock';
+      : 'Beach and dinner clocks stay off this run.';
   }
   switch (brief.verdict) {
     case 'Beach-first':
@@ -200,7 +218,7 @@ function beachLines(brief: DailyVacationBrief, slot: BroadcastSlot): string[] {
     }
     return [
       `Best beach window: ${windowText}.`,
-      'Start Choeng Mon or Chaweng — I will move the map there.',
+      'Choeng Mon and Chaweng first.',
     ];
   }
   return [
@@ -232,13 +250,10 @@ function rainLines(
   } else if (!radar) {
     bits.push('No named rain window on the hourly strip.');
   }
-  if (slot === 'feature_1300' && (brief.windows.thunder || brief.windows.rain)) {
-    bits.push('If you are still on the sand, pack up before that clock.');
-  }
   if (brief.windows.rain || brief.windows.thunder) {
-    bits.push('Covered backup: Ark Bar, Carnival, or Coco Tam’s.');
+    bits.push('Lamai is the thunder clock — pack up before that.');
   }
-  return bits.slice(0, 3);
+  return bits.slice(0, 2);
 }
 
 function eveningLines(brief: DailyVacationBrief, slot: BroadcastSlot): string[] {
@@ -249,18 +264,26 @@ function eveningLines(brief: DailyVacationBrief, slot: BroadcastSlot): string[] 
     if (slot === 'feature_1900') {
       return [
         'Evening still works outdoors.',
-        'Bophut and Fisherman’s Village — walk the strip, skip the south gate after half past six.',
+        'Bophut and Fisherman’s Village. I am Sammi — back at 07:00.',
       ];
     }
     return [
       'Evening looks good for an outdoor meal.',
-      'Fisherman’s Village and Bophut are the play.',
+      'Fisherman’s Village and Bophut. I am Sammi.',
     ];
   }
   return [
     'Outdoor dinner is a gamble tonight.',
-    'Covered decks and hotel restaurants — keep the beach road as a last resort.',
+    'Covered decks. I am Sammi.',
   ];
+}
+
+function synopticLines(brief: DailyVacationBrief, story: SynopticStory): string[] {
+  if (brief.confidence !== 'ok') {
+    return ['I will not name a Vietnam low on a thin forecast.', 'Watch the live map.'];
+  }
+  if (story.line) return [story.line, 'Choeng Mon, Chaweng, Lamai — I will walk the strips.'];
+  return ['Island-scale weather today.', 'Choeng Mon, Chaweng, Lamai next.'];
 }
 
 function openLines(brief: DailyVacationBrief, slot: BroadcastSlot): string[] {
@@ -273,7 +296,7 @@ function openLines(brief: DailyVacationBrief, slot: BroadcastSlot): string[] {
       slot === 'feature_0700' ? 'Good morning Koh Samui.' : 'Koh Samui update.',
       brief.confidence === 'stale'
         ? 'The satellite hours are too old for a tourist clock.'
-        : 'Hourly coverage is too thin to name beach or dinner windows.',
+        : 'Beach and dinner clocks stay off this run.',
     ];
   }
   const greeting =
@@ -281,7 +304,7 @@ function openLines(brief: DailyVacationBrief, slot: BroadcastSlot): string[] {
       ? 'Good morning Koh Samui.'
       : slot === 'feature_1900'
         ? 'Good evening Koh Samui.'
-        : 'Koh Samui, here is the tourist clock.';
+        : 'Koh Samui — one-minute clock.';
   return [greeting, `${temp} ${verdictTagline(brief)}`.trim()].filter(Boolean);
 }
 
@@ -377,7 +400,7 @@ function buildHourly(
     },
     acts: [nowAct],
     totalDurationSec: nowAct.durationSec,
-    closeLine: delayed ? 'Live map until the hours fill in.' : 'I am Sammi — full show at 07:00, 13:00 and 19:00.',
+    closeLine: delayed ? 'Live map until the hours fill in.' : 'I am Sammi — one-minute shows at 07:00, 13:00 and 19:00.',
     sourceLine: brief.sourceLine,
   };
 }
@@ -387,20 +410,17 @@ function buildFeature(
   slot: Exclude<BroadcastSlot, 'hourly'>,
   ictHour: number,
   radarEcho: RadarEcho,
-  tomorrow: DailyVacationBrief | null,
+  _tomorrow: DailyVacationBrief | null,
+  synoptic: SynopticStory,
 ): BroadcastScript {
   const delayed = brief.confidence !== 'ok';
-  const islandFly: BroadcastFlyTo = {
-    id: 'koh_samui',
-    name: 'Koh Samui',
-    lat: 9.5127,
-    lon: 100.0137,
-  };
   const beachFly = poiFly('carnival_beach_club');
   const rainFly = poiFly('dining_on_the_rocks');
   const eveningFly = poiFly('fishermans_village');
+  const eveningText = eveningLines(brief, slot);
   const acts: BroadcastAct[] = [
-    act('open', 'stand-left', openLines(brief, slot), islandFly),
+    act('open', 'stand-left', openLines(brief, slot), ISLAND_FLY),
+    act('synoptic', 'point-east', synopticLines(brief, synoptic), GULF_EAST),
     act('beach', 'point-chaweng', beachLines(brief, slot), beachFly),
     act(
       'rain',
@@ -408,8 +428,7 @@ function buildFeature(
       rainLines(brief, radarEcho, slot),
       rainFly,
     ),
-    act('evening', 'stand-right', eveningLines(brief, slot), eveningFly),
-    act('close', 'hands-folded', closeLines(brief, slot, tomorrow), eveningFly),
+    act('evening', 'stand-right', eveningText, eveningFly),
   ];
   return {
     place: 'Koh Samui',
@@ -439,6 +458,7 @@ export function buildBroadcastScript(opts: {
   radarEcho?: RadarEcho;
   nowRow?: SamuiWeatherForecastRow | null;
   tomorrowBrief?: DailyVacationBrief | null;
+  synoptic?: SynopticStory;
 }): BroadcastScript {
   const radarEcho = opts.radarEcho ?? 'unknown';
   if (opts.slot === 'hourly') {
@@ -448,7 +468,14 @@ export function buildBroadcastScript(opts: {
   const hour =
     opts.ictHour ??
     (opts.slot === 'feature_0700' ? 7 : opts.slot === 'feature_1300' ? 13 : 19);
-  return buildFeature(opts.brief, opts.slot, hour, radarEcho, opts.tomorrowBrief ?? null);
+  const synoptic =
+    opts.synoptic ??
+    inferSynopticStory({
+      windDirDeg: opts.nowRow?.windDir ?? null,
+      hasRainOrThunder: Boolean(opts.brief.windows.rain || opts.brief.windows.thunder),
+      delayed: opts.brief.confidence !== 'ok',
+    });
+  return buildFeature(opts.brief, opts.slot, hour, radarEcho, opts.tomorrowBrief ?? null, synoptic);
 }
 
 export function buildBroadcastScriptFromRows(
@@ -472,11 +499,17 @@ export function buildBroadcastScriptFromRows(
     tomorrowBrief = buildDailyVacationBrief(opts.tomorrowRows, { now: tomorrowNow });
   }
   const nowRow = rows[0] ?? null;
+  const synoptic = inferSynopticStory({
+    windDirDeg: meanWindDirDeg(rows),
+    hasRainOrThunder: Boolean(brief.windows.rain || brief.windows.thunder),
+    delayed: brief.confidence !== 'ok',
+  });
   return buildBroadcastScript({
     brief,
     slot: opts.slot,
     radarEcho: opts.radarEcho,
     nowRow,
     tomorrowBrief,
+    synoptic,
   });
 }

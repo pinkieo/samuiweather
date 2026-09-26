@@ -1,7 +1,7 @@
 # Sammi Broadcast
 
 Status: CANONICAL
-Document version: 7.1
+Document version: 8.0
 Last updated: 2026-09-17
 Last verified: NOT VERIFIED
 Owner: ProSeadure
@@ -34,15 +34,17 @@ Times are Asia/Bangkok.
 
 | Show | ICT | After ingest | Length | Job |
 |---|---|---|---|---|
-| Morning feature | 07:00 | 06:00 cycle | ~2:00 | Full day, beach/boat first |
-| Midday feature | 13:00 | 12:00 cycle | ~2:00 | Rain/thunder clock; remaining beach; save the evening |
-| Evening feature | 19:00 | 18:00 cycle | ~2:00 | Tonight + tomorrow (qualitative if reliability is low) |
+| Morning feature | 07:00 | 06:00 cycle | **1:00** | Island → east/Gulf → Chaweng → Lamai → Bophut |
+| Midday feature | 13:00 | 12:00 cycle | **1:00** | Same beats; remaining beach; thunder clock |
+| Evening feature | 19:00 | 18:00 cycle | **1:00** | Same beats; tonight + tomorrow tease |
 
-Three films per day. Each show is **one hour after** a new Spire cycle.
-There is **no** 11:00 show — that hour still has only the 06:00 issuance.
-Midnight (00:00 ingest) is **not** TV: overnight lock / a written night
-summary if we add one later. No hourly bumper. Studio `--hourly` is
-manual only.
+Three **one-minute** films per day. Each show is **one hour after** a new
+Spire cycle. Beats: island open, east/Gulf synoptic (Vietnam low **only**
+if easterly flow plus a rain/thunder window), Choeng Mon/Chaweng, Lamai
+radar clock, Bophut dinner. Pose plates: `loops/present.mp4`,
+`point-east.mp4`, `point-chaweng.mp4` from the locked still.
+
+There is **no** 11:00 show. Midnight ingest is not TV. No hourly bumper.
 
 See `docs/weather-ingest.md` for the four ingest slots.
 

@@ -58,7 +58,6 @@ async function ensureServer(): Promise<void> {
   log(`starting next dev on ${BASE}`);
   const child = spawn('npm', ['run', 'dev'], {
     cwd: ROOT,
-    detached: true,
     stdio: 'ignore',
     shell: true,
     windowsHide: true,
@@ -92,7 +91,13 @@ function runRender(slot: BroadcastSlot) {
           '--slot',
           slot === 'feature_0700' ? '7' : slot === 'feature_1300' ? '13' : '19',
         ];
-  const r = spawnSync('npx', args, { cwd: ROOT, stdio: 'inherit', shell: true, env: process.env });
+  const r = spawnSync('npx', args, {
+    cwd: ROOT,
+    stdio: 'inherit',
+    shell: true,
+    windowsHide: true,
+    env: process.env,
+  });
   if (r.status !== 0) throw new Error(`broadcast-render exit ${r.status}`);
 }
 

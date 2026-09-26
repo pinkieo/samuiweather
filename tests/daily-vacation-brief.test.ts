@@ -198,16 +198,16 @@ describe('stale forecast', () => {
 describe('missing hours', () => {
   const rows = [hourRow(6), hourRow(7), hourRow(8)];
 
-  it('degrades instead of inventing windows from a thin strip', () => {
+  it('shows the one hour still ahead and does not draw empty parts', () => {
     const brief = buildDailyVacationBrief(rows, { now: NOW });
-    assert.equal(brief.confidence, 'insufficient');
+    assert.equal(brief.confidence, 'ok');
     assert.equal(brief.windows.beach, null);
     assert.equal(brief.windows.evening, null);
-    assert.ok(brief.conclusions[0].toLowerCase().includes('too thin'));
-    const afternoon = brief.periods.find((p) => p.id === 'afternoon')!;
-    const evening = brief.periods.find((p) => p.id === 'evening')!;
-    assert.equal(afternoon.hoursAvailable, 0);
-    assert.equal(evening.hoursAvailable, 0);
+    assert.ok(!brief.conclusions.some((c) => /too thin|no hourly data/i.test(c)));
+    assert.equal(brief.periods.length, 1);
+    assert.equal(brief.periods[0]!.label, 'Morning');
+    assert.equal(brief.periods[0]!.hourRange, '08:00–09:00');
+    assert.equal(brief.periods[0]!.rainChancePct, 8);
   });
 });
 
@@ -230,7 +230,7 @@ describe('no clear beach window', () => {
 });
 
 describe('sammi daily totals', () => {
-  it('keeps hourly min/max when hours exist and still cites sammi_daily_forecast', () => {
+  it('uses the highest hour still ahead and ignores the day average', () => {
     const rows = dayHours(6, 22, { pop: 12, precipRate: 0, temp: 29 });
     const sammiDaily: SammiDailyForecastViewRow = {
       location_id: 'samui_opf_hybrid',
@@ -247,8 +247,69 @@ describe('sammi daily totals', () => {
     const brief = buildDailyVacationBrief(rows, { now: NOW, sammiDaily });
     assert.equal(brief.temperature.min, 29);
     assert.equal(brief.temperature.max, 29);
-    assert.match(brief.sourceLine, /sammi_daily_forecast/);
+    assert.equal(brief.rainChancePct, 12);
+    assert.doesNotMatch(brief.sourceLine, /sammi_daily_forecast/);
     assert.equal(brief.windows.beach != null, true);
+  });
+});
+
+describe('rolling parts', () => {
+  it('at 09:00 names morning, midday, and evening, and ignores earlier hours', () => {
+    const nine = Date.parse('2026-08-28T02:00:00.000Z');
+    const rows = dayHours(6, 22, (hour) => ({ pop: hour === 7 ? 80 : hour === 10 ? 33 : 10 }));
+    const brief = buildDailyVacationBrief(rows, { now: nine });
+    assert.deepEqual(
+      brief.periods.map((p) => p.label),
+      ['Morning', 'Midday', 'Evening'],
+    );
+    const morning = brief.periods[0]!;
+    assert.equal(morning.hourRange, '09:00–12:00');
+    assert.equal(morning.rainChancePct, 33);
+    assert.ok(!brief.conclusions.some((c) => /no hourly data/i.test(c)));
+  });
+
+  it('at 23:31 names tonight and tomorrow, and does not use the day average', () => {
+    const late = Date.parse('2026-09-25T16:31:00.000Z');
+    const friday = '2026-09-25';
+    const saturday = '2026-09-26';
+    const rows: SamuiWeatherForecastRow[] = [
+      hourRow(23, { pop: 4, temp: 29.2, time: ictIso(23, friday) }),
+      hourRow(0, { pop: 16, temp: 28.4, time: ictIso(0, saturday) }),
+      hourRow(3, { pop: 8, temp: 28.1, time: ictIso(3, saturday) }),
+      ...dayHours(6, 12, { pop: 12, temp: 29 }).map((row, i) => ({
+        ...row,
+        time: ictIso(6 + i, saturday),
+        pop: 6 + i === 9 ? 22 : 12,
+      })),
+      ...dayHours(12, 18, { pop: 10, temp: 30 }).map((row, i) => ({
+        ...row,
+        time: ictIso(12 + i, saturday),
+        pop: 12 + i === 15 ? 40 : 10,
+      })),
+    ];
+    const sammiDaily: SammiDailyForecastViewRow = {
+      location_id: 'samui_opf_hybrid',
+      forecast_date: friday,
+      kans_regen_pct_sammi: 9,
+      kans_onweer_pct_sammi: 13,
+      kans_mist_pct_sammi: 0,
+      reliability: 'high',
+      sammi_advice: 'Day average only.',
+      min_temp_c: 27.9,
+      max_temp_c: 29.5,
+    };
+    const brief = buildDailyVacationBrief(rows, { now: late, sammiDaily });
+    assert.deepEqual(
+      brief.periods.map((p) => p.label),
+      ['Tonight', 'Tomorrow morning', 'Tomorrow midday'],
+    );
+    assert.equal(brief.periods[0]!.rainChancePct, 16);
+    assert.equal(brief.periods[1]!.rainChancePct, 22);
+    assert.equal(brief.periods[2]!.rainChancePct, 40);
+    assert.equal(brief.rainChancePct, 40);
+    assert.ok(brief.periods.every((p) => p.hoursAvailable > 0));
+    assert.ok(!JSON.stringify(brief).includes('too thin'));
+    assert.ok(!JSON.stringify(brief).includes('No hourly data'));
   });
 });
 

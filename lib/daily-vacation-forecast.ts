@@ -1,6 +1,7 @@
 /**
- * Daily Vacation Brief — Koh Samui day plan from hourly forecast rows.
- * Day totals may come from `sammi_daily_forecast`; time windows always come from hours.
+ * Daily Vacation Brief — Koh Samui plan from hourly forecast rows still ahead.
+ * Rain chance for a part of the day is the highest 1-hour chance in those hours.
+ * The stored day average is not shown here.
  */
 
 import { ageLabel, ageMinutes } from './data-freshness';
@@ -12,7 +13,7 @@ import { rainChancePercentForRow } from './sammi-views';
 import type { SammiDailyForecastViewRow } from './sammi-views';
 import type { SamuiWeatherForecastRow } from './spire';
 
-export type PeriodId = 'morning' | 'afternoon' | 'evening';
+export type PeriodId = 'morning' | 'afternoon' | 'evening' | 'night' | 'tonight';
 export type BriefConfidence = 'ok' | 'stale' | 'insufficient';
 export type VacationVerdict = 'Beach-first' | 'Flexible day' | 'Rain-aware day' | 'Indoor-first';
 export type WindowKind = 'beach' | 'rain' | 'heat' | 'wind' | 'thunder' | 'evening';
@@ -56,7 +57,7 @@ export interface DailyVacationBrief {
   confidenceNote: string | null;
   stale: boolean;
   freshnessLabel: string | null;
-  conclusions: [string, string, string];
+  conclusions: string[];
   periods: PeriodSnapshot[];
   temperature: { min: number | null; max: number | null };
   rainChancePct: number | null;
@@ -98,11 +99,52 @@ const MIN_BEACH_HOURS = 2;
 const MIN_EVENING_HOURS = 2;
 const MIN_DAYTIME_HOURS_FOR_WINDOWS = 6;
 
-const PERIODS: { id: PeriodId; label: string; start: number; end: number }[] = [
-  { id: 'morning', label: 'Morning', start: 6, end: 12 },
-  { id: 'afternoon', label: 'Afternoon', start: 12, end: 18 },
-  { id: 'evening', label: 'Evening', start: 18, end: 22 },
-];
+type PartSpec = {
+  id: PeriodId;
+  label: string;
+  /** Inclusive start hour, ICT. */
+  start: number;
+  /** Exclusive end hour, ICT. Tonight ends at 06:00 the next day. */
+  end: number;
+  dayOffset: number;
+  spansMidnight: boolean;
+};
+
+/** Three named parts that still have hours ahead. Empty parts are omitted later. */
+export function comingUpParts(ictHour: number): PartSpec[] {
+  if (ictHour < 6) {
+    return [
+      { id: 'night', label: 'Rest of the night', start: ictHour, end: 6, dayOffset: 0, spansMidnight: false },
+      { id: 'morning', label: 'Morning', start: 6, end: 12, dayOffset: 0, spansMidnight: false },
+      { id: 'afternoon', label: 'Midday', start: 12, end: 18, dayOffset: 0, spansMidnight: false },
+    ];
+  }
+  if (ictHour < 12) {
+    return [
+      { id: 'morning', label: 'Morning', start: ictHour, end: 12, dayOffset: 0, spansMidnight: false },
+      { id: 'afternoon', label: 'Midday', start: 12, end: 18, dayOffset: 0, spansMidnight: false },
+      { id: 'evening', label: 'Evening', start: 18, end: 22, dayOffset: 0, spansMidnight: false },
+    ];
+  }
+  if (ictHour < 18) {
+    return [
+      { id: 'afternoon', label: 'Midday', start: ictHour, end: 18, dayOffset: 0, spansMidnight: false },
+      { id: 'evening', label: 'Evening', start: 18, end: 22, dayOffset: 0, spansMidnight: false },
+      { id: 'morning', label: 'Tomorrow morning', start: 6, end: 12, dayOffset: 1, spansMidnight: false },
+    ];
+  }
+  return [
+    { id: 'tonight', label: 'Tonight', start: Math.max(18, ictHour), end: 6, dayOffset: 0, spansMidnight: true },
+    { id: 'morning', label: 'Tomorrow morning', start: 6, end: 12, dayOffset: 1, spansMidnight: false },
+    { id: 'afternoon', label: 'Tomorrow midday', start: 12, end: 18, dayOffset: 1, spansMidnight: false },
+  ];
+}
+
+function shiftDateKey(key: string, days: number): string {
+  const t = Date.parse(`${key}T00:00:00Z`);
+  if (Number.isNaN(t)) return key;
+  return new Date(t + days * 86_400_000).toISOString().slice(0, 10);
+}
 
 type HourView = {
   row: SamuiWeatherForecastRow;
@@ -209,22 +251,6 @@ function toHourView(row: SamuiWeatherForecastRow): HourView {
     dry: rain < DRY_RAIN_CHANCE && rate < DRY_RAIN_RATE,
     wet: rain >= WET_RAIN_CHANCE || rate >= WET_RAIN_RATE,
   };
-}
-
-function todayRows(rows: SamuiWeatherForecastRow[], now: number): SamuiWeatherForecastRow[] {
-  const today = localDateKey(new Date(now).toISOString());
-  return rows
-    .filter((row) => localDateKey(row.time) === today)
-    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-}
-
-function uniqueByHour(rows: SamuiWeatherForecastRow[]): HourView[] {
-  const byHour = new Map<number, HourView>();
-  for (const row of rows) {
-    const view = toHourView(row);
-    if (!byHour.has(view.hour)) byHour.set(view.hour, view);
-  }
-  return [...byHour.values()].sort((a, b) => a.hour - b.hour);
 }
 
 function inRange(hour: number, start: number, end: number): boolean {
@@ -392,10 +418,25 @@ function rainIntensityLabel(rate: number | null): string | null {
   return 'heavy';
 }
 
-function periodSnapshot(id: PeriodId, hours: HourView[]): PeriodSnapshot {
-  const def = PERIODS.find((p) => p.id === id)!;
-  const slice = hours.filter((h) => inRange(h.hour, def.start, def.end));
-  const expected = def.end - def.start;
+function spanFromSlice(slice: HourView[]): string {
+  const first = slice[0]!;
+  const last = slice[slice.length - 1]!;
+  const endHour = (last.hour + 1) % 24;
+  return `${pad2(first.hour)}:00–${pad2(endHour)}:00`;
+}
+
+function hourMatchesPart(spec: PartSpec, date: string, hour: number, today: string): boolean {
+  const tomorrow = shiftDateKey(today, 1);
+  if (spec.spansMidnight) {
+    if (date === today && hour >= spec.start) return true;
+    if (date === tomorrow && hour < spec.end) return true;
+    return false;
+  }
+  const target = shiftDateKey(today, spec.dayOffset);
+  return date === target && hour >= spec.start && hour < spec.end;
+}
+
+function snapshotForPart(spec: PartSpec, slice: HourView[]): PeriodSnapshot {
   const rainChance = maxNum(slice.map((h) => h.rainChance));
   const rainRate = maxNum(slice.map((h) => h.row.precipRate));
   const rainAmount = slice.some((h) => h.row.precip > 0)
@@ -405,28 +446,26 @@ function periodSnapshot(id: PeriodId, hours: HourView[]): PeriodSnapshot {
   const hasThunder = slice.some((h) => h.thundery);
   const fog = maxNum(slice.map((h) => h.fogChance));
   const ceiling = minNum(slice.map((h) => h.ceilingM));
-  let summary = 'Not enough hourly data for this part of the day.';
-  if (slice.length > 0) {
-    if (hasThunder || (thunder != null && thunder >= THUNDER_CHANCE)) {
-      summary = 'Thunderstorm risk in this window — keep an indoor backup.';
-    } else if ((rainRate != null && rainRate >= HEAVY_RAIN_RATE) || (rainChance != null && rainChance >= 60)) {
-      summary = 'Wet stretch — covered activities fit better than the beach.';
-    } else if ((rainRate != null && rainRate >= 0.5) || (rainChance != null && rainChance >= 45)) {
-      summary = 'Showers likely; keep plans flexible and stay near cover.';
-    } else if ((rainChance != null && rainChance >= 25) || (rainRate != null && rainRate >= 0.2)) {
-      summary = 'Mostly usable, with a passing shower possible.';
-    } else if (id === 'evening') {
-      summary = 'Looks suitable for an outdoor meal or village walk.';
-    } else {
-      summary = 'Driest, most usable outdoor stretch.';
-    }
+  let summary = 'Highest chance in these hours.';
+  if (hasThunder || (thunder != null && thunder >= THUNDER_CHANCE)) {
+    summary = 'Thunderstorm risk in this window — keep an indoor backup.';
+  } else if ((rainRate != null && rainRate >= HEAVY_RAIN_RATE) || (rainChance != null && rainChance >= 60)) {
+    summary = 'Wet stretch — covered activities fit better than the beach.';
+  } else if ((rainRate != null && rainRate >= 0.5) || (rainChance != null && rainChance >= 45)) {
+    summary = 'Showers likely; keep plans flexible and stay near cover.';
+  } else if ((rainChance != null && rainChance >= 25) || (rainRate != null && rainRate >= 0.2)) {
+    summary = 'Mostly usable, with a passing shower possible.';
+  } else if (spec.id === 'evening') {
+    summary = 'Looks suitable for an outdoor meal or village walk.';
+  } else {
+    summary = 'Driest, most usable outdoor stretch.';
   }
   return {
-    id,
-    label: def.label,
-    hourRange: formatHourRange(def.start, def.end),
+    id: spec.id,
+    label: spec.label,
+    hourRange: spanFromSlice(slice),
     hoursAvailable: slice.length,
-    hoursExpected: expected,
+    hoursExpected: slice.length,
     temp: {
       min: minNum(slice.map((h) => h.row.temp)),
       max: maxNum(slice.map((h) => h.row.temp)),
@@ -435,7 +474,7 @@ function periodSnapshot(id: PeriodId, hours: HourView[]): PeriodSnapshot {
     rainRateMmH: rainRate,
     rainAmountMm: rainAmount != null && rainAmount > 0 ? rainAmount : null,
     windMs: maxNum(slice.map((h) => h.row.windSpeed)),
-    thunderRiskPct: thunder != null ? Math.round(thunder) : hasThunder ? null : null,
+    thunderRiskPct: thunder != null ? Math.round(thunder) : null,
     fogRiskPct: fog != null ? Math.round(fog) : null,
     ceilingM: ceiling,
     summary,
@@ -512,15 +551,7 @@ function assessCoverage(
     return {
       stale: true,
       insufficient,
-      note: 'Forecast is delayed. Beach and dinner windows are withheld until a fresh run is in.',
-      label,
-    };
-  }
-  if (insufficient) {
-    return {
-      stale: false,
-      insufficient: true,
-      note: 'Hourly coverage is too thin to name beach or dinner windows.',
+      note: 'Forecast is delayed.',
       label,
     };
   }
@@ -534,8 +565,8 @@ function pickConclusions(args: {
   windows: DailyVacationBrief['windows'];
   fogText: string | null;
   allowWindows: boolean;
-}): [string, string, string] {
-  const { confidence, note, hours, windows, fogText, allowWindows } = args;
+}): string[] {
+  const { note, hours, windows, fogText, allowWindows } = args;
   const picked: string[] = [];
   if (note) picked.push(note);
 
@@ -562,18 +593,11 @@ function pickConclusions(args: {
   }
 
   const daytime = hours.filter((h) => inRange(h.hour, BEACH_START, BEACH_END));
-  if (picked.length < 3 && daytime.length > 0) {
+  if (picked.length < 3 && daytime.length > 0 && allowWindows) {
     const rain = Math.round(maxNum(daytime.map((h) => h.rainChance)) ?? 0);
     picked.push(`Daytime rain chance peaks at ${rain}%`);
   }
-  if (picked.length < 3) {
-    const temps = finiteNums(hours.map((h) => h.row.temp));
-    if (temps.length) {
-      picked.push(`Temperature ${Math.round(Math.min(...temps))}–${Math.round(Math.max(...temps))}°C`);
-    }
-  }
-  while (picked.length < 3) picked.push('See hourly forecast for timing.');
-  return [picked[0]!, picked[1]!, picked[2]!];
+  return picked;
 }
 
 function buildSummary(args: {
@@ -585,7 +609,7 @@ function buildSummary(args: {
   temperature: { min: number | null; max: number | null };
 }): string {
   if (!args.allowWindows) {
-    return args.note ?? 'Not enough trustworthy hourly data for a vacation plan yet.';
+    return args.note ?? 'Forecast is delayed.';
   }
   const bits: string[] = [];
   if (args.windows.beach) bits.push(args.windows.beach.text.replace('Best beach window: ', 'Best outdoor stretch is '));
@@ -610,55 +634,61 @@ export function buildDailyVacationBrief(
   },
 ): DailyVacationBrief {
   const now = opts?.now ?? Date.now();
-  const sammiDaily = opts?.sammiDaily ?? null;
-  const selected = todayRows(rows, now);
-  const hours = uniqueByHour(selected);
-  const coverage = assessCoverage(hours, now, selected.length ? selected : rows, opts?.freshness);
-  const allowWindows = !coverage.stale && !coverage.insufficient;
+  const hourStart = now - (now % 3_600_000);
+  const todayKey = localDateKey(new Date(now).toISOString());
+  const ictHour = localHour(new Date(now).toISOString());
+  const byKey = new Map<string, HourView>();
+  for (const row of rows) {
+    const t = new Date(row.time).getTime();
+    if (Number.isNaN(t) || t < hourStart) continue;
+    const key = `${localDateKey(row.time)}-${localHour(row.time)}`;
+    if (!byKey.has(key)) byKey.set(key, toHourView(row));
+  }
+  const ahead = [...byKey.values()].sort(
+    (a, b) => new Date(a.row.time).getTime() - new Date(b.row.time).getTime(),
+  );
+  const periods = comingUpParts(ictHour)
+    .map((spec) => {
+      const slice = ahead.filter((h) =>
+        hourMatchesPart(spec, localDateKey(h.row.time), h.hour, todayKey),
+      );
+      return slice.length > 0 ? snapshotForPart(spec, slice) : null;
+    })
+    .filter((p): p is PeriodSnapshot => p != null);
+  const hours = ahead.filter((h) => periods.some((p) => {
+    const spec = comingUpParts(ictHour).find((s) => s.id === p.id && s.label === p.label);
+    return spec != null && hourMatchesPart(spec, localDateKey(h.row.time), h.hour, todayKey);
+  }));
+  const coverage = assessCoverage(hours, now, rows, opts?.freshness);
+  const allowWindows = !coverage.stale;
 
   const beach = allowWindows ? pickBeachWindow(hours) : null;
   const rain = allowWindows ? pickRainWindow(hours) : null;
-  const heat = hours.length ? pickHeatWindow(hours) : null;
-  const wind = hours.length ? pickWindWindow(hours) : null;
+  const heat = allowWindows && hours.length ? pickHeatWindow(hours) : null;
+  const wind = allowWindows && hours.length ? pickWindWindow(hours) : null;
   const thunder = allowWindows ? pickThunderWindow(hours) : null;
   const evening = allowWindows ? pickEveningWindow(hours) : null;
   const windows = { beach, rain, heat, wind, thunder, evening };
 
-  const periods = PERIODS.map((p) => periodSnapshot(p.id, hours));
-  const vacationHours = hours.filter((h) => inRange(h.hour, 6, 22));
-  const hourlyTempMin = minNum(vacationHours.map((h) => h.row.temp));
-  const hourlyTempMax = maxNum(vacationHours.map((h) => h.row.temp));
   const temperature = {
-    min: hourlyTempMin ?? sammiDaily?.min_temp_c ?? null,
-    max: hourlyTempMax ?? sammiDaily?.max_temp_c ?? null,
+    min: minNum(hours.map((h) => h.row.temp)),
+    max: maxNum(hours.map((h) => h.row.temp)),
   };
-  const hourlyRain = maxNum(vacationHours.map((h) => h.rainChance));
-  const rainChancePct =
-    hourlyRain != null
-      ? Math.round(hourlyRain)
-      : sammiDaily?.kans_regen_pct_sammi != null
-        ? Math.round(sammiDaily.kans_regen_pct_sammi)
-        : hours.length
-          ? 0
-          : null;
-  const thunderRiskPct = (() => {
-    const hourly = maxNum(vacationHours.map((h) => h.thunderChance));
-    if (hourly != null) return Math.round(hourly);
-    const daily = sammiDaily?.kans_onweer_pct_sammi ?? null;
-    if (daily != null) return Math.round(daily);
-    return vacationHours.some((h) => h.thundery) ? null : 0;
-  })();
+  const hourlyRain = maxNum(hours.map((h) => h.rainChance));
+  const rainChancePct = hourlyRain != null ? Math.round(hourlyRain) : null;
+  const thunderHourly = maxNum(hours.map((h) => h.thunderChance));
+  const thunderRiskPct = thunderHourly != null ? Math.round(thunderHourly) : null;
   const rainRateMmH = maxNum(hours.map((h) => h.row.precipRate));
   const rainAmountMm = hours.some((h) => h.row.precip > 0)
     ? hours.reduce((sum, h) => sum + (Number.isFinite(h.row.precip) ? h.row.precip : 0), 0)
     : null;
   const windMs = maxNum(hours.map((h) => h.row.windSpeed));
 
-  const fogHours = vacationHours.filter((h) => (h.fogChance ?? 0) >= FOG_RELEVANT);
+  const fogHours = hours.filter((h) => (h.fogChance ?? 0) >= FOG_RELEVANT);
   const morningFog = maxNum(
     hours.filter((h) => inRange(h.hour, 6, 10)).map((h) => h.fogChance),
   );
-  const fogChanceMax = maxNum(vacationHours.map((h) => h.fogChance));
+  const fogChanceMax = maxNum(hours.map((h) => h.fogChance));
   const fogRelevant =
     fogHours.length >= 2 || (morningFog != null && morningFog >= 20);
   const fogText = fogRelevant
@@ -667,18 +697,13 @@ export function buildDailyVacationBrief(
       : `Fog or low visibility risk up to ${Math.round(maxNum(fogHours.map((h) => h.fogChance))!)}%`
     : null;
 
-  const hourlyCeiling = minNum(hours.map((h) => h.ceilingM));
-  const ceilingMin = minNum([hourlyCeiling, sammiDaily?.conv_ceiling_min ?? null]);
+  const ceilingMin = minNum(hours.map((h) => h.ceilingM));
   const ceilingRelevant = ceilingMin != null && ceilingMin <= CEILING_RELEVANT_M;
   const ceilingText = ceilingRelevant
     ? `Low cloud base around ${Math.round(ceilingMin!)} m — beach sky may look grey`
     : null;
 
-  const confidence: BriefConfidence = coverage.stale
-    ? 'stale'
-    : coverage.insufficient
-      ? 'insufficient'
-      : 'ok';
+  const confidence: BriefConfidence = coverage.stale ? 'stale' : 'ok';
   const verdict = allowWindows ? verdictFromHours(hours, windows) : 'Flexible day';
   const conclusions = pickConclusions({
     confidence,
@@ -689,19 +714,14 @@ export function buildDailyVacationBrief(
     allowWindows,
   });
 
-  const dateLabel = new Date(selected[0]?.time ?? now).toLocaleDateString('en-US', {
+  const dateLabel = new Date(hours[0]?.row.time ?? now).toLocaleDateString('en-US', {
     timeZone: TIME_ZONE,
     weekday: 'long',
     month: 'short',
     day: 'numeric',
   });
 
-  const sourceBits = [
-    'Spire hourly forecast with Samui Optimized Point probability overlay',
-  ];
-  if (sammiDaily) sourceBits.push('sammi_daily_forecast day totals');
-
-  const expected = PERIODS.reduce((n, p) => n + (p.end - p.start), 0);
+  const sourceLine = 'Spire hourly forecast. Rain chance is the highest hour in each part';
 
   return {
     place: 'Koh Samui',
@@ -730,8 +750,11 @@ export function buildDailyVacationBrief(
       windows,
       temperature,
     }),
-    sourceLine: sourceBits.join('; '),
-    coverage: { available: hours.filter((h) => inRange(h.hour, 6, 22)).length, expected },
+    sourceLine,
+    coverage: {
+      available: hours.filter((h) => inRange(h.hour, 6, 22)).length,
+      expected: Math.max(hours.length, 1),
+    },
   };
 }
 

@@ -23,6 +23,7 @@ import {
 import HourlyForecast from './HourlyForecast';
 import DailyForecast from './DailyForecast';
 import DailyVacationBrief from './DailyVacationBrief';
+import NowReading, { type NowStation } from './NowReading';
 
 const TZ_ICT = 'Asia/Bangkok';
 
@@ -116,6 +117,9 @@ export type VacationDashboardProps = {
   sammiDailyByIsoDay?: Record<string, SammiDailyForecastViewRow> | null;
   /** Drives “Today” copy in the daily strip (heuristic Spire + Sammi daily hints). */
   productRegion?: 'samui' | 'krabi';
+  /** Garden station. Shown only in the Now block, never mixed into a forecast hour. */
+  nowStation?: NowStation | null;
+  radarWetWhileStationDry?: boolean;
 };
 
 // ─── Verdict logic ────────────────────────────────────────────────────────────
@@ -428,6 +432,8 @@ export default function VacationDashboard({
   metarSkyCover = null,
   sammiDailyByIsoDay = null,
   productRegion = 'samui',
+  nowStation = null,
+  radarWetWhileStationDry = false,
 }: VacationDashboardProps) {
   const row = rows[selectedIndex] ?? rows[0];
   if (!row) return null;
@@ -501,7 +507,18 @@ export default function VacationDashboard({
 
   return (
     <div className="mb-4 flex flex-col gap-3">
-      {/* ── 1. Today in Koh Samui ─────────────────────────────────────── */}
+      {/* ── 1. Now, then the next named parts of the day ───────────────── */}
+      {productRegion === 'samui' && (
+        <NowReading
+          station={nowStation}
+          fallback={
+            rows[0]
+              ? { tempC: rows[0].temp, windSpeedMs: rows[0].windSpeed, windDirDeg: rows[0].windDir }
+              : null
+          }
+          radarWetWhileStationDry={radarWetWhileStationDry}
+        />
+      )}
       {productRegion === 'samui' && (
         <DailyVacationBrief
           rows={rows}

@@ -1,8 +1,8 @@
 # Sammi AI - Project skills & architecture (V2)
 
 Status: CANONICAL
-Document version: 7.1
-Last updated: 2026-09-17
+Document version: 8.0
+Last updated: 2026-09-25
 Last verified: 2026-09-17 (production `/api/weather/wind-overlay` Spire 195/195, valid 12:00Z)
 Owner: ProSeadure
 
@@ -38,7 +38,7 @@ Sammi keeps a clear split between what is happening *now* and what will *happen*
 ### 4. Ecowitt ground truth (Baan Ton Kluay)
 - Live: `GET /api/ecowitt/latest`. Day archive: `GET /api/ecowitt/daily?date=YYYY-MM-DD` (ICT). Forecast skill vs that day: `GET /api/forecast/accuracy?date=YYYY-MM-DD`. Trend: `GET /api/forecast/accuracy/trend`.
 - **4× daily OPF overview:** dashboard **Today's 4 checks**, `GET /overview`, `GET|POST /api/forecast/overview`. Table `daily_forecast_slot_lock`. Contract: `docs/forecast-overview.md`.
-- Numbers on the dashboard / Sammi still come from Spire. The station is verification and “now” blend, not a second forecast source.
+- Forecast hours on the dashboard and in Sammi stay Spire (Samui 1-hour chance when that hour has one). The station is the Now block only: temperature, rain falling or not, and wind. It is not blended into a forecast hour. The private now-cast is not blended into a forecast hour.
 
 ## Tech stack
 | Component | Technology |

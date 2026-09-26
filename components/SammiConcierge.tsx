@@ -9,7 +9,9 @@ import {
   pickDailySamuiTip,
 } from '../lib/samui-concierge-intel';
 import { calculateBeachSunScore } from '../lib/beachSunScore';
+import { rainChancePercentForRow } from '../lib/sammi-views';
 import { formatTempC, formatWindMs, type SamuiWeatherForecastRow } from '../lib/spire';
+import type { NowStation } from './NowReading';
 
 // ─── Mood palette ─────────────────────────────────────────────────────────────
 
@@ -321,12 +323,26 @@ interface ConflictStatus {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+function ictClock(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Bangkok',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return '';
+  }
+}
+
 export default function SammiConcierge({
   forecastRows = [],
   onMapFlyTo,
   className,
   conflictRegion = 'samui',
   beachRegionLabel,
+  nowStation = null,
 }: {
   forecastRows?: SamuiWeatherForecastRow[];
   /** When Sammi returns `mapFlyTo` from chat API, parent pans the Mapbox map */
@@ -337,6 +353,8 @@ export default function SammiConcierge({
   conflictRegion?: 'samui' | 'krabi';
   /** For Beach Sun Score copy in chat (defaults from conflictRegion). */
   beachRegionLabel?: string;
+  /** Garden station. Same facts as the drawer Now block. */
+  nowStation?: NowStation | null;
 }) {
   const [chatInput, setChatInput]     = useState('');
   const [chatMsgs, setChatMsgs]       = useState<ChatMessage[]>([]);
@@ -479,26 +497,30 @@ export default function SammiConcierge({
               <p className="text-[10px] font-black uppercase tracking-[0.14em] text-cyan-300/95">
                 SAMMI Weather Expert
               </p>
-              {now && (
+              {(nowStation?.fresh || now) && (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-black uppercase tracking-widest ${cfg.badge}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot} animate-pulse`} />
-                    Live
-                  </span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60">
-                    {formatTempC(now.temp)}°C
-                  </span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60">
-                    {(now.precipRate ?? 0) > 0 ? `${Number(now.precipRate ?? 0).toFixed(1)} mm/h` : 'no rain'}
-                  </span>
-                  {(now.pop ?? 0) > 0 && (
+                  {nowStation?.fresh && nowStation.tempC != null ? (
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/80">
+                      Now {formatTempC(nowStation.tempC)}°C
+                      {' · '}
+                      {(nowStation.rainRateMmh ?? 0) >= 0.05
+                        ? `${nowStation.rainRateMmh!.toFixed(1)} mm/h`
+                        : 'not raining'}
+                      {nowStation.windSpeedMs != null
+                        ? ` · ${compass16(nowStation.windDirDeg ?? 0)} ${formatWindMs(nowStation.windSpeedMs)} m/s`
+                        : ''}
+                    </span>
+                  ) : now ? (
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/70">
+                      {nowStation?.late ? 'Station reading is late · ' : ''}
+                      {formatTempC(now.temp)}°C · {compass16(now.windDir ?? 0)} {formatWindMs(now.windSpeed)} m/s
+                    </span>
+                  ) : null}
+                  {now && (
                     <span className="rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold text-sky-300/95">
-                      {Math.round(now.pop)}% rain chance
+                      {ictClock(now.time)} · {formatTempC(now.temp)}°C · {Math.round(rainChancePercentForRow(now))}% chance
                     </span>
                   )}
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60">
-                    {compass16(now.windDir ?? 0)} {formatWindMs(now.windSpeed)} m/s
-                  </span>
                 </div>
               )}
 

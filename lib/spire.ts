@@ -3,7 +3,7 @@
  *
  * **Product (what users mostly see):** Spire point forecast, merged tiers + (on Samui) OPF probability overlay on matching hours.
  * Ingest in Supabase → `sammi_forecast` / `sammi_daily_forecast` for `kans_*`, advice, reliability.
- * The UI can **nudge “now”** only via a private grid route — see `lib/forecast-reference.ts` (`blendReferenceNowcastIntoFirstRow`); Spire remains the lead timeline; that grid is a cross-check, not a second branded layer.
+ * The home page shows the garden station as Now and these hours as the forecast. Neither the station nor the private now-cast is copied onto a forecast hour.
  * **To track skill over time:** compare archived `weather_forecast` to METAR + radar truth and (when live) ground sensors; `issuance` vs `valid_time` in views encodes the OPF / medium / long-horizon bands.
  */
 import {
