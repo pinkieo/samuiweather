@@ -21,15 +21,23 @@ const LAYER_ID = 'samui-wind-overlay-layer';
 const SUN_SOURCE_ID = 'samui-sun-overlay';
 const SUN_LAYER_ID = 'samui-sun-overlay-layer';
 const RADAR_LAYER_ID = 'rainviewer-radar-layer';
-const PARTICLE_COUNT = 2200;
-const MAX_AGE = 140;
-const FADE = 0.08;
-const LINE_W = 1.8;
-const TARGET_PX = 2.1;
-const REF_MS = 1.2;
-const MAX_WIND_MS = 80;
+const PARTICLE_COUNT = 2000;
+/** How long one mote stays before it is reseeded. */
+const LIFE_SEC = 4;
+/** Trail e-folding time. A couple of seconds of soft thread, not a slash. */
+const TRAIL_SEC = 2.2;
+const LINE_W = 1.35;
+/**
+ * Pixel speed of a 6 m/s breeze at island zoom 11.
+ * The old step was ~10 px per frame (~600 px/s) for this same breeze.
+ */
+const REF_ZOOM = 11;
+const REF_WIND_MS = 6;
+const REF_PX_PER_SEC = 14;
+const MAX_PX_PER_SEC = 28;
+/** Zoom in speeds the drift up, but only gently, so a close view stays readable. */
+const ZOOM_COUPLE = 0.35;
 const M_PER_DEG = 111320;
-const MIN_SEG_PX = 1.6;
 
 type Particle = { lon: number; lat: number; age: number };
 type RasterUrl = {
@@ -37,11 +45,11 @@ type RasterUrl = {
   coordinates: [[number, number], [number, number], [number, number], [number, number]];
 };
 
-function seed(field: WindOverlayField): Particle {
+function seed(field: WindOverlayField, fresh = false): Particle {
   return {
     lon: field.west + Math.random() * (field.east - field.west),
     lat: field.south + Math.random() * (field.north - field.south),
-    age: Math.floor(Math.random() * 80),
+    age: fresh ? 0 : Math.random() * LIFE_SEC,
   };
 }
 
@@ -283,14 +291,19 @@ export default function WindyWindOverlay({
       onResize = size;
       map.on('resize', onResize);
 
-      const tick = () => {
+      let lastNow = 0;
+      const tick = (now: number) => {
         if (signal.cancelled || !canvas) return;
+        if (lastNow === 0) lastNow = now;
+        const elapsed = Math.min(0.05, Math.max(0, (now - lastNow) / 1000));
+        lastNow = now;
         size();
         const w = canvas.width;
         const h = canvas.height;
+        const fade = 1 - Math.exp(-elapsed / TRAIL_SEC);
         ctx.save();
         ctx.globalCompositeOperation = 'destination-out';
-        ctx.fillStyle = `rgba(255,255,255,${FADE})`;
+        ctx.fillStyle = `rgba(255,255,255,${fade})`;
         ctx.fillRect(0, 0, w, h);
         ctx.restore();
         ctx.lineCap = 'round';
@@ -299,52 +312,43 @@ export default function WindyWindOverlay({
         const center = map!.getCenter();
         const mpp =
           (156543.03392 * Math.max(0.2, Math.cos((center.lat * Math.PI) / 180))) / 2 ** zoom;
-        const dt = (TARGET_PX * mpp) / REF_MS;
+        const zoomBoost = 2 ** ((zoom - REF_ZOOM) * ZOOM_COUPLE);
         const buckets: number[][] = [[], [], []];
         for (let i = 0; i < particles.length; i++) {
           const p = particles[i]!;
-          p.age += 1;
-          if (p.age > MAX_AGE) {
-            particles[i] = seed(field);
+          p.age += elapsed;
+          if (p.age > LIFE_SEC) {
+            particles[i] = seed(field, true);
             continue;
           }
           const sampled = sampleUv(field, p.lon, p.lat);
           if (!sampled) {
-            particles[i] = seed(field);
+            particles[i] = seed(field, true);
             continue;
           }
-          let u = sampled.u;
-          let v = sampled.v;
+          const u = sampled.u;
+          const v = sampled.v;
           const spd = Math.hypot(u, v);
-          if (spd > MAX_WIND_MS && spd > 0) {
-            const k = MAX_WIND_MS / spd;
-            u *= k;
-            v *= k;
-          }
+          if (!(spd > 0.05)) continue;
+          const pxPerSec = Math.min(
+            MAX_PX_PER_SEC,
+            (spd / REF_WIND_MS) * REF_PX_PER_SEC * zoomBoost,
+          );
+          const distM = pxPerSec * elapsed * mpp;
           const startLon = p.lon;
           const startLat = p.lat;
           const cosLat = Math.max(0.2, Math.cos((p.lat * Math.PI) / 180));
-          p.lon += (u * dt) / (M_PER_DEG * cosLat);
-          p.lat += (v * dt) / M_PER_DEG;
+          p.lon += (u / spd * distM) / (M_PER_DEG * cosLat);
+          p.lat += (v / spd * distM) / M_PER_DEG;
           const a = map!.project([startLon, startLat]);
           const b = map!.project([p.lon, p.lat]);
-          let x0 = a.x;
-          let y0 = a.y;
-          let x1 = b.x;
-          let y1 = b.y;
-          const seg = Math.hypot(x1 - x0, y1 - y0);
-          if (seg > 0 && seg < MIN_SEG_PX) {
-            const s = MIN_SEG_PX / seg;
-            x1 = x0 + (x1 - x0) * s;
-            y1 = y0 + (y1 - y0) * s;
-          }
           const kn = spd * KN_PER_MS;
-          buckets[kn < 6 ? 0 : kn < 16 ? 1 : 2]!.push(x0, y0, x1, y1);
+          buckets[kn < 6 ? 0 : kn < 16 ? 1 : 2]!.push(a.x, a.y, b.x, b.y);
         }
         const colors = [
-          'rgba(255,255,255,0.72)',
-          'rgba(255,255,255,0.86)',
-          'rgba(255,255,255,0.96)',
+          'rgba(255,255,255,0.46)',
+          'rgba(255,255,255,0.6)',
+          'rgba(255,255,255,0.74)',
         ];
         for (let bi = 0; bi < 3; bi++) {
           const segs = buckets[bi]!;

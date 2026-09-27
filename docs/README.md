@@ -1,8 +1,8 @@
 # Samui / Sammi documentation index
 
 Status: CANONICAL
-Document version: 2.6
-Last updated: 2026-09-25
+Document version: 2.7
+Last updated: 2026-09-27
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -24,8 +24,8 @@ authorised production host.
 | Document | Subject | Version | Last updated | Last verified |
 |---|---|---|---|---|
 | [AGENTS.md](../AGENTS.md) | Agent operating instructions for this repo | 1.0 | 2026-09-01 | NOT VERIFIED |
-| [docs/README.md](README.md) | Documentation index (this file) | 2.6 | 2026-09-25 | NOT VERIFIED |
-| [ARCHITECTURE.md](../ARCHITECTURE.md) | Sammi AI / Samui weather architecture | 8.0 | 2026-09-25 | 2026-09-17 (production Spire overlay GET) |
+| [docs/README.md](README.md) | Documentation index (this file) | 2.7 | 2026-09-27 | NOT VERIFIED |
+| [ARCHITECTURE.md](../ARCHITECTURE.md) | Sammi AI / Samui weather architecture | 8.1 | 2026-09-27 | 2026-09-17 (production Spire overlay GET) |
 | [docs/daily-vacation-forecast.md](daily-vacation-forecast.md) | Daily vacation brief | 3.0 | 2026-09-25 | NOT VERIFIED |
 | [docs/sammi-broadcast.md](sammi-broadcast.md) | Sammi tourist weather TV (3× daily feature) | 7.1 | 2026-09-17 | NOT VERIFIED |
 | [docs/weather-ingest.md](weather-ingest.md) | 4× daily Spire ingest (cron-job.org) | 1.1 | 2026-09-17 | NOT VERIFIED |

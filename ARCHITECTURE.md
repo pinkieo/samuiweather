@@ -1,8 +1,8 @@
 # Sammi AI - Project skills & architecture (V2)
 
 Status: CANONICAL
-Document version: 8.0
-Last updated: 2026-09-25
+Document version: 8.1
+Last updated: 2026-09-27
 Last verified: 2026-09-17 (production `/api/weather/wind-overlay` Spire 195/195, valid 12:00Z)
 Owner: ProSeadure
 
@@ -33,6 +33,7 @@ Sammi keeps a clear split between what is happening *now* and what will *happen*
 - **Wind picture:** Spire 10 m via Theyr RouteData (`GET /api/weather/wind-overlay`). Same path as VIP: dataFeed `bd131aaa-…` (RDAS Spire), not Spire `/forecast/point` on a grid. Theyr is delivery; Spire is the model. Requires `THEYR_LICENSE_KEY`.
 - **Isobars / sunshine wash:** DWD ICON via Open-Meteo on the same box, optional. If ICON fails, wind still shows. Not used for Sammi or dashboard numbers.
 - Low-knot colours are saturated cyan so a tropical breeze reads on satellite water. Live radar (showers) stays above the wind raster. Sun disc follows SunCalc altitude/azimuth.
+- Particles are a slow drift, not a real-time crossing. At the island zoom (11), a 6 m/s breeze moves about 14 px/s, with a soft trail of a couple of seconds. Faster wind is visibly faster, and the speed is capped so a close zoom does not become a racetrack.
 - **UI:** one toggle, **Weather overlay** on/off. **Default on** on the dashboard and in Sammi Broadcast studio (wind, isobars, showers, sun). Picture only.
 
 ### 4. Ecowitt ground truth (Baan Ton Kluay)
