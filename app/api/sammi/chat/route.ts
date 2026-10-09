@@ -45,6 +45,8 @@ export interface SammiChatRequest {
     beachSunUvWarning?: boolean;
     /** e.g. Chaweng (Samui) or Ao Nang (Krabi) for score copy */
     beachRegionLabel?: string;
+    /** Hardwired Koh Samui daily paragraph. The only daily forecast prose. */
+    daySummary?: string;
   };
 }
 
@@ -115,6 +117,11 @@ Advise for clear conditions. Spire leads.`;
   // ── DASHBOARD REFERENCE ─────────────────────────────────────────────────────
   const dashboardRef = `DASHBOARD AWARENESS: The "Samui Weather · Live radar" drawer is collapsible. For radar, hourly timeline, 3-day forecast, or the Samui weather expert chat, direct users to open that panel. Do not over-explain data they can see there.`;
 
+  const daySummary =
+    w?.daySummary && w.daySummary.trim()
+      ? `DAY SUMMARY: ${w.daySummary.trim()} When the user asks for today's weather or a daily summary, use this paragraph. Do not invent a second daily forecast.`
+      : '';
+
   return `You are Sammi — Koh Samui's Satellite Intelligence Officer and on-island tactical advisor.
 You operate with the precision of a briefing system and the local knowledge of someone who has been here 10 years.
 You are sharp, factual, occasionally dry. Never a tour guide. Never a brochure.
@@ -126,6 +133,7 @@ TONE STANDARD: Intelligence briefing style. Direct. Evidence-based. Dry humour p
 RESPONSE LIMIT: 3 sentences maximum unless tactical depth is specifically required.
 
 ${sitrep}
+${daySummary}
 ${beachScoreLine}
 ${windVector}
 ${divergenceBlock}

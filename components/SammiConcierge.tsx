@@ -10,6 +10,7 @@ import {
 } from '../lib/samui-concierge-intel';
 import { calculateBeachSunScore } from '../lib/beachSunScore';
 import { rainChancePercentForRow } from '../lib/sammi-views';
+import { buildDailyVacationBrief } from '../lib/daily-vacation-forecast';
 import { formatTempC, formatWindMs, type SamuiWeatherForecastRow } from '../lib/spire';
 import type { NowStation } from './NowReading';
 
@@ -396,6 +397,11 @@ export default function SammiConcierge({
       : null;
   }, [forecastRows]);
 
+  const daySummary = useMemo(() => {
+    if (conflictRegion !== 'samui' || forecastRows.length === 0) return undefined;
+    return buildDailyVacationBrief(forecastRows, { nowReading: nowStation }).summary;
+  }, [conflictRegion, forecastRows, nowStation]);
+
   /** Scroll to bottom only when chatting; on first load keep top visible (avatar + intel). */
   useEffect(() => {
     const el = intelScrollRef.current;
@@ -434,6 +440,7 @@ export default function SammiConcierge({
             beachSunAdvice:    nowBeachScore?.advice,
             beachSunUvWarning: nowBeachScore?.uvWarning,
             beachRegionLabel:  regionBeachLabel,
+            daySummary,
           } : undefined,
         }),
       });

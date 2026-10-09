@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import {
   buildDailyVacationBrief,
+  type BriefNowReading,
   type DailyVacationBrief as DailyVacationBriefModel,
   type PeriodSnapshot,
 } from '../lib/daily-vacation-forecast';
@@ -14,6 +15,8 @@ type DailyVacationBriefProps = {
   rows: SamuiWeatherForecastRow[];
   sammiDaily?: SammiDailyForecastViewRow | null;
   freshness?: { stale?: boolean; ageMinutes?: number | null; label?: string | null };
+  /** Garden station. The paragraph’s Now clause only. */
+  nowReading?: BriefNowReading | null;
 };
 
 const verdictClasses: Record<DailyVacationBriefModel['verdict'], string> = {
@@ -82,10 +85,11 @@ export default function DailyVacationBrief({
   rows,
   sammiDaily = null,
   freshness,
+  nowReading = null,
 }: DailyVacationBriefProps) {
   const brief = useMemo(
-    () => buildDailyVacationBrief(rows, { sammiDaily, freshness }),
-    [rows, sammiDaily, freshness],
+    () => buildDailyVacationBrief(rows, { sammiDaily, freshness, nowReading }),
+    [rows, sammiDaily, freshness, nowReading],
   );
 
   const delayed = brief.confidence === 'stale';

@@ -351,3 +351,84 @@ describe('overnight OPF spike is not a vacation window', () => {
     assert.ok(brief.windows.beach);
   });
 });
+
+describe('Sammi daily paragraph', () => {
+  const rows = dayHours(6, 22, (hour) => ({
+    temp: hour >= 12 && hour <= 14 ? 32.4 : 29.5,
+    pop: 10,
+    precipRate: 0,
+    windSpeed: 3,
+  }));
+
+  it('uses a fresh dry gauge and the same day figures as Coming up', () => {
+    const brief = buildDailyVacationBrief(rows, {
+      now: NOW,
+      nowReading: { fresh: true, tempC: 28.2, rainRateMmh: 0, windSpeedMs: 2 },
+    });
+    assert.equal(brief.verdict, 'Beach-first');
+    assert.equal(
+      brief.summary,
+      'Right now 28°C, dry on the gauge. Day: about 30\u201332°C, chance of rain up to 10%, wind up to 3 m/s. Normal tourist day.',
+    );
+  });
+
+  it('says raining on the gauge without changing the forecast hours', () => {
+    const brief = buildDailyVacationBrief(rows, {
+      now: NOW,
+      nowReading: { fresh: true, tempC: 27.6, rainRateMmh: 0.4, windSpeedMs: 2 },
+    });
+    assert.equal(brief.verdict, 'Beach-first');
+    assert.match(brief.summary, /^Right now 28°C, raining on the gauge\./);
+    assert.match(brief.summary, /chance of rain up to 10%/);
+  });
+
+  it('uses the current forecast hour when the station is late', () => {
+    const brief = buildDailyVacationBrief(rows, {
+      now: NOW,
+      nowReading: { fresh: false, late: true, tempC: 22, rainRateMmh: 0, windSpeedMs: 9 },
+    });
+    assert.equal(
+      brief.summary,
+      'The station reading is late. The current hour is 30°C with wind 3 m/s. Day: about 30\u201332°C, chance of rain up to 10%, wind up to 3 m/s. Normal tourist day.',
+    );
+    assert.doesNotMatch(brief.summary, /gauge/);
+    assert.doesNotMatch(brief.summary, /22°C/);
+  });
+
+  it('uses the late wording when the station is missing', () => {
+    const brief = buildDailyVacationBrief(rows, { now: NOW, nowReading: null });
+    assert.match(brief.summary, /^The station reading is late\. The current hour is 30°C with wind 3 m\/s\./);
+  });
+
+  it('is only the delayed line when the forecast is stale', () => {
+    const brief = buildDailyVacationBrief(rows, {
+      now: NOW,
+      freshness: { stale: true, ageMinutes: 180, label: '3h ago' },
+      nowReading: { fresh: true, tempC: 28, rainRateMmh: 0, windSpeedMs: 2 },
+    });
+    assert.equal(brief.summary, 'Forecast is delayed.');
+    assert.doesNotMatch(brief.summary, /beach|dinner|Normal tourist|gauge/i);
+  });
+
+  it('names a light shower backup on a flexible day', () => {
+    const flexible = dayHours(6, 22, { pop: 28, precipRate: 0.1, windSpeed: 4.2, temp: 29 });
+    const brief = buildDailyVacationBrief(flexible, {
+      now: NOW,
+      nowReading: { fresh: true, tempC: 29, rainRateMmh: 0, windSpeedMs: 3 },
+    });
+    assert.equal(brief.verdict, 'Flexible day');
+    assert.match(brief.summary, /Right now 29°C, dry on the gauge\./);
+    assert.match(brief.summary, /chance of rain up to 28%, wind up to 4 m\/s\. Normal tourist day with a light shower backup\.$/);
+  });
+
+  it('names an indoor-first day from the forecast, not the gauge', () => {
+    const indoor = dayHours(6, 22, { pop: 80, precipRate: 2.5, precip: 2.5, windSpeed: 6, temp: 27 });
+    const brief = buildDailyVacationBrief(indoor, {
+      now: NOW,
+      nowReading: { fresh: true, tempC: 27, rainRateMmh: 0, windSpeedMs: 2 },
+    });
+    assert.equal(brief.verdict, 'Indoor-first');
+    assert.match(brief.summary, /dry on the gauge\./);
+    assert.match(brief.summary, /Indoor-first day\.$/);
+  });
+});

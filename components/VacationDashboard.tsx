@@ -522,6 +522,7 @@ export default function VacationDashboard({
       {productRegion === 'samui' && (
         <DailyVacationBrief
           rows={rows}
+          nowReading={nowStation}
           sammiDaily={
             sammiDailyByIsoDay?.[
               new Date().toLocaleDateString('en-CA', { timeZone: TZ_ICT })

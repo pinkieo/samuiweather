@@ -80,6 +80,15 @@ export interface DailyVacationBrief {
   coverage: { available: number; expected: number };
 }
 
+/** Garden-station now. Used only in the daily paragraph, never copied onto a forecast hour. */
+export interface BriefNowReading {
+  fresh: boolean;
+  late?: boolean;
+  tempC: number | null;
+  rainRateMmh: number | null;
+  windSpeedMs: number | null;
+}
+
 const TIME_ZONE = 'Asia/Bangkok';
 const STALE_AFTER_MINUTES = SPIRE_HOUR_STALE_AFTER_MINUTES;
 const BEACH_START = 7;
@@ -600,29 +609,88 @@ function pickConclusions(args: {
   return picked;
 }
 
-function buildSummary(args: {
-  allowWindows: boolean;
-  confidence: BriefConfidence;
-  note: string | null;
-  periods: PeriodSnapshot[];
-  windows: DailyVacationBrief['windows'];
+const GAUGE_DRY_MMH = 0.05;
+
+function roundWhole(n: number | null | undefined): number | null {
+  if (n == null || !Number.isFinite(n)) return null;
+  return Math.round(n);
+}
+
+function touristLine(verdict: VacationVerdict): string {
+  switch (verdict) {
+    case 'Beach-first':
+      return 'Normal tourist day.';
+    case 'Flexible day':
+      return 'Normal tourist day with a light shower backup.';
+    case 'Rain-aware day':
+      return 'Keep a covered plan.';
+    case 'Indoor-first':
+      return 'Indoor-first day.';
+  }
+}
+
+function nowClause(
+  nowReading: BriefNowReading | null | undefined,
+  forecastNow: { tempC: number | null; windSpeedMs: number | null } | null,
+): string {
+  const fresh =
+    nowReading?.fresh === true &&
+    nowReading.tempC != null &&
+    Number.isFinite(nowReading.tempC);
+  if (fresh) {
+    const gauge = (nowReading.rainRateMmh ?? 0) < GAUGE_DRY_MMH ? 'dry' : 'raining';
+    return `Right now ${roundWhole(nowReading.tempC)}°C, ${gauge} on the gauge.`;
+  }
+  const temp = roundWhole(forecastNow?.tempC);
+  const wind = roundWhole(forecastNow?.windSpeedMs);
+  const bits = ['The station reading is late.'];
+  if (temp != null && wind != null) {
+    bits.push(`The current hour is ${temp}°C with wind ${wind} m/s.`);
+  } else if (temp != null) {
+    bits.push(`The current hour is ${temp}°C.`);
+  } else if (wind != null) {
+    bits.push(`The current hour has wind ${wind} m/s.`);
+  }
+  return bits.join(' ');
+}
+
+function dayClause(args: {
   temperature: { min: number | null; max: number | null };
+  rainChancePct: number | null;
+  windMs: number | null;
 }): string {
-  if (!args.allowWindows) {
-    return args.note ?? 'Forecast is delayed.';
-  }
+  const lo = roundWhole(args.temperature.min);
+  const hi = roundWhole(args.temperature.max);
   const bits: string[] = [];
-  if (args.windows.beach) bits.push(args.windows.beach.text.replace('Best beach window: ', 'Best outdoor stretch is '));
-  else bits.push('There is no clear dry beach window');
-  if (args.windows.rain) bits.push(args.windows.rain.text.charAt(0).toLowerCase() + args.windows.rain.text.slice(1));
-  if (args.windows.thunder) bits.push(args.windows.thunder.text.charAt(0).toLowerCase() + args.windows.thunder.text.slice(1));
-  if (args.windows.evening) bits.push('evening still works for an outdoor meal');
-  const t = args.temperature;
-  if (t.min != null && t.max != null) {
-    bits.push(`air temperature ${Math.round(t.min)}–${Math.round(t.max)}°C`);
+  if (lo != null && hi != null && lo !== hi) bits.push(`about ${lo}\u2013${hi}°C`);
+  else if (lo != null || hi != null) bits.push(`about ${lo ?? hi}°C`);
+  if (args.rainChancePct != null && Number.isFinite(args.rainChancePct)) {
+    bits.push(`chance of rain up to ${Math.round(args.rainChancePct)}%`);
   }
-  const sentence = bits.join('; ') + '.';
-  return sentence.charAt(0).toUpperCase() + sentence.slice(1);
+  const wind = roundWhole(args.windMs);
+  if (wind != null) bits.push(`wind up to ${wind} m/s`);
+  if (bits.length === 0) return '';
+  return `Day: ${bits.join(', ')}.`;
+}
+
+/** One daily paragraph. Same figures as Coming up. No second rain percentage. */
+export function buildSammiDaySummary(args: {
+  allowWindows: boolean;
+  verdict: VacationVerdict;
+  temperature: { min: number | null; max: number | null };
+  rainChancePct: number | null;
+  windMs: number | null;
+  nowReading?: BriefNowReading | null;
+  forecastNow?: { tempC: number | null; windSpeedMs: number | null } | null;
+}): string {
+  if (!args.allowWindows) return 'Forecast is delayed.';
+  return [
+    nowClause(args.nowReading, args.forecastNow ?? null),
+    dayClause(args),
+    touristLine(args.verdict),
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 export function buildDailyVacationBrief(
@@ -631,6 +699,7 @@ export function buildDailyVacationBrief(
     now?: number;
     sammiDaily?: SammiDailyForecastViewRow | null;
     freshness?: BriefFreshnessInput;
+    nowReading?: BriefNowReading | null;
   },
 ): DailyVacationBrief {
   const now = opts?.now ?? Date.now();
@@ -742,13 +811,16 @@ export function buildDailyVacationBrief(
     fog: { relevant: fogRelevant, chancePct: fogChanceMax, text: fogText },
     ceiling: { relevant: ceilingRelevant, minM: ceilingMin, text: ceilingText },
     windows,
-    summary: buildSummary({
+    summary: buildSammiDaySummary({
       allowWindows,
-      confidence,
-      note: coverage.note,
-      periods,
-      windows,
+      verdict,
       temperature,
+      rainChancePct,
+      windMs,
+      nowReading: opts?.nowReading ?? null,
+      forecastNow: ahead[0]
+        ? { tempC: ahead[0].row.temp, windSpeedMs: ahead[0].row.windSpeed }
+        : null,
     }),
     sourceLine,
     coverage: {

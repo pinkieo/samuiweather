@@ -1,8 +1,8 @@
 # Daily vacation forecast
 
 Status: CANONICAL
-Document version: 3.0
-Last updated: 2026-09-25
+Document version: 3.1
+Last updated: 2026-10-09
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -30,6 +30,20 @@ The top of the Samui drawer shows:
 
 Sammi’s badge repeats Now and the current forecast hour. It does not show a
 third percentage.
+
+The card ends with one daily paragraph, the same line Sammi used to write in the
+morning chat:
+
+- Now — fresh station temperature, and dry or raining on the gauge. A late or
+  missing station says the reading is late and uses the current forecast hour’s
+  temperature and wind. This clause has no rain percentage.
+- Day — temperature range, highest 1-hour rain chance (“up to N%”), and the
+  strongest wind in those hours. One wind number.
+- One tourist line from the verdict: Beach-first “Normal tourist day.”,
+  Flexible “Normal tourist day with a light shower backup.”, Rain-aware
+  “Keep a covered plan.”, Indoor-first “Indoor-first day.”
+
+A delayed forecast replaces the whole paragraph with “Forecast is delayed.”
 
 Windows are generated from the hours (examples of form, not canned copy):
 
@@ -83,8 +97,9 @@ still ahead, with that real span. A part with no hours is omitted.
 - **Ceiling:** shown when the lowest cloud base is ≤ 800 m AGL.
 - **Verdict bands:** Indoor-first (heavy rain / repeated thunder), Rain-aware (wet or ≥ 45% rain), Flexible (moderate rain/wind or no beach window), Beach-first (none of the above).
 
-Sammi Broadcast (4× daily ~2 min feature + hourly bumper) uses this brief as the
-spine. It must not invent windows the brief withheld. See `docs/sammi-broadcast.md`.
+Sammi Broadcast uses this brief as the spine. It must not invent windows the
+brief withheld. The TV clock is 07:00, 13:00, and 19:00 ICT, one minute each.
+See `docs/sammi-broadcast.md`.
 
 ## Freshness and honesty
 
