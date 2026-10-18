@@ -1,7 +1,7 @@
 # Daily forecast board
 
 Status: CANONICAL
-Document version: 3.0
+Document version: 3.1
 Last updated: 2026-10-18
 Last verified: NOT VERIFIED
 Owner: ProSeadure
@@ -35,7 +35,10 @@ chance, thunder risk, UV, and wind. One “Best for today” line names a
 beach, waterfall, market, or covered plan from those blocks.
 
 The frame is exactly 1280×720. The left 300px is empty for a standing
-presenter cutout.
+presenter cutout. Tap or click the board to fill the display. The same
+1280×720 frame is scaled, with the presenter gutter still on the left.
+Tap or click again, or press Escape, to leave full screen. A short line
+in the gutter says which of those applies.
 
 ## Data
 

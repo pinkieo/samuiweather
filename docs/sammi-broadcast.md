@@ -1,7 +1,7 @@
 # Sammi Broadcast
 
 Status: CANONICAL
-Document version: 8.2
+Document version: 8.3
 Last updated: 2026-10-18
 Last verified: NOT VERIFIED
 Owner: ProSeadure
@@ -134,8 +134,9 @@ screenshot:
 `https://www.samuiweather.com/board/today`
 
 Contract: `docs/daily-forecast-board.md`. Capture that page at
-1280×720 and composite the presenter on the empty left side. The
-07:00 / 13:00 / 19:00 films are unchanged.
+1280×720 and composite the presenter on the empty left side. On a
+TV, tap the board to fill the display; tap again or press Escape to
+leave full screen. The 07:00 / 13:00 / 19:00 films are unchanged.
 
 ## Out of scope here
 

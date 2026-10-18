@@ -1,7 +1,7 @@
 # Sammi AI - Project skills & architecture (V2)
 
 Status: CANONICAL
-Document version: 11.0
+Document version: 11.1
 Last updated: 2026-10-18
 Last verified: NOT VERIFIED
 Owner: ProSeadure
@@ -65,7 +65,7 @@ Contract: `docs/sammi-broadcast.md`. Scripts: `lib/broadcast-script.ts` (Daily V
 - Do **not** cron this on Vercel Hobby. Render/assemble off-site (LENOVOX13).
 - Windows task **Samui Broadcast** (`broadcast-hourly-silent.vbs`), 07/13/19 ICT; see `docs/sammi-broadcast.md`.
 - **Forecast ingest** is 4× daily via cron-job.org (`docs/weather-ingest.md`). Not GitHub Actions, not Vercel Hobby cron.
-- **Daily still** is `/board/today` (`docs/daily-forecast-board.md`). External 06:00 screenshot at 1280×720. Not a Vercel cron. Not live radar.
+- **Daily still** is `/board/today` (`docs/daily-forecast-board.md`). External 06:00 screenshot at 1280×720. Tap the board for full screen; Escape or a second tap leaves it. Not a Vercel cron. Not live radar.
 
 ## Automation
 - **Cron jobs:** Daily Reddit post sync → Supabase embeddings.

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import BoardFullscreen from '@/components/BoardFullscreen';
 import DailyForecastBoard from '@/components/DailyForecastBoard';
 import { loadDailyBoard } from '@/lib/daily-board-load';
 
@@ -22,7 +23,9 @@ export default async function DailyBoardPage({
   });
   return (
     <div className="bg-black">
-      <DailyForecastBoard board={board} />
+      <BoardFullscreen>
+        <DailyForecastBoard board={board} />
+      </BoardFullscreen>
     </div>
   );
 }
