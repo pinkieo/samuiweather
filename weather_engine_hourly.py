@@ -976,6 +976,10 @@ def flatten_for_db(
         ),
         "precipitation_rate": pick_num(v, ("precipitation_rate",)),
         "relative_humidity": pick_num(v, ("relative_humidity",)),
+        "uv_index": pick_num(
+            v,
+            ("uv_index", "ultraviolet_index", "UV_index", "surface_uv_index"),
+        ),
         "values_json": v,
         "beach_score": beach,
         "radar_status": radar_status,
@@ -1347,6 +1351,8 @@ def run() -> int:
     for r in rows_out:
         row = coerce_whole_floats_for_postgres(dict(r))
         row["updated_at"] = now_iso
+        if row.get("uv_index") is None:
+            row.pop("uv_index", None)
         payload.append(row)
 
     try:

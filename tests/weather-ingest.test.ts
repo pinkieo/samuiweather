@@ -29,5 +29,10 @@ describe('flattenForDb', () => {
     assert.equal(flat.probability_of_precipitation_1hr, 20);
     assert.equal(flat.probability_of_thunderstorm, 100);
     assert.equal(flat.radar_status, 'clear');
+    assert.equal(flat.uv_index, null);
+    assert.equal(
+      (flat.values_json as { uv_index?: unknown }).uv_index,
+      undefined,
+    );
   });
 });

@@ -1,7 +1,7 @@
 # Daily forecast board
 
 Status: CANONICAL
-Document version: 2.0
+Document version: 3.0
 Last updated: 2026-10-18
 Last verified: NOT VERIFIED
 Owner: ProSeadure
@@ -93,8 +93,13 @@ Thunder on the strip is CAPE:
   or CAPE ≥ 500 and rain chance ≥ 40% → possible
 - otherwise low
 
-UV is shown only when `values_json` has an index. This page does not
-call OpenUV.
+UV on the hourly strip is the stored `uv_index` for that hour
+(`weather_forecast.uv_index`, with the same number copied into
+`values_json`). Spire’s subscribed point bundles do not include a UV
+index. Ingest keeps a Spire index when one is present. Otherwise it
+stores the OpenUV hourly forecast for that exact UTC hour. This page
+does not call OpenUV. A missing index stays `—`. A stored 0 is real
+and reads as low.
 
 ## Temperature bias
 
@@ -151,6 +156,9 @@ Screenshot at 1280×720 (Chrome):
 BOARD_URL=http://127.0.0.1:3000/board/today?sample=1 npm run board:screenshot
 ```
 
+The 06:00 ICT brief screenshots the production page:
+
+`https://www.samuiweather.com/board/today`
+
 Do not add this capture to `vercel.json`. Vercel Hobby cannot run the
-06:00 job. An external routine screenshots the page; this repository
-only serves it. Do not deploy from this change.
+06:00 job. The external routine screenshots that URL at 1280×720.

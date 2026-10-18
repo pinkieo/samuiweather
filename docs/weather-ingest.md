@@ -1,8 +1,8 @@
 # Spire forecast ingest (4× daily)
 
 Status: CANONICAL
-Document version: 1.1
-Last updated: 2026-09-17
+Document version: 2.0
+Last updated: 2026-10-18
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -73,6 +73,23 @@ curl https://www.samuiweather.com/api/weather/status
 
 `freshness.stale` should be false within ~7 hours of the last ingest.
 `ingest.covers_current_hour` should be true.
+
+## UV index
+
+`weather_forecast.uv_index` (also `weather_history` and
+`weather_forecast_snapshot`) is null unless that valid hour has an
+index. Spire’s subscribed point bundles have no UV field. When the
+point payload does include `uv_index`, `ultraviolet_index`, `UV_index`,
+or `surface_uv_index`, that number is stored. Otherwise the HTTP ingest
+asks OpenUV `/forecast` once and writes the index only for the matching
+UTC hour. A gap stays null. It is not filled with zero, and a
+neighbouring hour is not copied across.
+
+The manual Python ingest stores a Spire index when present and leaves
+an existing `uv_index` untouched when Spire sent none. The HTTP ingest
+is the writer for OpenUV hours.
+
+Schema: `supabase/024_weather_forecast_uv_index.sql`.
 
 ## Broadcast
 

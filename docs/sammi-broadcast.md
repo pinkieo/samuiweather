@@ -1,8 +1,8 @@
 # Sammi Broadcast
 
 Status: CANONICAL
-Document version: 8.1
-Last updated: 2026-10-17
+Document version: 8.2
+Last updated: 2026-10-18
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -128,7 +128,11 @@ MP4/VTT stay out of git (`public/broadcast/latest/*.mp4`). Publish on LENOVOX13 
 
 ## Daily still board
 
-The 06:00 guest still is `/board/today`, not a live-radar screenshot.
+The 06:00 guest still is the production board, not a live-radar
+screenshot:
+
+`https://www.samuiweather.com/board/today`
+
 Contract: `docs/daily-forecast-board.md`. Capture that page at
 1280×720 and composite the presenter on the empty left side. The
 07:00 / 13:00 / 19:00 films are unchanged.

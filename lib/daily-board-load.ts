@@ -39,6 +39,7 @@ type ForecastBoardRow = ForecastTempRow & {
   total_cloud_cover: number | null;
   cape: number | null;
   probability_of_precipitation_1hr: number | null;
+  uv_index: number | null;
   values_json: Record<string, unknown> | null;
 };
 
@@ -46,6 +47,11 @@ const UV_KEYS = ['uv_index', 'ultraviolet_index', 'UV_index', 'surface_uv_index'
 
 function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+function uvFromRow(column: number | null, values: unknown): number | null {
+  if (typeof column === 'number' && Number.isFinite(column) && column >= 0) return column;
+  return uvFromValues(values);
 }
 
 function uvFromValues(values: unknown): number | null {
@@ -115,7 +121,7 @@ export function forecastRowToHour(row: ForecastBoardRow): BoardHourInput {
     cloudCoverPct: cloudFromRow(num(row.total_cloud_cover), row.values_json),
     capeJkg: num(row.cape),
     windMs: num(row.wind_speed_ms),
-    uvIndex: uvFromValues(row.values_json),
+    uvIndex: uvFromRow(num(row.uv_index), row.values_json),
   };
 }
 
@@ -180,13 +186,13 @@ export async function loadDailyBoard(opts?: {
         await Promise.all([
           fetchTable<ForecastBoardRow>(
             'weather_forecast',
-            'valid_time_utc,issuance_time_utc,air_temperature_c,wind_speed_ms,total_cloud_cover,cape,probability_of_precipitation_1hr,values_json',
+            'valid_time_utc,issuance_time_utc,air_temperature_c,wind_speed_ms,total_cloud_cover,cape,probability_of_precipitation_1hr,uv_index,values_json',
             range.startUtc.toISOString(),
             range.endUtc.toISOString(),
           ),
           fetchTable<ForecastBoardRow>(
             'weather_history',
-            'valid_time_utc,issuance_time_utc,air_temperature_c,wind_speed_ms,total_cloud_cover,cape,probability_of_precipitation_1hr,values_json',
+            'valid_time_utc,issuance_time_utc,air_temperature_c,wind_speed_ms,total_cloud_cover,cape,probability_of_precipitation_1hr,uv_index,values_json',
             range.startUtc.toISOString(),
             range.endUtc.toISOString(),
           ),
