@@ -1,5 +1,5 @@
-import type { DailyBoard, ShowerShade, SkyKind } from '@/lib/daily-board';
-import { GARDEN_STATION, MAP_H, MAP_W, islandPath } from '@/lib/daily-board-map';
+import type { BoardRegionView, DailyBoard, ShowerShade, SkyKind } from '@/lib/daily-board';
+import { GARDEN_STATION, MAP_H, MAP_W, islandPath, regionRectPath } from '@/lib/daily-board-map';
 
 const SHADE_FILL: Record<ShowerShade, string> = {
   unavailable: '#3d5c56',
@@ -76,11 +76,28 @@ function HourStack({ label }: { label: string }) {
   );
 }
 
-function IslandMap({ shade }: { shade: ShowerShade }) {
+function IslandMap({ blockId, regions }: { blockId: string; regions: BoardRegionView[] }) {
+  const clipId = `island-clip-${blockId}`;
   return (
-    <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="h-[92px] w-full" role="img" aria-label="Koh Samui">
+    <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="h-[92px] w-full" role="img" aria-label="Koh Samui rain by shore">
       <rect width={MAP_W} height={MAP_H} rx="12" fill="#073044" />
-      <path d={islandPath()} fill={SHADE_FILL[shade]} stroke="#d5efe4" strokeWidth="1.2" />
+      <defs>
+        <clipPath id={clipId}>
+          <path d={islandPath()} />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#${clipId})`}>
+        {regions.map((region) => (
+          <path
+            key={region.id}
+            data-region={region.id}
+            data-region-shade={region.shade}
+            d={regionRectPath(region.id)}
+            fill={SHADE_FILL[region.shade]}
+          />
+        ))}
+      </g>
+      <path d={islandPath()} fill="none" stroke="#d5efe4" strokeWidth="1.2" />
       <circle cx={GARDEN_STATION.x} cy={GARDEN_STATION.y} r="3.2" fill="#f0c36a" />
     </svg>
   );
@@ -90,6 +107,7 @@ export default function DailyForecastBoard({ board }: { board: DailyBoard }) {
   return (
     <main
       data-daily-board
+      data-mode={board.mode}
       lang="en"
       className="flex h-[720px] w-[1280px] overflow-hidden bg-[#071820] text-[#f4f7f8]"
     >
@@ -148,7 +166,7 @@ export default function DailyForecastBoard({ board }: { board: DailyBoard }) {
                 {block.rainWords ?? 'Rain chance unavailable'}
                 {block.rainChancePct != null ? ` · ${Math.round(block.rainChancePct)}%` : ''}
               </p>
-              <IslandMap shade={block.shade} />
+              <IslandMap blockId={block.id} regions={block.regions} />
             </article>
           ))}
         </div>

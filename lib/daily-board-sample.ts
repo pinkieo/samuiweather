@@ -5,8 +5,11 @@
 
 import {
   type BoardHourInput,
+  type BoardRegionId,
+  type CoastRateHour,
   type DailyBoard,
   type TemperaturePair,
+  BOARD_REGIONS,
   BIAS_MIN_SAMPLES,
   buildDailyBoard,
   temperatureBiasByIctHour,
@@ -87,6 +90,28 @@ export function sampleTemperaturePairs(dateYmd: string): TemperaturePair[] {
   return pairs;
 }
 
+/** Illustrative shore rates so the sample map is not one shade. Not a live forecast. */
+const SAMPLE_RATES: Record<BoardRegionId, (hour: number) => number> = {
+  north: (hour) => (hour < 10 ? 0.05 : hour < 14 ? 0.4 : hour < 18 ? 1.2 : 0),
+  east: (hour) => (hour < 10 ? 0.55 : hour < 14 ? 1.4 : hour < 18 ? 4.2 : 0.45),
+  south: (hour) => (hour < 10 ? 1.8 : hour < 14 ? 0.08 : hour < 18 ? 2.2 : 1.7),
+  west: (hour) => (hour < 10 ? 3.1 : hour < 14 ? 2.6 : hour < 18 ? 0.15 : 0.05),
+};
+
+export function sampleCoastRates(dateYmd: string): CoastRateHour[] {
+  const rows: CoastRateHour[] = [];
+  for (let hour = 6; hour < 22; hour++) {
+    for (const region of BOARD_REGIONS) {
+      rows.push({
+        region,
+        timeUtc: at(dateYmd, hour),
+        rateMmHr: SAMPLE_RATES[region](hour),
+      });
+    }
+  }
+  return rows;
+}
+
 export function sampleDailyBoard(dateYmd: string): DailyBoard {
   const hours = [];
   for (let hour = 6; hour < 22; hour++) hours.push(sampleHour(dateYmd, hour));
@@ -97,5 +122,7 @@ export function sampleDailyBoard(dateYmd: string): DailyBoard {
     bias: temperatureBiasByIctHour(sampleTemperaturePairs(dateYmd)),
     mode: 'sample',
     issuedAtUtc,
+    regionRates: sampleCoastRates(dateYmd),
+    regionRead: 'sample',
   });
 }

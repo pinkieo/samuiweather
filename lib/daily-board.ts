@@ -15,6 +15,11 @@ export const BOARD_BLOCKS = [
 
 export type BoardBlockId = (typeof BOARD_BLOCKS)[number]['id'];
 
+/** Shores read from separate Spire point calls. Not extra history locations. */
+export const BOARD_REGIONS = ['north', 'east', 'south', 'west'] as const;
+
+export type BoardRegionId = (typeof BOARD_REGIONS)[number];
+
 /** Inclusive start, exclusive end, ICT. */
 export const BOARD_HOUR_START = 6;
 export const BOARD_HOUR_END = 22;
@@ -69,6 +74,18 @@ export type BoardHourView = {
   sky: SkyKind;
 };
 
+export type BoardRegionView = {
+  id: BoardRegionId;
+  shade: ShowerShade;
+};
+
+export type CoastRateHour = {
+  region: BoardRegionId;
+  timeUtc: string;
+  /** Spire `precipitation_rate` for that shore. Null when the field was absent. */
+  rateMmHr: number | null;
+};
+
 export type BoardBlockView = {
   id: BoardBlockId;
   label: string;
@@ -78,7 +95,9 @@ export type BoardBlockView = {
   adjusted: boolean;
   rainChancePct: number | null;
   rainWords: string | null;
+  /** Island-point chance, for the words on the card. Not painted on every shore. */
   shade: ShowerShade;
+  regions: BoardRegionView[];
   thunderRisk: ThunderRisk | null;
   uvMax: number | null;
 };
@@ -101,8 +120,15 @@ export type DailyBoard = {
 const CREDIT =
   'Spire hourly forecast for Koh Samui. Rain is a chance of showers, not a rainfall total. Thunder follows CAPE. Temperatures use the Baan Ton Kluay garden station when recent hours allow. Not live radar.';
 
-const MAP_CAPTION =
-  'Shading is the island forecast for that part of the day. This cycle is one forecast point, so the whole island shares it. Gold dot: garden station.';
+function mapCaption(regionRead: 'live' | 'sample' | 'unread'): string {
+  if (regionRead === 'sample') {
+    return 'Sample shores are shaded differently on purpose. These are not live coast readings. Gold dot: garden station.';
+  }
+  if (regionRead === 'live') {
+    return 'Each shore uses its own forecast rain rate for that part of the day. It is not the island-wide chance. Gold dot: garden station.';
+  }
+  return 'The stored forecast is one island point. Coast rain rates were not available, so they are not copied from that point. Gold dot: garden station.';
+}
 
 function finite(v: number | null | undefined): v is number {
   return typeof v === 'number' && Number.isFinite(v);
@@ -201,6 +227,19 @@ export function showerShade(pct: number | null): ShowerShade {
   return 'heavy';
 }
 
+/**
+ * Shade a shore from Spire's hourly rain rate. A returned 0 is dry.
+ * A missing rate is unavailable — it is not copied from another shore
+ * and it is not turned into a chance.
+ */
+export function rainRateShade(rateMmHr: number | null | undefined): ShowerShade {
+  if (!finite(rateMmHr) || rateMmHr < 0) return 'unavailable';
+  if (rateMmHr < 0.2) return 'dry';
+  if (rateMmHr < 1) return 'possible';
+  if (rateMmHr < 2.5) return 'likely';
+  return 'heavy';
+}
+
 export function skyFromSignals(args: {
   rainChancePct: number | null;
   cloudCoverPct: number | null;
@@ -293,7 +332,10 @@ export function pairsFromHours(
   return out;
 }
 
-export function biasSummary(biases: HourBias[]): string {
+export function biasSummary(biases: HourBias[], read: 'ok' | 'unread' = 'ok'): string {
+  if (read === 'unread') {
+    return 'Temperatures are the forecast as issued. Garden readings could not be read.';
+  }
   const mean = (rows: HourBias[]): number | null => {
     const vals = rows.map((r) => r.biasC).filter(finite);
     if (!vals.length) return null;
@@ -455,13 +497,41 @@ function tempLabel(temps: number[]): string {
   return lo === hi ? `${lo}°` : `${lo}–${hi}°`;
 }
 
+function regionsForSlice(
+  dateYmd: string,
+  startHour: number,
+  endHour: number,
+  rates: CoastRateHour[] | undefined,
+  regionRead: 'live' | 'sample' | 'unread',
+): BoardRegionView[] {
+  return BOARD_REGIONS.map((id) => {
+    if (regionRead === 'unread' || !rates) return { id, shade: 'unavailable' as const };
+    const values: number[] = [];
+    for (const row of rates) {
+      if (row.region !== id) continue;
+      if (ictDateKey(row.timeUtc) !== dateYmd) continue;
+      const ictHour = ictHourFromUtc(row.timeUtc);
+      if (ictHour == null || ictHour < startHour || ictHour >= endHour) continue;
+      if (finite(row.rateMmHr) && row.rateMmHr >= 0) values.push(row.rateMmHr);
+    }
+    if (!values.length) return { id, shade: 'unavailable' as const };
+    return { id, shade: rainRateShade(Math.max(...values)) };
+  });
+}
+
 export function buildDailyBoard(args: {
   dateYmd: string;
   hours: BoardHourInput[];
   bias: HourBias[];
   mode: DailyBoardMode;
   issuedAtUtc?: string | null;
+  /** 'unread' when the garden table could not be read. Empty pairs are a thin sample, not a failed read. */
+  biasRead?: 'ok' | 'unread';
+  regionRates?: CoastRateHour[];
+  /** 'unread' leaves every shore grey. The island chance is not pasted on. */
+  regionRead?: 'live' | 'sample' | 'unread';
 }): DailyBoard {
+  const regionRead = args.regionRead ?? 'unread';
   const biasByHour = new Map(args.bias.map((b) => [b.ictHour, b.biasC]));
   const corrected = correctedHours(args.dateYmd, args.hours, biasByHour);
   const byHour = new Map<number, CorrectedHour>();
@@ -527,6 +597,7 @@ export function buildDailyBoard(args: {
       rainChancePct,
       rainWords: rainLikelihoodWords(rainChancePct),
       shade: showerShade(rainChancePct),
+      regions: regionsForSlice(args.dateYmd, spec.startHour, spec.endHour, args.regionRates, regionRead),
       thunderRisk,
       uvMax: maxOrNull(uvs),
     };
@@ -540,8 +611,8 @@ export function buildDailyBoard(args: {
     blocks,
     hours,
     bestForToday: bestForToday(blocks),
-    biasSummary: biasSummary(args.bias),
+    biasSummary: biasSummary(args.bias, args.biasRead ?? 'ok'),
     credit: CREDIT,
-    mapCaption: MAP_CAPTION,
+    mapCaption: mapCaption(regionRead),
   };
 }

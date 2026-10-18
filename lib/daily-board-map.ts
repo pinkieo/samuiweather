@@ -1,9 +1,11 @@
 /**
  * Koh Samui silhouette for the daily board. Geographic outline, not a forecast.
- * Shower colour is applied by the caller from the island forecast point.
+ * Shore rectangles are clipped to this outline. Colour comes from each coast's
+ * own Spire rain rate, not from the single stored island point.
  */
 
 import { BAAN_TON_KLUAY_WGS84 } from '@/lib/dashboard-regions';
+import type { BoardRegionId } from '@/lib/daily-board';
 
 export const ISLAND_BOUNDS = {
   north: 9.62,
@@ -55,3 +57,33 @@ export const GARDEN_STATION = projectIsland(
   BAAN_TON_KLUAY_WGS84.lat,
   BAAN_TON_KLUAY_WGS84.lon,
 );
+
+/**
+ * Lat/lon boxes that tile the island. The SVG clips them to the coast outline.
+ * Anchors are the Spire point reads for that shore (not stored as history).
+ */
+export const COAST_ANCHORS: Record<BoardRegionId, { lat: number; lon: number; label: string }> = {
+  north: { lat: 9.575, lon: 100.02, label: 'Mae Nam' },
+  east: { lat: 9.52, lon: 100.075, label: 'Chaweng' },
+  south: { lat: 9.44, lon: 100.01, label: 'Lamai' },
+  west: { lat: 9.51, lon: 99.96, label: 'Lipa Noi' },
+};
+
+const REGION_BOX: Record<BoardRegionId, { latMin: number; latMax: number; lonMin: number; lonMax: number }> = {
+  north: { latMin: 9.55, latMax: 9.7, lonMin: 99.85, lonMax: 100.2 },
+  east: { latMin: 9.48, latMax: 9.55, lonMin: 100.03, lonMax: 100.2 },
+  south: { latMin: 9.3, latMax: 9.48, lonMin: 99.85, lonMax: 100.2 },
+  west: { latMin: 9.48, latMax: 9.55, lonMin: 99.85, lonMax: 100.03 },
+};
+
+/** Rectangle covering one shore. Overlaps by a pixel so the clip has no gaps. */
+export function regionRectPath(id: BoardRegionId): string {
+  const box = REGION_BOX[id];
+  const nw = projectIsland(box.latMax, box.lonMin);
+  const se = projectIsland(box.latMin, box.lonMax);
+  const x = Math.min(nw.x, se.x) - 1;
+  const y = Math.min(nw.y, se.y) - 1;
+  const w = Math.abs(se.x - nw.x) + 2;
+  const h = Math.abs(se.y - nw.y) + 2;
+  return `M${x} ${y} h${w} v${h} h${-w} Z`;
+}

@@ -4,21 +4,25 @@ import { bucketStationHours } from '../lib/forecast-day-accuracy';
 import {
   applyTemperatureBias,
   bestForToday,
+  biasSummary,
   buildDailyBoard,
   type BoardHourInput,
+  type CoastRateHour,
   ictHourFromUtc,
   normalizeChancePercent,
   normalizeCloudPercent,
   pairsFromHours,
   rainLikelihoodWords,
+  rainRateShade,
   showerShade,
   skyFromSignals,
   temperatureBiasByIctHour,
   thunderRiskFromCape,
   BIAS_MIN_SAMPLES,
 } from '../lib/daily-board';
-import { GARDEN_STATION, MAP_H, MAP_W } from '../lib/daily-board-map';
-import { sampleDailyBoard, sampleTemperaturePairs } from '../lib/daily-board-sample';
+import { coastForecastHours } from '../lib/daily-board-coasts';
+import { COAST_ANCHORS, GARDEN_STATION, MAP_H, MAP_W, regionRectPath } from '../lib/daily-board-map';
+import { sampleCoastRates, sampleDailyBoard, sampleTemperaturePairs } from '../lib/daily-board-sample';
 import { loadDailyBoard } from '../lib/daily-board-load';
 import type { EcowittDaySample } from '../lib/ecowitt-data';
 
@@ -309,6 +313,68 @@ describe('sample board', () => {
     assert.ok(pairs.length >= BIAS_MIN_SAMPLES);
     assert.ok(GARDEN_STATION.x > 0 && GARDEN_STATION.x < MAP_W);
     assert.ok(GARDEN_STATION.y > 0 && GARDEN_STATION.y < MAP_H);
+  });
+});
+
+describe('regional rain rates', () => {
+  it('keeps a real zero dry and a missing rate unavailable', () => {
+    assert.equal(rainRateShade(0), 'dry');
+    assert.equal(rainRateShade(0.5), 'possible');
+    assert.equal(rainRateShade(1.6), 'likely');
+    assert.equal(rainRateShade(4), 'heavy');
+    assert.equal(rainRateShade(null), 'unavailable');
+  });
+
+  it('does not paint the island chance onto every shore', () => {
+    const rates: CoastRateHour[] = [
+      { region: 'north', timeUtc: at(8), rateMmHr: 0 },
+      { region: 'east', timeUtc: at(8), rateMmHr: 3.4 },
+      { region: 'south', timeUtc: at(8), rateMmHr: null },
+    ];
+    const board = buildDailyBoard({
+      dateYmd: DAY,
+      hours: dayHours(() => ({ rainChancePct: 80 })),
+      bias: [],
+      mode: 'live',
+      regionRates: rates,
+      regionRead: 'live',
+    });
+    const morning = board.blocks.find((b) => b.id === 'morning')!;
+    const shade = Object.fromEntries(morning.regions.map((r) => [r.id, r.shade]));
+    assert.equal(shade.north, 'dry');
+    assert.equal(shade.east, 'heavy');
+    assert.equal(shade.south, 'unavailable');
+    assert.equal(shade.west, 'unavailable');
+    assert.equal(morning.rainChancePct, 80);
+    assert.notEqual(shade.north, morning.shade);
+    assert.match(board.mapCaption, /not the island-wide chance/i);
+    assert.doesNotMatch(guestText(board), /\d+\s*mm|millimetre/i);
+  });
+
+  it('says the garden could not be read when the station query fails', () => {
+    assert.match(biasSummary([], 'unread'), /could not be read/i);
+    assert.doesNotMatch(biasSummary([], 'unread'), /not enough recent garden hours/i);
+    assert.match(biasSummary([], 'ok'), /not enough recent garden hours/i);
+  });
+
+  it('stops asking Spire once the ICT day has ended', () => {
+    const end = new Date('2026-10-18T17:00:00.000Z');
+    assert.equal(coastForecastHours(end, new Date('2026-10-18T18:00:00.000Z')), null);
+    const hours = coastForecastHours(end, new Date('2026-10-18T00:00:00.000Z'));
+    assert.ok(hours != null && hours >= 36 && hours <= 72);
+  });
+
+  it('gives the sample a different shade on each shore', () => {
+    const board = sampleDailyBoard(DAY);
+    const morning = board.blocks.find((b) => b.id === 'morning')!;
+    const shades = new Set(morning.regions.map((r) => r.shade));
+    assert.equal(shades.size, 4);
+    assert.match(board.mapCaption, /not live coast/i);
+    assert.equal(sampleCoastRates(DAY).some((row) => row.rateMmHr === 0), true);
+    for (const id of ['north', 'east', 'south', 'west'] as const) {
+      assert.match(regionRectPath(id), /^M/);
+      assert.ok(Number.isFinite(COAST_ANCHORS[id].lat));
+    }
   });
 });
 

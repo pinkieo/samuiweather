@@ -1,8 +1,8 @@
 # Daily forecast board
 
 Status: CANONICAL
-Document version: 1.0
-Last updated: 2026-10-17
+Document version: 2.0
+Last updated: 2026-10-18
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -27,10 +27,12 @@ Asia/Bangkok, one calendar day:
 | Evening | 18:00–22:00 |
 
 Each block has a sun, cloud, shower, or thunder icon, a temperature,
-and a chance of rain in words. The island outline is shaded with that
-block’s chance. A gold dot marks the Baan Ton Kluay garden station. The hourly strip is 06:00–21:00: rain chance, thunder
-risk, UV, and wind. One “Best for today” line names a beach, waterfall,
-market, or covered plan from those blocks.
+and a chance of rain in words. The island outline is split into four
+shores (north, east, south, west). Each shore is shaded from that
+coast’s own forecast rain rate for the block. A gold dot marks the
+Baan Ton Kluay garden station. The hourly strip is 06:00–21:00: rain
+chance, thunder risk, UV, and wind. One “Best for today” line names a
+beach, waterfall, market, or covered plan from those blocks.
 
 The frame is exactly 1280×720. The left 300px is empty for a standing
 presenter cutout.
@@ -44,13 +46,41 @@ as the dashboard fallback: temperature, wind, cloud, CAPE, 1-hour
 chance of precipitation, and `values_json` for UV when Spire sent
 `uv_index`.
 
-There is one forecast point for the island, not a coast-by-coast grid.
-Each map uses that point’s chance for its block, so the whole island
-shares one shade. The caption says so. Live radar is not read. Theyr
-wind and Open-Meteo are not read. Rain amounts in millimetres are not
-shown; Spire over-calls totals, so the board says “mostly dry”,
-“a shower is possible”, “showers likely”, or “rain likely”, plus the
-percent when that field exists.
+History, temperature bias, the block wording, and the hourly strip stay
+on that one stored point (`samui_opf_hybrid`). It is not replaced with
+a multi-point history series, and its chance is not pasted onto every
+shore.
+
+The stored table has no spatial rain field. `values_json` is a point
+record. Spire’s optimized point (the source of the stored chance) is
+one custom site and is not copied onto other coordinates.
+
+Shore colour is a separate read at page render: four light
+`/forecast/point` calls, bundle `basic`, hourly, only
+`precipitation_rate`. Anchors: Mae Nam (north), Chaweng (east), Lamai
+(south), Lipa Noi (west). Those rows are not written to
+`weather_forecast` or `weather_history`. The basic point product does
+not include a chance field, so the map does not invent one from the
+rate. The rate is not printed. Colour uses the strongest hour in the
+block:
+
+- missing rate → grey (unavailable)
+- 0 to under 0.2 mm/h → dry (a stored 0 is real)
+- 0.2 to under 1 → possible
+- 1 to under 2.5 → likely
+- 2.5 and above → heavy
+
+Spire’s grid is coarser than the island. Two anchors can return the
+same series; the map shows that agreement instead of inventing a
+difference. If the token is missing, the day has ended, or a shore
+returns no rate, that shore stays grey. The caption says the stored
+forecast was not copied across the island.
+
+Live radar is not read. Theyr wind and Open-Meteo are not read. Rain
+amounts are not shown as numbers; Spire over-calls totals, so the words
+on the card stay “mostly dry”, “a shower is possible”, “showers
+likely”, or “rain likely”, plus the percent when the stored chance
+exists.
 
 A missing field stays blank (`—` or “unavailable”). It is not drawn as
 zero. A stored 0% chance is real and reads as mostly dry.
@@ -86,14 +116,18 @@ Rules:
 - The live station reading is not copied onto a forecast hour.
 - The word “adjusted” appears when the shift is at least 0.4°C.
 
-If the station or the history read fails, the board still shows the
-issued forecast and says it was not adjusted.
+If the garden table cannot be read, the board still shows the issued
+forecast and says the garden readings could not be read. That is
+different from a successful read that simply has fewer than four kept
+pairs, which says there are not enough recent garden hours.
 
 ## Sample and empty
 
 `?sample=1` draws a labelled sample through the same shaping code, for
 layout and screenshots when Supabase is not configured. The banner says
-the numbers are not live.
+the numbers are not live. The sample shores use different illustrative
+rates so the layout can show regional shading. Those rates are not a
+live forecast.
 
 Without credentials, a failed read, or an empty day, the board stays
 in the unavailable state. It does not substitute the sample.

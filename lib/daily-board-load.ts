@@ -1,6 +1,7 @@
 /**
  * Load the daily board from stored Spire hours and recent Ecowitt temperatures.
- * Does not call Spire, Open-Meteo, or live radar.
+ * Coast shading is a separate live Spire point read and is not stored.
+ * Does not call Open-Meteo or live radar.
  */
 
 import { bucketStationHours, SPIRE_LOCATION_ID } from '@/lib/forecast-day-accuracy';
@@ -24,6 +25,7 @@ import {
   temperatureBiasByIctHour,
   utcHourKey,
 } from '@/lib/daily-board';
+import { loadCoastRainRates } from '@/lib/daily-board-coasts';
 import { sampleDailyBoard } from '@/lib/daily-board-sample';
 
 type ForecastTempRow = {
@@ -117,7 +119,9 @@ export function forecastRowToHour(row: ForecastBoardRow): BoardHourInput {
   };
 }
 
-async function loadBias(boardStart: Date): Promise<HourBias[]> {
+async function loadBias(
+  boardStart: Date,
+): Promise<{ bias: HourBias[]; biasRead: 'ok' | 'unread' }> {
   const lookbackStart = new Date(boardStart.getTime() - BIAS_LOOKBACK_DAYS * 86_400_000);
   const startIso = lookbackStart.toISOString();
   const endIso = boardStart.toISOString();
@@ -136,13 +140,16 @@ async function loadBias(boardStart: Date): Promise<HourBias[]> {
     ),
     fetchEcowittRange(lookbackStart, boardStart, ECOWITT_LOCATION_ID),
   ]);
-  if (!station.ok) return [];
+  if (!station.ok) return { bias: [], biasRead: 'unread' };
   const forecast = latestByHour([...history, ...current]).map((row) => ({
     validTimeUtc: row.valid_time_utc,
     tempC: num(row.air_temperature_c),
   }));
   const stationHours = bucketStationHours(station.samples);
-  return temperatureBiasByIctHour(pairsFromHours(forecast, stationHours));
+  return {
+    bias: temperatureBiasByIctHour(pairsFromHours(forecast, stationHours)),
+    biasRead: 'ok',
+  };
 }
 
 function unavailable(dateYmd: string): DailyBoard {
@@ -187,12 +194,13 @@ export async function loadDailyBoard(opts?: {
       ).flat(),
     );
     if (!rows.length) return unavailable(dateYmd);
-    let bias: HourBias[] = [];
-    try {
-      bias = await loadBias(range.startUtc);
-    } catch (err) {
-      console.error('[daily-board] bias read failed', err instanceof Error ? err.message : err);
-    }
+    const [biasResult, coasts] = await Promise.all([
+      loadBias(range.startUtc).catch((err: unknown) => {
+        console.error('[daily-board] bias read failed', err instanceof Error ? err.message : err);
+        return { bias: [] as HourBias[], biasRead: 'unread' as const };
+      }),
+      loadCoastRainRates(range.endUtc, now),
+    ]);
     const issued = rows
       .map((row) => row.issuance_time_utc)
       .filter((iso): iso is string => !!iso)
@@ -201,9 +209,12 @@ export async function loadDailyBoard(opts?: {
     return buildDailyBoard({
       dateYmd,
       hours: rows.map(forecastRowToHour),
-      bias,
+      bias: biasResult.bias,
+      biasRead: biasResult.biasRead,
       mode: 'live',
       issuedAtUtc: issued ?? null,
+      regionRates: coasts.rates,
+      regionRead: coasts.status,
     });
   } catch (err) {
     console.error('[daily-board] forecast read failed', err instanceof Error ? err.message : err);
