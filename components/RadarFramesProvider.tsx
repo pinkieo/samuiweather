@@ -10,6 +10,7 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
+import { usePathname } from 'next/navigation';
 import {
   logRainViewerFramesApiResponse,
   type RadarFramesApiResponse,
@@ -71,6 +72,8 @@ export function useRadarFrames(): RadarFrame[] {
  * (ingest PHU/SRT/SKA-proof in console).
  */
 export function RadarFramesProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const skipRadar = pathname.startsWith('/board');
   const [feed, setFeed] = useState<Omit<RadarFeedState, 'refresh'>>({
     frames: [],
     nowcastFrames: [],
@@ -81,6 +84,7 @@ export function RadarFramesProvider({ children }: { children: ReactNode }) {
   const loadLiveFramesRef = useRef<() => Promise<boolean>>(async () => false);
 
   useEffect(() => {
+    if (skipRadar) return;
     let cancelled = false;
     let pollId: number | undefined;
 
@@ -184,7 +188,7 @@ export function RadarFramesProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       if (pollId !== undefined) window.clearInterval(pollId);
     };
-  }, []);
+  }, [skipRadar]);
 
   const refresh = useCallback(() => {
     void loadLiveFramesRef.current();
