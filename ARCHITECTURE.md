@@ -1,9 +1,9 @@
 # Sammi AI - Project skills & architecture (V2)
 
 Status: CANONICAL
-Document version: 8.1
-Last updated: 2026-09-27
-Last verified: 2026-09-17 (production `/api/weather/wind-overlay` Spire 195/195, valid 12:00Z)
+Document version: 11.0
+Last updated: 2026-10-18
+Last verified: NOT VERIFIED
 Owner: ProSeadure
 
 This document is the source of truth for Cursor and the Sammi AI architecture.
@@ -40,6 +40,7 @@ Sammi keeps a clear split between what is happening *now* and what will *happen*
 - Live: `GET /api/ecowitt/latest`. Day archive: `GET /api/ecowitt/daily?date=YYYY-MM-DD` (ICT). Forecast skill vs that day: `GET /api/forecast/accuracy?date=YYYY-MM-DD`. Trend: `GET /api/forecast/accuracy/trend`.
 - **4× daily OPF overview:** dashboard **Today's 4 checks**, `GET /overview`, `GET|POST /api/forecast/overview`. Table `daily_forecast_slot_lock`. Contract: `docs/forecast-overview.md`.
 - Forecast hours on the dashboard and in Sammi stay Spire (Samui 1-hour chance when that hour has one). The station is the Now block only: temperature, rain falling or not, and wind. It is not blended into a forecast hour. The private now-cast is not blended into a forecast hour.
+- **Daily forecast board** (`/board/today`, 1280×720): guest still for the 06:00 capture at `https://www.samuiweather.com/board/today`. Card wording and the hourly strip use the stored Spire chance at the Samui point. UV on that strip is `weather_forecast.uv_index` (Spire when the payload has an index, otherwise the exact-hour OpenUV value written at ingest). A missing index stays blank. Shore shading is a separate hourly Spire point read of rain rate at four coasts, not that chance pasted across the island, and not live radar. Temperatures on this page may be shifted by recent hour-of-day bias versus Baan Ton Kluay. That shift is not a copy of the live reading, and it does not apply to the dashboard or Sammi. Contract: `docs/daily-forecast-board.md`.
 
 ## Tech stack
 | Component | Technology |
@@ -64,6 +65,7 @@ Contract: `docs/sammi-broadcast.md`. Scripts: `lib/broadcast-script.ts` (Daily V
 - Do **not** cron this on Vercel Hobby. Render/assemble off-site (LENOVOX13).
 - Windows task **Samui Broadcast** (`broadcast-hourly-silent.vbs`), 07/13/19 ICT; see `docs/sammi-broadcast.md`.
 - **Forecast ingest** is 4× daily via cron-job.org (`docs/weather-ingest.md`). Not GitHub Actions, not Vercel Hobby cron.
+- **Daily still** is `/board/today` (`docs/daily-forecast-board.md`). External 06:00 screenshot at 1280×720. Not a Vercel cron. Not live radar.
 
 ## Automation
 - **Cron jobs:** Daily Reddit post sync → Supabase embeddings.
@@ -92,6 +94,7 @@ app/
     broadcast/script/  ← TV rundown JSON
     broadcast/latest/  ← on-air catalog
   broadcast/           ← public 16:9 player
+  board/today/         ← 1280×720 guest forecast still
   studio/              ← internal capture (noindex)
 components/
   SammiConcierge.tsx

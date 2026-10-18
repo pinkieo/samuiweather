@@ -1,8 +1,8 @@
 # Ecowitt station — Baan Ton Kluay
 
 Status: CANONICAL
-Document version: 2.2
-Last updated: 2026-09-15
+Document version: 2.3
+Last updated: 2026-10-17
 Last verified: 2026-09-13
 Owner: ProSeadure
 
@@ -151,6 +151,7 @@ Code: `app/api/ecowitt/ingest/route.ts`
 - `GET /api/forecast/accuracy/trend?from=&to=` — one row per ICT day in the range (default last 60 days through yesterday). Same pairing rules. `npm run forecast:score-trend`.
 - `GET /api/forecast/overview` — 4× daily locked issuance vs station (raw mm and chance of rain; no wet/dry cutoff). Page: `/overview`. See `docs/forecast-overview.md`.
 - There is no `/api/ecowitt/history` or `/observations` list. Minute rows stay in Supabase.
+- The guest still `/board/today` uses recent minute temperatures only to estimate hour-of-day forecast bias. It does not copy a station reading onto a forecast hour. See `docs/daily-forecast-board.md`.
 - UI: `components/EcowittPlaceholder.tsx`, blended into row 0 in `components/MapViewer.tsx`
 
 Cloud poll is `real_time` only. History for a past ICT day is the minute table, not a second Ecowitt Cloud history call.

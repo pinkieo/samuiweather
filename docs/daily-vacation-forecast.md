@@ -1,8 +1,8 @@
 # Daily vacation forecast
 
 Status: CANONICAL
-Document version: 3.1
-Last updated: 2026-10-09
+Document version: 3.2
+Last updated: 2026-10-18
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -100,6 +100,13 @@ still ahead, with that real span. A part with no hours is omitted.
 Sammi Broadcast uses this brief as the spine. It must not invent windows the
 brief withheld. The TV clock is 07:00, 13:00, and 19:00 ICT, one minute each.
 See `docs/sammi-broadcast.md`.
+
+The 06:00 ICT still for that morning routine is the guest board, not this
+drawer and not live radar:
+
+`https://www.samuiweather.com/board/today`
+
+See `docs/daily-forecast-board.md`.
 
 ## Freshness and honesty
 

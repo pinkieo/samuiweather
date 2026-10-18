@@ -8,6 +8,7 @@ import {
   fetchLatestRainViewerFramePath,
   sampleRainViewerTileAtLocation,
 } from '@/lib/rainviewer-server-sample';
+import { fetchOpenUvHourMap, stampUvIndex, uvIndexFromSpireValues } from '@/lib/forecast-uv';
 import {
   SAMUI_CENTER,
   computeSpirePointDataStats,
@@ -193,6 +194,7 @@ export function flattenForDb(
     probability_of_fog: pickProbPct(v, ['probability_of_fog', 'fog_probability']),
     precipitation_rate: pickNum(v, ['precipitation_rate']),
     relative_humidity: pickNum(v, ['relative_humidity']),
+    uv_index: uvIndexFromSpireValues(v),
     values_json: v,
     beach_score: beachScore(v, airC, radarRain),
     radar_status: radarStatus,
@@ -248,6 +250,7 @@ function buildSnapshotRow(
     'probability_of_fog',
     'precipitation_rate',
     'relative_humidity',
+    'uv_index',
   ] as const;
   const normalized: Record<string, unknown> = {};
   for (const key of normalizedKeys) normalized[key] = flat[key] ?? null;
@@ -382,11 +385,13 @@ export async function runWeatherIngest(opts?: {
   const stats = computeSpirePointDataStats(merged);
   const retrievedAt = new Date().toISOString();
   const nowIso = retrievedAt;
+  const openUvHours = await fetchOpenUvHourMap(lat, lon);
   const payload: Record<string, unknown>[] = [];
   const snapshots: Record<string, unknown>[] = [];
   for (const entry of merged) {
     const flat = flattenForDb(locationId, entry, radar.status, radar.rain);
     if (!flat) continue;
+    stampUvIndex(flat, openUvHours);
     const row = coerceWholeFloats({ ...flat, updated_at: nowIso });
     payload.push(row);
     const pop = (flat.values_json as Record<string, unknown> | undefined)?.probability_of_precipitation_1hr;

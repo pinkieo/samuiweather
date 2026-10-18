@@ -1,8 +1,8 @@
 # 4× daily Spire OPF overview
 
 Status: CANONICAL
-Document version: 2.0
-Last updated: 2026-09-17
+Document version: 2.1
+Last updated: 2026-10-17
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -51,5 +51,6 @@ minutes after forecast ingest. See `docs/weather-ingest.md`. LENOVOX13
 - Accuracy logs **raw** numbers: temp error, station rain-counter delta, station `rainRateMaxMmh`, forecast hourly-rate sum, mean/max chance of rain. **No invented wet/dry yes-no.**
 - Thunder is forecast-only; the backyard station does not observe it.
 - Known skill (show, do not hide): temperature is usually close; rain is over-called on dry days and millimetres are often about double the station.
+- The guest still `/board/today` may shift displayed temperatures by recent hour-of-day bias. This overview stays on the raw issuance. See `docs/daily-forecast-board.md`.
 
 If `023` is not applied yet, the overview still reads `weather_forecast_snapshot` and may skip persisting the lock row.

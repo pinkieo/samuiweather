@@ -1,8 +1,8 @@
 # Samui / Sammi documentation index
 
 Status: CANONICAL
-Document version: 2.8
-Last updated: 2026-10-09
+Document version: 2.11
+Last updated: 2026-10-18
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -24,13 +24,14 @@ authorised production host.
 | Document | Subject | Version | Last updated | Last verified |
 |---|---|---|---|---|
 | [AGENTS.md](../AGENTS.md) | Agent operating instructions for this repo | 1.0 | 2026-09-01 | NOT VERIFIED |
-| [docs/README.md](README.md) | Documentation index (this file) | 2.8 | 2026-10-09 | NOT VERIFIED |
-| [ARCHITECTURE.md](../ARCHITECTURE.md) | Sammi AI / Samui weather architecture | 8.1 | 2026-09-27 | 2026-09-17 (production Spire overlay GET) |
-| [docs/daily-vacation-forecast.md](daily-vacation-forecast.md) | Daily vacation brief | 3.1 | 2026-10-09 | NOT VERIFIED |
-| [docs/sammi-broadcast.md](sammi-broadcast.md) | Sammi tourist weather TV (3× daily feature) | 7.1 | 2026-09-17 | NOT VERIFIED |
-| [docs/weather-ingest.md](weather-ingest.md) | 4× daily Spire ingest (cron-job.org) | 1.1 | 2026-09-17 | NOT VERIFIED |
-| [docs/ecowitt.md](ecowitt.md) | Ecowitt station ingest + ICT day archive | 2.2 | 2026-09-15 | 2026-09-13 |
-| [docs/forecast-overview.md](forecast-overview.md) | 4× daily Spire OPF lock vs Ecowitt | 2.0 | 2026-09-17 | NOT VERIFIED |
+| [docs/README.md](README.md) | Documentation index (this file) | 2.11 | 2026-10-18 | NOT VERIFIED |
+| [ARCHITECTURE.md](../ARCHITECTURE.md) | Sammi AI / Samui weather architecture | 11.0 | 2026-10-18 | NOT VERIFIED |
+| [docs/daily-vacation-forecast.md](daily-vacation-forecast.md) | Daily vacation brief | 3.2 | 2026-10-18 | NOT VERIFIED |
+| [docs/daily-forecast-board.md](daily-forecast-board.md) | Guest daily forecast board (`/board/today`) | 3.0 | 2026-10-18 | NOT VERIFIED |
+| [docs/sammi-broadcast.md](sammi-broadcast.md) | Sammi tourist weather TV (3× daily feature) | 8.2 | 2026-10-18 | NOT VERIFIED |
+| [docs/weather-ingest.md](weather-ingest.md) | 4× daily Spire ingest (cron-job.org) | 2.0 | 2026-10-18 | NOT VERIFIED |
+| [docs/ecowitt.md](ecowitt.md) | Ecowitt station ingest + ICT day archive | 2.3 | 2026-10-17 | 2026-09-13 |
+| [docs/forecast-overview.md](forecast-overview.md) | 4× daily Spire OPF lock vs Ecowitt | 2.1 | 2026-10-17 | NOT VERIFIED |
 
 ## Draft
 
