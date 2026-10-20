@@ -213,6 +213,9 @@ export default function DailyForecastBoard({ board }: { board: DailyBoard }) {
 
         <p className="mt-1.5 text-[15px] font-medium leading-snug text-[#f7f3e8]">{board.bestForToday}</p>
         <p className="text-[11px] leading-snug text-[#9fb4c0]">{board.biasSummary}</p>
+        {board.uvNote ? (
+          <p data-board-uv-source className="text-[10px] leading-snug text-[#8ea6b0]">{board.uvNote}</p>
+        ) : null}
         <p data-board-credit className="mt-auto pt-1 text-[10px] leading-snug text-[#8ea6b0]">
           {board.credit}
         </p>

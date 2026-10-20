@@ -101,8 +101,18 @@ UV on the hourly strip is the stored `uv_index` for that hour
 `values_json`). Spire’s subscribed point bundles do not include a UV
 index. Ingest keeps a Spire index when one is present. Otherwise it
 stores the OpenUV hourly forecast for that exact UTC hour. This page
-does not call OpenUV. A missing index stays `—`. A stored 0 is real
-and reads as low.
+does not call OpenUV. OpenUV's forecast only reaches the current day,
+so a run ingested the day before has null UV for the board's day. When
+any stored hour is null, the page reads Open-Meteo hourly `uv_index`
+for that ICT day and fills only those null hours. A line under the
+strip names the source(s), e.g. "UV index: OpenUV + Open-Meteo
+forecast." An hour no source covers stays `—`. A 0 from a source is
+real and reads as low.
+
+The header shows the newest stored run's issuance time in ICT. When
+that run was issued on an earlier ICT day it carries the date, e.g.
+"Issued Mon 19 Oct, 07:00 ICT", so a stale run is not read as this
+morning's.
 
 ## Temperature bias
 
