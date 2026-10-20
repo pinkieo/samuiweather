@@ -1,7 +1,7 @@
 /**
  * Load the daily board from stored Spire hours and recent Ecowitt temperatures.
  * Coast shading is a separate live Spire point read and is not stored.
- * Does not call Open-Meteo or live radar.
+ * Hours with no stored UV are filled from Open-Meteo `uv_index` and labelled. No live radar.
  */
 
 import { bucketStationHours, SPIRE_LOCATION_ID } from '@/lib/forecast-day-accuracy';
@@ -27,6 +27,7 @@ import {
 } from '@/lib/daily-board';
 import { loadCoastRainRates } from '@/lib/daily-board-coasts';
 import { sampleDailyBoard } from '@/lib/daily-board-sample';
+import { type BoardUvSource, fetchOpenMeteoUvHourMap, fillMissingUv } from '@/lib/daily-board-uv';
 
 type ForecastTempRow = {
   valid_time_utc: string;
@@ -52,6 +53,12 @@ function num(v: unknown): number | null {
 function uvFromRow(column: number | null, values: unknown): number | null {
   if (typeof column === 'number' && Number.isFinite(column) && column >= 0) return column;
   return uvFromValues(values);
+}
+
+function uvSourceFromValues(uv: number | null, values: unknown): BoardUvSource | null {
+  if (uv == null) return null;
+  const src = values && typeof values === 'object' ? (values as Record<string, unknown>).uv_index_source : null;
+  return src === 'openuv' ? 'openuv' : 'spire';
 }
 
 function uvFromValues(values: unknown): number | null {
@@ -122,6 +129,7 @@ export function forecastRowToHour(row: ForecastBoardRow): BoardHourInput {
     capeJkg: num(row.cape),
     windMs: num(row.wind_speed_ms),
     uvIndex: uvFromRow(num(row.uv_index), row.values_json),
+    uvSource: uvSourceFromValues(uvFromRow(num(row.uv_index), row.values_json), row.values_json),
   };
 }
 
@@ -171,6 +179,8 @@ export async function loadDailyBoard(opts?: {
   dateYmd?: string | null;
   sample?: boolean;
   now?: Date;
+  /** Injected in tests. */
+  fetchImpl?: typeof fetch;
 }): Promise<DailyBoard> {
   const now = opts?.now ?? new Date();
   const dateYmd = parseIctDateYmd(opts?.dateYmd) ?? ictYmd(now);
@@ -200,13 +210,18 @@ export async function loadDailyBoard(opts?: {
       ).flat(),
     );
     if (!rows.length) return unavailable(dateYmd);
-    const [biasResult, coasts] = await Promise.all([
+    let hours = rows.map(forecastRowToHour);
+    const [biasResult, coasts, openMeteoUv] = await Promise.all([
       loadBias(range.startUtc).catch((err: unknown) => {
         console.error('[daily-board] bias read failed', err instanceof Error ? err.message : err);
         return { bias: [] as HourBias[], biasRead: 'unread' as const };
       }),
       loadCoastRainRates(range.endUtc, now),
+      hours.some((h) => h.uvIndex == null)
+        ? fetchOpenMeteoUvHourMap(range.startUtc, range.endUtc, opts?.fetchImpl)
+        : Promise.resolve(null),
     ]);
+    hours = fillMissingUv(hours, openMeteoUv);
     const issued = rows
       .map((row) => row.issuance_time_utc)
       .filter((iso): iso is string => !!iso)
@@ -214,7 +229,7 @@ export async function loadDailyBoard(opts?: {
       .at(-1);
     return buildDailyBoard({
       dateYmd,
-      hours: rows.map(forecastRowToHour),
+      hours,
       bias: biasResult.bias,
       biasRead: biasResult.biasRead,
       mode: 'live',

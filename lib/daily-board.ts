@@ -47,6 +47,8 @@ export type BoardHourInput = {
   capeJkg: number | null;
   windMs: number | null;
   uvIndex: number | null;
+  /** Where `uvIndex` came from. Null when unknown or no index. */
+  uvSource?: BoardUvSource | null;
 };
 
 export type TemperaturePair = {
@@ -113,6 +115,8 @@ export type DailyBoard = {
   hours: BoardHourView[];
   bestForToday: string;
   biasSummary: string;
+  /** Names the UV source(s). Null when the UV row is empty. */
+  uvNote: string | null;
   credit: string;
   mapCaption: string;
 };
@@ -398,16 +402,34 @@ export function formatBoardDate(dateYmd: string): string {
   });
 }
 
-export function formatIssuedLabel(iso: string | null | undefined): string | null {
+/**
+ * Forecast run time in ICT. The date is added when the run was issued on another
+ * ICT day than the board, so an older run is not read as this morning's.
+ */
+export function formatIssuedLabel(
+  iso: string | null | undefined,
+  boardDateYmd?: string | null,
+): string | null {
   if (!iso) return null;
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return null;
-  const clock = new Date(t).toLocaleTimeString('en-GB', {
+  const d = new Date(t);
+  const clock = d.toLocaleTimeString('en-GB', {
     timeZone: BOARD_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
   });
+  const issuedYmd = d.toLocaleDateString('en-CA', { timeZone: BOARD_TIME_ZONE });
+  if (boardDateYmd && issuedYmd !== boardDateYmd) {
+    const day = d.toLocaleDateString('en-GB', {
+      timeZone: BOARD_TIME_ZONE,
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    });
+    return `Issued ${day.replace(',', '')}, ${clock} ICT`;
+  }
   return `Issued ${clock} ICT`;
 }
 
@@ -607,12 +629,18 @@ export function buildDailyBoard(args: {
     mode: args.mode,
     dateYmd: args.dateYmd,
     dateLabel: formatBoardDate(args.dateYmd),
-    issuedLabel: formatIssuedLabel(args.issuedAtUtc),
+    issuedLabel: formatIssuedLabel(args.issuedAtUtc, args.dateYmd),
     blocks,
     hours,
     bestForToday: bestForToday(blocks),
     biasSummary: biasSummary(args.bias, args.biasRead ?? 'ok'),
+    uvNote: uvSourceNote(
+      corrected
+        .filter((h) => h.ictHour >= BOARD_HOUR_START && h.ictHour < BOARD_HOUR_END && finite(h.uvIndex))
+        .map((h) => h.uvSource),
+    ),
     credit: CREDIT,
     mapCaption: mapCaption(regionRead),
   };
 }
+import { type BoardUvSource, uvSourceNote } from '@/lib/daily-board-uv';
