@@ -1,7 +1,9 @@
 /**
- * Load the daily board from stored Spire hours and recent Ecowitt temperatures.
- * Coast shading is a separate live Spire point read and is not stored.
- * Hours with no stored UV are filled from Open-Meteo `uv_index` and labelled. No live radar.
+ * Load the daily board for today from the same Spire merge as `/api/weather`
+ * (point tiers, OPF rain chance, OpenUV index), laid over stored hours for
+ * the part of the day the live feed has already dropped. A failed live read
+ * keeps the stored rows. Coast shading is a separate live Spire point read.
+ * Hours no UV source covers are filled from Open-Meteo and labelled. No live radar.
  */
 
 import { bucketStationHours, SPIRE_LOCATION_ID } from '@/lib/forecast-day-accuracy';
@@ -12,6 +14,7 @@ import {
   ictYmd,
   parseIctDateYmd,
 } from '@/lib/ecowitt-data';
+import { getSamuiForecastFeed, getSpireApiToken, type SamuiWeatherForecastRow } from '@/lib/spire';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import {
   type BoardHourInput,
@@ -120,6 +123,74 @@ async function fetchTable<T>(
   return (data || []) as T[];
 }
 
+/** Feed values are already percents (0–100), matching `/api/weather`. */
+function alreadyPercent(raw: number | null | undefined): number | null {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || raw > 100) return null;
+  return Math.round(raw * 10) / 10;
+}
+
+/**
+ * One `/api/weather` hour → board hour. Rain and UV are the feed's numbers.
+ * UV on that route is the OpenUV forecast (Spire's point bundles have no index).
+ */
+export function boardHourFromForecastRow(row: Pick<
+  SamuiWeatherForecastRow,
+  'time' | 'temp' | 'pop' | 'cloudCover' | 'cape' | 'windSpeed' | 'uvIndex'
+>): BoardHourInput {
+  const uv = num(row.uvIndex);
+  return {
+    timeUtc: row.time,
+    tempC: num(row.temp),
+    rainChancePct: alreadyPercent(row.pop),
+    cloudCoverPct: alreadyPercent(row.cloudCover),
+    capeJkg: num(row.cape),
+    windMs: num(row.windSpeed),
+    uvIndex: uv != null && uv >= 0 ? uv : null,
+    uvSource: uv != null && uv >= 0 ? 'openuv' : null,
+  };
+}
+
+function overlayHours(stored: BoardHourInput[], live: BoardHourInput[]): BoardHourInput[] {
+  const byHour = new Map<string, BoardHourInput>();
+  for (const hour of stored) {
+    const key = utcHourKey(hour.timeUtc);
+    if (key) byHour.set(key, hour);
+  }
+  for (const hour of live) {
+    const key = utcHourKey(hour.timeUtc);
+    if (key) byHour.set(key, hour);
+  }
+  return [...byHour.values()];
+}
+
+function newerIssuance(a: string | null | undefined, b: string | null | undefined): string | null {
+  const at = a ? Date.parse(a) : NaN;
+  const bt = b ? Date.parse(b) : NaN;
+  if (!Number.isFinite(at) && !Number.isFinite(bt)) return null;
+  if (!Number.isFinite(bt) || (Number.isFinite(at) && at >= bt)) return a ?? null;
+  return b ?? null;
+}
+
+export type BoardLiveFeed = {
+  hours: BoardHourInput[];
+  issuedAtUtc: string | null;
+};
+
+async function loadDefaultFeed(): Promise<BoardLiveFeed | null> {
+  if (!getSpireApiToken()) return null;
+  try {
+    const feed = await getSamuiForecastFeed(AbortSignal.timeout(20_000));
+    if (!feed.rows.length) return null;
+    return {
+      hours: feed.rows.map(boardHourFromForecastRow),
+      issuedAtUtc: feed.issuanceTimeUtc,
+    };
+  } catch (err) {
+    console.error('[daily-board] live forecast failed', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 export function forecastRowToHour(row: ForecastBoardRow): BoardHourInput {
   return {
     timeUtc: row.valid_time_utc,
@@ -175,65 +246,81 @@ function unavailable(dateYmd: string): DailyBoard {
   });
 }
 
+async function loadStoredRows(startIso: string, endIso: string): Promise<ForecastBoardRow[]> {
+  if (!getSupabaseAdmin()) return [];
+  const select =
+    'valid_time_utc,issuance_time_utc,air_temperature_c,wind_speed_ms,total_cloud_cover,cape,probability_of_precipitation_1hr,uv_index,values_json';
+  const [forecast, history] = await Promise.all([
+    fetchTable<ForecastBoardRow>('weather_forecast', select, startIso, endIso),
+    fetchTable<ForecastBoardRow>('weather_history', select, startIso, endIso),
+  ]);
+  return latestByHour([...forecast, ...history]);
+}
+
 export async function loadDailyBoard(opts?: {
   dateYmd?: string | null;
   sample?: boolean;
   now?: Date;
   /** Injected in tests. */
   fetchImpl?: typeof fetch;
+  /**
+   * Today's live Spire merge. Omit to read Spire the same way as `/api/weather`.
+   * A function that returns null keeps the stored hours.
+   */
+  loadFeed?: () => Promise<BoardLiveFeed | null>;
 }): Promise<DailyBoard> {
   const now = opts?.now ?? new Date();
   const dateYmd = parseIctDateYmd(opts?.dateYmd) ?? ictYmd(now);
   if (opts?.sample) return sampleDailyBoard(dateYmd);
-  if (!getSupabaseAdmin()) return unavailable(dateYmd);
 
   const range = ictDayUtcRange(dateYmd);
   if (!range) return unavailable(dateYmd);
+  const today = ictYmd(now);
+  const wantLive = dateYmd === today;
 
   try {
-    const rows = latestByHour(
-      (
-        await Promise.all([
-          fetchTable<ForecastBoardRow>(
-            'weather_forecast',
-            'valid_time_utc,issuance_time_utc,air_temperature_c,wind_speed_ms,total_cloud_cover,cape,probability_of_precipitation_1hr,uv_index,values_json',
-            range.startUtc.toISOString(),
-            range.endUtc.toISOString(),
-          ),
-          fetchTable<ForecastBoardRow>(
-            'weather_history',
-            'valid_time_utc,issuance_time_utc,air_temperature_c,wind_speed_ms,total_cloud_cover,cape,probability_of_precipitation_1hr,uv_index,values_json',
-            range.startUtc.toISOString(),
-            range.endUtc.toISOString(),
-          ),
-        ])
-      ).flat(),
-    );
-    if (!rows.length) return unavailable(dateYmd);
-    let hours = rows.map(forecastRowToHour);
-    const [biasResult, coasts, openMeteoUv] = await Promise.all([
+    const feedPromise = (async () => {
+      if (!wantLive) return null;
+      try {
+        return opts?.loadFeed ? await opts.loadFeed() : await loadDefaultFeed();
+      } catch (err) {
+        console.error('[daily-board] live forecast failed', err instanceof Error ? err.message : err);
+        return null;
+      }
+    })();
+    const [feed, storedRows, biasResult, coasts] = await Promise.all([
+      feedPromise,
+      loadStoredRows(range.startUtc.toISOString(), range.endUtc.toISOString()).catch((err: unknown) => {
+        console.error('[daily-board] forecast read failed', err instanceof Error ? err.message : err);
+        return [] as ForecastBoardRow[];
+      }),
       loadBias(range.startUtc).catch((err: unknown) => {
         console.error('[daily-board] bias read failed', err instanceof Error ? err.message : err);
         return { bias: [] as HourBias[], biasRead: 'unread' as const };
       }),
       loadCoastRainRates(range.endUtc, now),
-      hours.some((h) => h.uvIndex == null)
-        ? fetchOpenMeteoUvHourMap(range.startUtc, range.endUtc, opts?.fetchImpl)
-        : Promise.resolve(null),
     ]);
+    const storedHours = storedRows.map(forecastRowToHour);
+    const liveHours = feed?.hours ?? [];
+    let hours = liveHours.length ? overlayHours(storedHours, liveHours) : storedHours;
+    if (!hours.length) return unavailable(dateYmd);
+    const openMeteoUv = hours.some((h) => h.uvIndex == null)
+      ? await fetchOpenMeteoUvHourMap(range.startUtc, range.endUtc, opts?.fetchImpl)
+      : null;
     hours = fillMissingUv(hours, openMeteoUv);
-    const issued = rows
+    const storedIssued = storedRows
       .map((row) => row.issuance_time_utc)
       .filter((iso): iso is string => !!iso)
       .sort()
       .at(-1);
+    const issued = liveHours.length ? newerIssuance(feed?.issuedAtUtc, storedIssued) : (storedIssued ?? null);
     return buildDailyBoard({
       dateYmd,
       hours,
       bias: biasResult.bias,
       biasRead: biasResult.biasRead,
       mode: 'live',
-      issuedAtUtc: issued ?? null,
+      issuedAtUtc: issued,
       regionRates: coasts.rates,
       regionRead: coasts.status,
     });

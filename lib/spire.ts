@@ -993,11 +993,37 @@ export async function fetchSpireMergedRawAt(
   return rows;
 }
 
-export async function getForecastMergedAt(
+/** Newest Spire `issuance_time` on a point payload. Null when every row omits it. */
+export function newestIssuanceTimeUtc(rows: unknown[]): string | null {
+  let best = -Infinity;
+  let iso: string | null = null;
+  for (const row of rows) {
+    const raw = (row as { times?: { issuance_time?: string } })?.times?.issuance_time;
+    if (typeof raw !== 'string' || !raw) continue;
+    const t = Date.parse(raw);
+    if (!Number.isFinite(t) || t < best) continue;
+    best = t;
+    iso = new Date(t).toISOString();
+  }
+  return iso;
+}
+
+export type SamuiForecastFeed = {
+  rows: SamuiWeatherForecastRow[];
+  /** Newest Spire issuance on the merged point rows, before the current-hour filter. */
+  issuanceTimeUtc: string | null;
+};
+
+/**
+ * Same merge as {@link getForecastMergedAt}, plus the Spire issuance time.
+ * `/api/weather` and the daily board both read this so a page and the feed
+ * cannot sit on different runs.
+ */
+export async function getForecastFeedAt(
   lat: number,
   lon: number,
   signal?: AbortSignal,
-): Promise<SamuiWeatherForecastRow[]> {
+): Promise<SamuiForecastFeed> {
   const waqiToken = (process.env.WAQI_API_TOKEN || process.env.NEXT_PUBLIC_AQICN_TOKEN)?.trim();
   const uvKey = process.env.NEXT_PUBLIC_OPENUV_API_KEY?.trim();
   const AUX_MS = 4000;
@@ -1035,6 +1061,7 @@ export async function getForecastMergedAt(
     fetchUvForecast(),
   ]);
 
+  const issuanceTimeUtc = newestIssuanceTimeUtc(rows);
   const nowMs = Date.now();
   const currentHourMs = nowMs - (nowMs % (60 * 60 * 1000));
   const filtered = rows.filter((row) => {
@@ -1043,7 +1070,19 @@ export async function getForecastMergedAt(
     return new Date(vt).getTime() >= currentHourMs;
   });
 
-  return mergeSpireWithWaqi(filtered, waqiJson, undefined, uvForecastJson);
+  return {
+    rows: mergeSpireWithWaqi(filtered, waqiJson, undefined, uvForecastJson),
+    issuanceTimeUtc,
+  };
+}
+
+export async function getForecastMergedAt(
+  lat: number,
+  lon: number,
+  signal?: AbortSignal,
+): Promise<SamuiWeatherForecastRow[]> {
+  const feed = await getForecastFeedAt(lat, lon, signal);
+  return feed.rows;
 }
 
 /** Koh Samui dashboard default. */
@@ -1051,6 +1090,11 @@ export async function getSamuiForecastMerged(
   signal?: AbortSignal,
 ): Promise<SamuiWeatherForecastRow[]> {
   return getForecastMergedAt(SAMUI_CENTER.lat, SAMUI_CENTER.lon, signal);
+}
+
+/** Koh Samui hours plus the Spire issuance, for the daily board. */
+export async function getSamuiForecastFeed(signal?: AbortSignal): Promise<SamuiForecastFeed> {
+  return getForecastFeedAt(SAMUI_CENTER.lat, SAMUI_CENTER.lon, signal);
 }
 
 /** Krabi coast (Baan Mook Taley) — same SPIRE merge as Samui, different lat/lon. */

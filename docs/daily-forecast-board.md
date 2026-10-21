@@ -1,8 +1,8 @@
 # Daily forecast board
 
 Status: CANONICAL
-Document version: 3.1
-Last updated: 2026-10-18
+Document version: 4.0
+Last updated: 2026-10-21
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -42,12 +42,20 @@ in the gutter says which of those applies.
 
 ## Data
 
-Forecast hours come from stored Spire rows already ingested into
-`weather_forecast` (and `weather_history` when the hour has rolled
-off the rolling table). Location id: `samui_opf_hybrid`. Same columns
-as the dashboard fallback: temperature, wind, cloud, CAPE, 1-hour
-chance of precipitation, and `values_json` for UV when Spire sent
-`uv_index`.
+Today’s hours come from the same live Spire merge as `GET /api/weather`:
+point tiers, the optimized-point rain chance, and the OpenUV hourly
+index. The issued line is that merge’s newest `issuance_time`. Stored
+rows in `weather_forecast` (and `weather_history` when the hour has
+rolled off the rolling table) still fill any hour the live feed has
+already dropped, and they are the whole board when the live read fails
+or when `?date=` is not today. Location id: `samui_opf_hybrid`.
+
+An open display asks the server for a new render every 5 minutes, and
+again when the tab becomes visible. A TV left on the page does not keep
+the frame it first painted.
+
+`/api/forecast/hybrid` is not a route. Nothing in this app calls it.
+A 404 from that path is expected. Do not add the endpoint.
 
 History, temperature bias, the block wording, and the hourly strip stay
 on that one stored point (`samui_opf_hybrid`). It is not replaced with
@@ -96,18 +104,14 @@ Thunder on the strip is CAPE:
   or CAPE ≥ 500 and rain chance ≥ 40% → possible
 - otherwise low
 
-UV on the hourly strip is the stored `uv_index` for that hour
-(`weather_forecast.uv_index`, with the same number copied into
-`values_json`). Spire’s subscribed point bundles do not include a UV
-index. Ingest keeps a Spire index when one is present. Otherwise it
-stores the OpenUV hourly forecast for that exact UTC hour. This page
-does not call OpenUV. OpenUV's forecast only reaches the current day,
-so a run ingested the day before has null UV for the board's day. When
-any stored hour is null, the page reads Open-Meteo hourly `uv_index`
-for that ICT day and fills only those null hours. A line under the
-strip names the source(s), e.g. "UV index: OpenUV + Open-Meteo
-forecast." An hour no source covers stays `—`. A 0 from a source is
-real and reads as low.
+UV on the hourly strip is the OpenUV index from that same live merge
+(the number `GET /api/weather` returns for the hour). Spire’s subscribed
+point bundles do not include a UV index. A live hour OpenUV does not
+cover stays null and is then filled from Open-Meteo, the same way a
+stored hour with a null `uv_index` is filled. A line under the strip
+names the source(s), e.g. "UV index: OpenUV + Open-Meteo forecast." An
+hour no source covers stays `—`. A 0 from a source is real and reads as
+low. The strip rounds the index to a whole number; 11.6 reads as 12.
 
 The header shows the newest stored run's issuance time in ICT. When
 that run was issued on an earlier ICT day it carries the date, e.g.
@@ -157,8 +161,15 @@ Asia/Bangkok.
 
 ```bash
 npm run test:unit
+npx tsx scripts/verify-board-feed.ts
 npm run dev
 ```
+
+`verify-board-feed.ts` reads production `/api/weather` and this
+project’s Supabase, then checks the board’s rain and UV for every
+shared hour. It needs `SUPABASE_URL` and `SUPABASE_KEY` (or the service
+role) when the stored fallback is part of the check. The live rain and
+UV comparison uses the public weather route either way.
 
 Open `http://127.0.0.1:3000/board/today` for stored data, or
 `http://127.0.0.1:3000/board/today?sample=1` for the labelled sample.

@@ -1,8 +1,8 @@
 # Spire forecast ingest (4× daily)
 
 Status: CANONICAL
-Document version: 2.0
-Last updated: 2026-10-18
+Document version: 3.0
+Last updated: 2026-10-21
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -64,6 +64,12 @@ npm run weather:cronjob-setup
 ```
 
 Needs `CRON_SECRET` and `CRONJOB_ORG_API_KEY` in `.env.local`.
+
+The setup script updates an existing job’s schedule. A job that already
+exists is not left on its old hours. The morning board stays on the
+previous run when the live cron only fires at 00:05 and 12:05 ICT,
+because 06:05 and 18:05 never write a snapshot. Both the ingest job and
+the overview-lock job must use hours `0,6,12,18` in `Asia/Bangkok`.
 
 ## Verify
 
