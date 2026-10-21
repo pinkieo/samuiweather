@@ -1,7 +1,7 @@
 # Samui / Sammi documentation index
 
 Status: CANONICAL
-Document version: 2.13
+Document version: 2.14
 Last updated: 2026-10-21
 Last verified: NOT VERIFIED
 Owner: ProSeadure
@@ -24,10 +24,10 @@ authorised production host.
 | Document | Subject | Version | Last updated | Last verified |
 |---|---|---|---|---|
 | [AGENTS.md](../AGENTS.md) | Agent operating instructions for this repo | 1.0 | 2026-09-01 | NOT VERIFIED |
-| [docs/README.md](README.md) | Documentation index (this file) | 2.13 | 2026-10-21 | NOT VERIFIED |
-| [ARCHITECTURE.md](../ARCHITECTURE.md) | Sammi AI / Samui weather architecture | 12.0 | 2026-10-21 | NOT VERIFIED |
+| [docs/README.md](README.md) | Documentation index (this file) | 2.14 | 2026-10-21 | NOT VERIFIED |
+| [ARCHITECTURE.md](../ARCHITECTURE.md) | Sammi AI / Samui weather architecture | 13.0 | 2026-10-21 | NOT VERIFIED |
 | [docs/daily-vacation-forecast.md](daily-vacation-forecast.md) | Daily vacation brief | 3.2 | 2026-10-18 | NOT VERIFIED |
-| [docs/daily-forecast-board.md](daily-forecast-board.md) | Guest daily forecast board (`/board/today`) | 4.0 | 2026-10-21 | NOT VERIFIED |
+| [docs/daily-forecast-board.md](daily-forecast-board.md) | Guest daily forecast board (`/board/today`) | 5.0 | 2026-10-21 | NOT VERIFIED |
 | [docs/sammi-broadcast.md](sammi-broadcast.md) | Sammi tourist weather TV (3× daily feature) | 8.3 | 2026-10-18 | NOT VERIFIED |
 | [docs/weather-ingest.md](weather-ingest.md) | 4× daily Spire ingest (cron-job.org) | 3.0 | 2026-10-21 | NOT VERIFIED |
 | [docs/ecowitt.md](ecowitt.md) | Ecowitt station ingest + ICT day archive | 2.3 | 2026-10-17 | 2026-09-13 |
