@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 const BOARD_W = 1280;
@@ -24,10 +25,32 @@ function currentFullscreen(): Element | null {
  * fullscreen. The 1280×720 frame is scaled, not restacked, so the presenter
  * gutter stays on the left.
  */
-export default function BoardFullscreen({ children }: { children: ReactNode }) {
+export default function BoardFullscreen({
+  children,
+  refreshMs = 0,
+}: {
+  children: ReactNode;
+  /** Re-read the server board on this interval. 0 leaves a static capture. */
+  refreshMs?: number;
+}) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
   const [active, setActive] = useState(false);
   const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    if (!refreshMs || refreshMs < 60_000) return;
+    const pull = () => router.refresh();
+    const id = window.setInterval(pull, refreshMs);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') pull();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshMs, router]);
 
   const fit = useCallback(() => {
     const root = rootRef.current;
@@ -76,6 +99,7 @@ export default function BoardFullscreen({ children }: { children: ReactNode }) {
     <div
       ref={rootRef}
       data-board-fullscreen={active ? 'on' : 'off'}
+      data-board-refresh-ms={refreshMs || undefined}
       aria-label={active ? 'Exit full screen' : 'Full screen'}
       onClick={() => void toggle()}
       onKeyDown={(event) => {

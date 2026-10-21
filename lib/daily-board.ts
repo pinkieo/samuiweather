@@ -24,6 +24,9 @@ export type BoardRegionId = (typeof BOARD_REGIONS)[number];
 export const BOARD_HOUR_START = 6;
 export const BOARD_HOUR_END = 22;
 
+/** How often an open TV re-reads the server board. Long enough to spare Spire. */
+export const BOARD_LIVE_REFRESH_MS = 5 * 60 * 1000;
+
 /** Prior ICT days used to estimate hour-of-day temperature bias. */
 export const BIAS_LOOKBACK_DAYS = 10;
 /** Kept pairs required before a correction is applied. */
