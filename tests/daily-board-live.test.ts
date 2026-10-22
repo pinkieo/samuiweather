@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { BOARD_LIVE_REFRESH_MS } from '../lib/daily-board';
+import { BOARD_LIVE_REFRESH_MS, formatIssuedLabel } from '../lib/daily-board';
 import { boardHourFromForecastRow, loadDailyBoard } from '../lib/daily-board-load';
-import { newestIssuanceTimeUtc } from '../lib/spire';
+import { newestIssuanceTimeUtc, withLatestHourlyRun } from '../lib/spire';
 import { ingestScheduleMatches } from '../lib/weather-cron-schedule';
 
 const NOW = new Date('2026-10-21T02:30:00.000Z');
@@ -78,6 +78,53 @@ describe('live board feed', () => {
 
   it('refreshes an open live board every five minutes', () => {
     assert.equal(BOARD_LIVE_REFRESH_MS, 5 * 60 * 1000);
+  });
+});
+
+describe('issued label at 05:50 ICT', () => {
+  it('uses the hourly Spire run, not the older 15-day cycle', () => {
+    // 05:50 ICT on 22 Oct 2026. The 15-day bundle is still the 00:00Z cycle
+    // (Wed 21 Oct, 07:00 ICT). The hourly product has already moved to 12:00Z.
+    const combined = Array.from({ length: 40 }, (_, index) => ({
+      times: {
+        issuance_time: '2026-10-21T00:00:00+00:00',
+        valid_time: new Date(Date.UTC(2026, 9, 21, 0, 0, 0) + index * 6 * 3_600_000).toISOString(),
+      },
+      values: { air_temperature: 300 },
+    }));
+    const hourly = Array.from({ length: 48 }, (_, index) => ({
+      times: {
+        issuance_time: '2026-10-21T12:00:00+00:00',
+        valid_time: new Date(Date.UTC(2026, 9, 21, 12, 0, 0) + index * 3_600_000).toISOString(),
+      },
+      values: { air_temperature: 301 },
+    }));
+    const rows = withLatestHourlyRun(combined, hourly);
+    const issued = newestIssuanceTimeUtc(rows);
+    assert.equal(formatIssuedLabel(issued, '2026-10-22'), 'Issued Wed 21 Oct, 19:00 ICT');
+    const noon = rows.find((row) => {
+      const valid = (row as { times?: { valid_time?: string } }).times?.valid_time;
+      return valid != null && new Date(valid).toISOString() === '2026-10-22T05:00:00.000Z';
+    }) as { values?: { air_temperature?: number } } | undefined;
+    assert.equal(noon?.values?.air_temperature, 301);
+  });
+
+  it('leaves a newer combined bundle in place', () => {
+    const combined = [
+      {
+        times: { issuance_time: '2026-10-21T18:00:00Z', valid_time: '2026-10-22T00:00:00Z' },
+        values: { air_temperature: 1 },
+      },
+    ];
+    const hourly = [
+      {
+        times: { issuance_time: '2026-10-21T12:00:00Z', valid_time: '2026-10-22T00:00:00Z' },
+        values: { air_temperature: 2 },
+      },
+    ];
+    const rows = withLatestHourlyRun(combined, hourly);
+    assert.equal(rows.length, 1);
+    assert.equal((rows[0] as { values?: { air_temperature?: number } }).values?.air_temperature, 1);
   });
 });
 

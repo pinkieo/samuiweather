@@ -1,7 +1,7 @@
 # Daily forecast board
 
 Status: CANONICAL
-Document version: 4.0
+Document version: 5.0
 Last updated: 2026-10-21
 Last verified: NOT VERIFIED
 Owner: ProSeadure
@@ -44,7 +44,9 @@ in the gutter says which of those applies.
 
 Today’s hours come from the same live Spire merge as `GET /api/weather`:
 point tiers, the optimized-point rain chance, and the OpenUV hourly
-index. The issued line is that merge’s newest `issuance_time`. Stored
+index. The issued line is the newest Spire `issuance_time` on that
+merge. The hourly run is included even when the 15-day bundle already
+spans the horizon: that bundle can still be an older cycle. Stored
 rows in `weather_forecast` (and `weather_history` when the hour has
 rolled off the rolling table) still fill any hour the live feed has
 already dropped, and they are the whole board when the live read fails
@@ -113,10 +115,11 @@ names the source(s), e.g. "UV index: OpenUV + Open-Meteo forecast." An
 hour no source covers stays `—`. A 0 from a source is real and reads as
 low. The strip rounds the index to a whole number; 11.6 reads as 12.
 
-The header shows the newest stored run's issuance time in ICT. When
-that run was issued on an earlier ICT day it carries the date, e.g.
-"Issued Mon 19 Oct, 07:00 ICT", so a stale run is not read as this
-morning's.
+The header shows that newest Spire issuance in ICT. When the run was
+issued on an earlier ICT day it carries the date, e.g.
+"Issued Wed 21 Oct, 19:00 ICT", so an older cycle is not read as this
+morning's. A stored row supplies the line only when the live read
+fails, or when its issuance is newer than the live run.
 
 ## Temperature bias
 

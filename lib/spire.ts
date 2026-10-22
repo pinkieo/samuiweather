@@ -952,7 +952,10 @@ export async function fetchSpireMergedRawAt(
     const combined = await tryFetchFirstBundle('hourly,3_hourly,6_hourly_15day', 360);
     if (combined.length > 0) {
       const st = computeSpirePointDataStats(combined);
-      if (st.spanHours >= 200) return combined;
+      if (st.spanHours >= 200) {
+        const hourly = await tryFetchFirstBundle('hourly', 48);
+        return withLatestHourlyRun(combined, hourly);
+      }
     }
 
     const longFh = 360;
@@ -991,6 +994,26 @@ export async function fetchSpireMergedRawAt(
 
   overlayOpfProbabilitiesOnRows(rows, opfRows);
   return rows;
+}
+
+/**
+ * The combined 15-day bundle can be one older cycle than the hourly product.
+ * Keeping that bundle alone once it spans ~15 days labels the board with the
+ * older cycle. Hourly rows replace the same valid times only when their
+ * issuance is newer.
+ */
+export function withLatestHourlyRun(combined: unknown[], hourly: unknown[]): unknown[] {
+  if (!hourly.length) return combined;
+  if (!combined.length) return hourly;
+  const hourlyMs = Date.parse(newestIssuanceTimeUtc(hourly) || '');
+  const combinedMs = Date.parse(newestIssuanceTimeUtc(combined) || '');
+  if (Number.isFinite(combinedMs) && (!Number.isFinite(hourlyMs) || hourlyMs <= combinedMs)) {
+    return combined;
+  }
+  return mergeSpireContractTiers([
+    { tier: '6_hourly_15day', data: combined },
+    { tier: 'hourly', data: hourly },
+  ]);
 }
 
 /** Newest Spire `issuance_time` on a point payload. Null when every row omits it. */
