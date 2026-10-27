@@ -1,13 +1,4 @@
-import type { BoardRegionView, DailyBoard, ShowerShade, SkyKind } from '@/lib/daily-board';
-import { GARDEN_STATION, MAP_H, MAP_W, islandPath, regionRectPath } from '@/lib/daily-board-map';
-
-const SHADE_FILL: Record<ShowerShade, string> = {
-  unavailable: '#3d5c56',
-  dry: '#1f8f64',
-  possible: '#1a7f96',
-  likely: '#1d6eb8',
-  heavy: '#1a4f96',
-};
+import type { DailyBoard, SkyKind } from '@/lib/daily-board';
 
 const SKY_LABEL: Record<SkyKind, string> = {
   sun: 'Sunny',
@@ -76,33 +67,6 @@ function HourStack({ label }: { label: string }) {
   );
 }
 
-function IslandMap({ blockId, regions }: { blockId: string; regions: BoardRegionView[] }) {
-  const clipId = `island-clip-${blockId}`;
-  return (
-    <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="h-[92px] w-full" role="img" aria-label="Koh Samui rain by shore">
-      <rect width={MAP_W} height={MAP_H} rx="12" fill="#073044" />
-      <defs>
-        <clipPath id={clipId}>
-          <path d={islandPath()} />
-        </clipPath>
-      </defs>
-      <g clipPath={`url(#${clipId})`}>
-        {regions.map((region) => (
-          <path
-            key={region.id}
-            data-region={region.id}
-            data-region-shade={region.shade}
-            d={regionRectPath(region.id)}
-            fill={SHADE_FILL[region.shade]}
-          />
-        ))}
-      </g>
-      <path d={islandPath()} fill="none" stroke="#d5efe4" strokeWidth="1.2" />
-      <circle cx={GARDEN_STATION.x} cy={GARDEN_STATION.y} r="3.2" fill="#f0c36a" />
-    </svg>
-  );
-}
-
 export default function DailyForecastBoard({ board }: { board: DailyBoard }) {
   return (
     <main
@@ -166,12 +130,9 @@ export default function DailyForecastBoard({ board }: { board: DailyBoard }) {
                 {block.rainWords ?? 'Rain chance unavailable'}
                 {block.rainChancePct != null ? ` · ${Math.round(block.rainChancePct)}%` : ''}
               </p>
-              <IslandMap blockId={block.id} regions={block.regions} />
             </article>
           ))}
         </div>
-
-        <p className="mt-1.5 text-[11px] leading-snug text-[#8eacb6]">{board.mapCaption}</p>
 
         <div className="mt-2 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] px-2 py-1.5">
           <div
