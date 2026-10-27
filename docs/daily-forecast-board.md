@@ -1,9 +1,9 @@
 # Daily forecast board
 
 Status: CANONICAL
-Document version: 6.0
+Document version: 6.1
 Last updated: 2026-10-27
-Last verified: NOT VERIFIED
+Last verified: 2026-10-27
 Owner: ProSeadure
 
 Guest still for Koh Samui, drawn server-side at `/board/today`.

@@ -1,9 +1,9 @@
 # Sammi AI - Project skills & architecture (V2)
 
 Status: CANONICAL
-Document version: 14.0
+Document version: 14.1
 Last updated: 2026-10-27
-Last verified: NOT VERIFIED
+Last verified: 2026-10-27
 Owner: ProSeadure
 
 This document is the source of truth for Cursor and the Sammi AI architecture.
