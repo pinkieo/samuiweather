@@ -1,9 +1,9 @@
 # Daily forecast board
 
 Status: CANONICAL
-Document version: 5.0
-Last updated: 2026-10-21
-Last verified: NOT VERIFIED
+Document version: 6.1
+Last updated: 2026-10-27
+Last verified: 2026-10-27
 Owner: ProSeadure
 
 Guest still for Koh Samui, drawn server-side at `/board/today`.
@@ -27,12 +27,12 @@ Asia/Bangkok, one calendar day:
 | Evening | 18:00–22:00 |
 
 Each block has a sun, cloud, shower, or thunder icon, a temperature,
-and a chance of rain in words. The island outline is split into four
-shores (north, east, south, west). Each shore is shaded from that
-coast’s own forecast rain rate for the block. A gold dot marks the
-Baan Ton Kluay garden station. The hourly strip is 06:00–21:00: rain
-chance, thunder risk, UV, and wind. One “Best for today” line names a
-beach, waterfall, market, or covered plan from those blocks.
+and a chance of rain in words, including the percent when the stored
+chance exists. The daypart cards do not draw mini island maps, and
+they do not show a regional rain caption under the rain chance. The
+hourly strip is 06:00–21:00: rain chance, thunder risk, UV, and wind.
+One “Best for today” line names a beach, waterfall, market, or covered
+plan from those blocks.
 
 The frame is exactly 1280×720. The left 300px is empty for a standing
 presenter cutout. Tap or click the board to fill the display. The same
@@ -61,33 +61,13 @@ A 404 from that path is expected. Do not add the endpoint.
 
 History, temperature bias, the block wording, and the hourly strip stay
 on that one stored point (`samui_opf_hybrid`). It is not replaced with
-a multi-point history series, and its chance is not pasted onto every
-shore.
+a multi-point history series.
 
 The stored table has no spatial rain field. `values_json` is a point
 record. Spire’s optimized point (the source of the stored chance) is
-one custom site and is not copied onto other coordinates.
-
-Shore colour is a separate read at page render: four light
-`/forecast/point` calls, bundle `basic`, hourly, only
-`precipitation_rate`. Anchors: Mae Nam (north), Chaweng (east), Lamai
-(south), Lipa Noi (west). Those rows are not written to
-`weather_forecast` or `weather_history`. The basic point product does
-not include a chance field, so the map does not invent one from the
-rate. The rate is not printed. Colour uses the strongest hour in the
-block:
-
-- missing rate → grey (unavailable)
-- 0 to under 0.2 mm/h → dry (a stored 0 is real)
-- 0.2 to under 1 → possible
-- 1 to under 2.5 → likely
-- 2.5 and above → heavy
-
-Spire’s grid is coarser than the island. Two anchors can return the
-same series; the map shows that agreement instead of inventing a
-difference. If the token is missing, the day has ended, or a shore
-returns no rate, that shore stays grey. The caption says the stored
-forecast was not copied across the island.
+one custom site. The daypart cards do not draw an island outline, shore
+shading, or a regional rain caption, and the page does not request
+separate coast rain rates for those cards.
 
 Live radar is not read. Theyr wind and Open-Meteo are not read. Rain
 amounts are not shown as numbers; Spire over-calls totals, so the words
@@ -150,9 +130,7 @@ pairs, which says there are not enough recent garden hours.
 
 `?sample=1` draws a labelled sample through the same shaping code, for
 layout and screenshots when Supabase is not configured. The banner says
-the numbers are not live. The sample shores use different illustrative
-rates so the layout can show regional shading. Those rates are not a
-live forecast.
+the numbers are not live. The sample does not draw shore maps.
 
 Without credentials, a failed read, or an empty day, the board stays
 in the unavailable state. It does not substitute the sample.

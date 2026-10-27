@@ -1,9 +1,9 @@
 # Sammi AI - Project skills & architecture (V2)
 
 Status: CANONICAL
-Document version: 13.0
-Last updated: 2026-10-21
-Last verified: NOT VERIFIED
+Document version: 14.1
+Last updated: 2026-10-27
+Last verified: 2026-10-27
 Owner: ProSeadure
 
 This document is the source of truth for Cursor and the Sammi AI architecture.
@@ -40,7 +40,7 @@ Sammi keeps a clear split between what is happening *now* and what will *happen*
 - Live: `GET /api/ecowitt/latest`. Day archive: `GET /api/ecowitt/daily?date=YYYY-MM-DD` (ICT). Forecast skill vs that day: `GET /api/forecast/accuracy?date=YYYY-MM-DD`. Trend: `GET /api/forecast/accuracy/trend`.
 - **4× daily OPF overview:** dashboard **Today's 4 checks**, `GET /overview`, `GET|POST /api/forecast/overview`. Table `daily_forecast_slot_lock`. Contract: `docs/forecast-overview.md`.
 - Forecast hours on the dashboard and in Sammi stay Spire (Samui 1-hour chance when that hour has one). The station is the Now block only: temperature, rain falling or not, and wind. It is not blended into a forecast hour. The private now-cast is not blended into a forecast hour.
-- **Daily forecast board** (`/board/today`, 1280×720): guest still for the 06:00 capture at `https://www.samuiweather.com/board/today`. Today’s card wording and the hourly strip use the same live Spire merge as `GET /api/weather` (optimized-point rain chance and OpenUV index), laid over stored hours the live feed has already dropped. The issued line is that merge’s newest `issuance_time`, including the hourly run when the 15-day bundle is an older cycle. An open display re-reads the server render every 5 minutes. `/api/forecast/hybrid` is not a route and is not called. Shore shading is a separate hourly Spire point read of rain rate at four coasts, not that chance pasted across the island, and not live radar. Temperatures on this page may be shifted by recent hour-of-day bias versus Baan Ton Kluay. That shift is not a copy of the live reading, and it does not apply to the dashboard or Sammi. Contract: `docs/daily-forecast-board.md`.
+- **Daily forecast board** (`/board/today`, 1280×720): guest still for the 06:00 capture at `https://www.samuiweather.com/board/today`. Today’s card wording and the hourly strip use the same live Spire merge as `GET /api/weather` (optimized-point rain chance and OpenUV index), laid over stored hours the live feed has already dropped. The issued line is that merge’s newest `issuance_time`, including the hourly run when the 15-day bundle is an older cycle. An open display re-reads the server render every 5 minutes. `/api/forecast/hybrid` is not a route and is not called. The daypart cards do not draw mini island maps or a regional rain caption, and this page does not request separate coast rain rates for them. Not live radar. Temperatures on this page may be shifted by recent hour-of-day bias versus Baan Ton Kluay. That shift is not a copy of the live reading, and it does not apply to the dashboard or Sammi. Contract: `docs/daily-forecast-board.md`.
 
 ## Tech stack
 | Component | Technology |

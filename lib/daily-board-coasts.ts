@@ -1,8 +1,8 @@
 /**
- * Coast rain rates for the daily board map.
- * Four light Spire `/forecast/point` reads. Nothing is written back to
- * `weather_forecast` or `weather_history`. The stored island point is not
- * copied onto a shore. A missing `precipitation_rate` stays null.
+ * Coast rain-rate helpers. `/board/today` does not draw shore maps and
+ * does not call `loadCoastRainRates`. Nothing here is written back to
+ * `weather_forecast` or `weather_history`. A missing `precipitation_rate`
+ * stays null.
  */
 
 import type { BoardRegionId, CoastRateHour } from '@/lib/daily-board';

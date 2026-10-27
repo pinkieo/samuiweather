@@ -2,8 +2,9 @@
  * Load the daily board for today from the same Spire merge as `/api/weather`
  * (point tiers, OPF rain chance, OpenUV index), laid over stored hours for
  * the part of the day the live feed has already dropped. A failed live read
- * keeps the stored rows. Coast shading is a separate live Spire point read.
- * Hours no UV source covers are filled from Open-Meteo and labelled. No live radar.
+ * keeps the stored rows. The daypart cards do not draw shore maps, so this
+ * load does not request coast rain rates. Hours no UV source covers are
+ * filled from Open-Meteo and labelled. No live radar.
  */
 
 import { bucketStationHours, SPIRE_LOCATION_ID } from '@/lib/forecast-day-accuracy';
@@ -28,7 +29,6 @@ import {
   temperatureBiasByIctHour,
   utcHourKey,
 } from '@/lib/daily-board';
-import { loadCoastRainRates } from '@/lib/daily-board-coasts';
 import { sampleDailyBoard } from '@/lib/daily-board-sample';
 import { type BoardUvSource, fetchOpenMeteoUvHourMap, fillMissingUv } from '@/lib/daily-board-uv';
 
@@ -288,7 +288,7 @@ export async function loadDailyBoard(opts?: {
         return null;
       }
     })();
-    const [feed, storedRows, biasResult, coasts] = await Promise.all([
+    const [feed, storedRows, biasResult] = await Promise.all([
       feedPromise,
       loadStoredRows(range.startUtc.toISOString(), range.endUtc.toISOString()).catch((err: unknown) => {
         console.error('[daily-board] forecast read failed', err instanceof Error ? err.message : err);
@@ -298,7 +298,6 @@ export async function loadDailyBoard(opts?: {
         console.error('[daily-board] bias read failed', err instanceof Error ? err.message : err);
         return { bias: [] as HourBias[], biasRead: 'unread' as const };
       }),
-      loadCoastRainRates(range.endUtc, now),
     ]);
     const storedHours = storedRows.map(forecastRowToHour);
     const liveHours = feed?.hours ?? [];
@@ -321,8 +320,6 @@ export async function loadDailyBoard(opts?: {
       biasRead: biasResult.biasRead,
       mode: 'live',
       issuedAtUtc: issued,
-      regionRates: coasts.rates,
-      regionRead: coasts.status,
     });
   } catch (err) {
     console.error('[daily-board] forecast read failed', err instanceof Error ? err.message : err);
