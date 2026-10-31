@@ -14,6 +14,7 @@ import {
   ictDayUtcRange,
   ictYmd,
   parseIctDateYmd,
+  rainDayTotalMm,
 } from '@/lib/ecowitt-data';
 import { SPIRE_LOCATION_ID } from '@/lib/forecast-day-accuracy';
 
@@ -243,25 +244,28 @@ export function slotEndUtc(date: string, slot: OverviewSlot): Date {
   return slotStartUtc(next.date, next.slot);
 }
 
-/** Station daily-rain counter delta across a window (handles ICT midnight reset). */
+/**
+ * Rain from the station daily counter across the samples.
+ * Each ICT day uses `rainDayTotalMm`: sum of increases, a drop counts as a reset,
+ * and carry-over before a late reset in the first two hours after 00:00 ICT is ignored.
+ */
 export function rainCounterDelta(samples: EcowittDaySample[]): number | null {
   if (!samples.length) return null;
   const ordered = [...samples].sort((a, b) => a.observed_at.localeCompare(b.observed_at));
-  const byDay = new Map<string, number[]>();
+  const byDay = new Map<string, EcowittDaySample[]>();
   for (const row of ordered) {
     if (!finite(row.rain_day_mm)) continue;
     const day = ictYmd(new Date(row.observed_at));
-    const list = byDay.get(day) || [];
-    list.push(row.rain_day_mm);
+    const list = byDay.get(day) ?? [];
+    list.push(row);
     byDay.set(day, list);
   }
   let sum = 0;
   let any = false;
-  for (const values of byDay.values()) {
-    const first = values[0]!;
-    const peak = Math.max(...values);
-    const delta = Math.max(0, peak - Math.min(first, peak));
-    sum += delta;
+  for (const rows of byDay.values()) {
+    const total = rainDayTotalMm(rows);
+    if (total == null) continue;
+    sum += total;
     any = true;
   }
   return any ? round3(sum) : null;

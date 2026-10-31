@@ -1,8 +1,8 @@
 # 4× daily Spire OPF overview
 
 Status: CANONICAL
-Document version: 2.1
-Last updated: 2026-10-17
+Document version: 3.0
+Last updated: 2026-10-31
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -35,7 +35,7 @@ minutes after forecast ingest. See `docs/weather-ingest.md`. LENOVOX13
 
 - Window = slot start → next slot (6 h ICT).
 - Temp: station mean vs issuance mean (Standard Point).
-- Rain: station `rain_day` counter delta + max rate vs **uncalibrated** sum of Spire hourly rain rate and OPF chance of rain. No wet/dry yes-no.
+- Rain: station rain from the daily counter (`rainCounterDelta` → `rainDayTotalMm` in `lib/ecowitt-data.ts`) + max rate vs **uncalibrated** sum of Spire hourly rain rate and OPF chance of rain. No wet/dry yes-no. The station total is the sum of counter increases. A drop counts as a reset. A drop in the first two hours after 00:00 ICT is the late daily reset: readings before that drop are ignored, so the previous day's total is not carried into the new day. Do not use max counter minus the first reading.
 - Thunder / fog: OPF only; station does not observe thunder.
 
 ## Store
@@ -48,7 +48,7 @@ minutes after forecast ingest. See `docs/weather-ingest.md`. LENOVOX13
 
 - Spire is the branded forecast. OPF supplies chance of rain / thunder / fog (~72 h). Temps and wind stay Standard Point.
 - Ecowitt is ground truth. Never overwrite observations with the model.
-- Accuracy logs **raw** numbers: temp error, station rain-counter delta, station `rainRateMaxMmh`, forecast hourly-rate sum, mean/max chance of rain. **No invented wet/dry yes-no.**
+- Accuracy logs **raw** numbers: temp error, station rain from the daily counter (sum of increases, late-reset safe), station `rainRateMaxMmh`, forecast hourly-rate sum, mean/max chance of rain. **No invented wet/dry yes-no.**
 - Thunder is forecast-only; the backyard station does not observe it.
 - Known skill (show, do not hide): temperature is usually close; rain is over-called on dry days and millimetres are often about double the station.
 - The guest still `/board/today` may shift displayed temperatures by recent hour-of-day bias. This overview stays on the raw issuance. See `docs/daily-forecast-board.md`.
