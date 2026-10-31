@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   ictDayUtcRange,
   parseIctDateYmd,
+  rainDayTotalMm,
   summarizeEcowittDay,
   yesterdayIctDate,
   type EcowittDaySample,
@@ -164,5 +165,40 @@ describe('forecast day score', () => {
     assert.equal(score.tempBiasC, 2);
     assert.equal(score.rainYesNoMatch, true);
     assert.equal(score.stationRainDayMm, 4);
+  });
+});
+
+describe('daily rain counter (late reset)', () => {
+  const s = (t: string, v: number) => ({ observed_at: t, rain_day_mm: v });
+  it('ignores carry-over before a late reset (30 Oct pattern)', () => {
+    const rows = [
+      s('2026-10-29T17:00:00.000Z', 23.1),
+      s('2026-10-29T17:01:00.000Z', 0),
+      s('2026-10-30T05:00:00.000Z', 0.6),
+      s('2026-10-30T09:00:00.000Z', 1.1),
+      s('2026-10-30T16:59:00.000Z', 1.1),
+    ];
+    assert.equal(rainDayTotalMm(rows), 1.1);
+    assert.equal(summarizeEcowittDay(rows.map((r) => ({ ...r, temperature_c: 27, humidity_pct: 80, wind_speed_ms: 1, wind_gust_ms: 2, rain_rate_mmh: 0, solar_wm2: 0, uv_index: 0 })), '2026-10-30').rainDayMm, 1.1);
+  });
+  it('handles a carry-over lasting ~50 minutes', () => {
+    const rows = [
+      s('2026-10-29T17:00:00.000Z', 23.1),
+      s('2026-10-29T17:30:00.000Z', 23.1),
+      s('2026-10-29T17:50:00.000Z', 0.2),
+      s('2026-10-30T10:00:00.000Z', 1.1),
+    ];
+    assert.equal(rainDayTotalMm(rows), 1.1);
+  });
+  it('a normal day equals the peak counter (29 Oct pattern)', () => {
+    const rows = [s('2026-10-28T17:00:00.000Z', 0), s('2026-10-29T08:00:00.000Z', 15), s('2026-10-29T16:59:00.000Z', 23.1)];
+    assert.equal(rainDayTotalMm(rows), 23.1);
+  });
+  it('adds rain after a mid-day counter reset', () => {
+    const rows = [s('2026-10-28T17:00:00.000Z', 0), s('2026-10-29T06:00:00.000Z', 5), s('2026-10-29T07:00:00.000Z', 1), s('2026-10-29T08:00:00.000Z', 3)];
+    assert.equal(rainDayTotalMm(rows), 8);
+  });
+  it('returns null without counter values', () => {
+    assert.equal(rainDayTotalMm([]), null);
   });
 });

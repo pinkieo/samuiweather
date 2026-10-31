@@ -132,7 +132,7 @@ export type EcowittDailySummary = {
   humidityMaxPct: number | null;
   windMaxMs: number | null;
   windGustMaxMs: number | null;
-  /** Peak of the station daily rain counter on that ICT day — not today's live counter. */
+  /** Rain on that ICT day from the station counter (sum of increases, late-reset safe). */
   rainDayMm: number | null;
   rainRateMaxMmh: number | null;
   solarMaxWm2: number | null;
@@ -183,6 +183,38 @@ export function yesterdayIctDate(at = new Date()): string {
   return ictYmd(new Date(noon.getTime() - 24 * 60 * 60 * 1000));
 }
 
+/** Window after ICT midnight in which a counter drop is treated as the late daily reset. */
+const LATE_RESET_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Rain that fell during one ICT day from the station's daily-rain counter.
+ * The Ecowitt counter does not always reset at 00:00 ICT: it can carry the previous
+ * day's total for a while. So we sum positive increases, treat any drop as a reset
+ * (count the new value), and ignore carry-over before a late reset in the first hours.
+ */
+export function rainDayTotalMm(rows: Pick<EcowittDaySample, 'observed_at' | 'rain_day_mm'>[]): number | null {
+  const ordered = rows
+    .filter((r) => typeof r.rain_day_mm === 'number' && Number.isFinite(r.rain_day_mm))
+    .sort((a, b) => a.observed_at.localeCompare(b.observed_at)) as { observed_at: string; rain_day_mm: number }[];
+  if (!ordered.length) return null;
+  const dayStart = new Date(`${ictYmd(new Date(ordered[0]!.observed_at))}T00:00:00+07:00`).getTime();
+  let start = 0;
+  for (let i = 1; i < ordered.length; i++) {
+    if (new Date(ordered[i]!.observed_at).getTime() - dayStart > LATE_RESET_WINDOW_MS) break;
+    if (ordered[i]!.rain_day_mm < ordered[i - 1]!.rain_day_mm) {
+      start = i;
+      break;
+    }
+  }
+  let sum = ordered[start]!.rain_day_mm;
+  for (let i = start + 1; i < ordered.length; i++) {
+    const v = ordered[i]!.rain_day_mm;
+    const p = ordered[i - 1]!.rain_day_mm;
+    sum += v >= p ? v - p : v;
+  }
+  return Math.round(sum * 1000) / 1000;
+}
+
 export function summarizeEcowittDay(
   rows: EcowittDaySample[],
   date: string,
@@ -225,7 +257,7 @@ export function summarizeEcowittDay(
     humidityMaxPct: maxNum(hums),
     windMaxMs: maxNum(finiteNums(ordered.map((r) => r.wind_speed_ms))),
     windGustMaxMs: maxNum(finiteNums(ordered.map((r) => r.wind_gust_ms))),
-    rainDayMm: maxNum(finiteNums(ordered.map((r) => r.rain_day_mm))),
+    rainDayMm: rainDayTotalMm(ordered),
     rainRateMaxMmh: maxNum(finiteNums(ordered.map((r) => r.rain_rate_mmh))),
     solarMaxWm2: maxNum(finiteNums(ordered.map((r) => r.solar_wm2))),
     uvMax: maxNum(finiteNums(ordered.map((r) => r.uv_index))),
