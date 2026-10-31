@@ -110,43 +110,67 @@ describe('slot lock idempotency', () => {
 });
 
 describe('rain counter delta', () => {
-  it('uses the daily counter increase and survives midnight reset', () => {
-    const rows: EcowittDaySample[] = [
-      {
-        observed_at: '2026-09-14T16:30:00.000Z',
-        temperature_c: 28,
-        humidity_pct: 80,
-        wind_speed_ms: 1,
-        wind_gust_ms: 2,
-        rain_rate_mmh: 0.2,
-        rain_day_mm: 10,
-        solar_wm2: null,
-        uv_index: null,
-      },
-      {
-        observed_at: '2026-09-14T16:50:00.000Z',
-        temperature_c: 27,
-        humidity_pct: 82,
-        wind_speed_ms: 1,
-        wind_gust_ms: 2,
-        rain_rate_mmh: 1,
-        rain_day_mm: 12.4,
-        solar_wm2: null,
-        uv_index: null,
-      },
-      {
-        observed_at: '2026-09-14T17:10:00.000Z',
-        temperature_c: 26,
-        humidity_pct: 90,
-        wind_speed_ms: 1,
-        wind_gust_ms: 2,
-        rain_rate_mmh: 0.4,
-        rain_day_mm: 0.8,
-        solar_wm2: null,
-        uv_index: null,
-      },
+  const row = (observed_at: string, rain_day_mm: number | null): EcowittDaySample => ({
+    observed_at,
+    temperature_c: 27,
+    humidity_pct: 80,
+    wind_speed_ms: 1,
+    wind_gust_ms: 2,
+    rain_rate_mmh: 0,
+    rain_day_mm,
+    solar_wm2: null,
+    uv_index: null,
+  });
+
+  it('sums each ICT day counter total and keeps rain after midnight', () => {
+    const rows = [
+      row('2026-09-14T16:30:00.000Z', 10),
+      row('2026-09-14T16:50:00.000Z', 12.4),
+      row('2026-09-14T17:10:00.000Z', 0.8),
     ];
-    assert.equal(rainCounterDelta(rows), 2.4);
+    assert.equal(rainCounterDelta(rows), 13.2);
+  });
+
+  it('ignores carry-over before a late reset (30 Oct pattern)', () => {
+    const rows = [
+      row('2026-10-29T17:00:00.000Z', 23.1),
+      row('2026-10-29T17:01:00.000Z', 0),
+      row('2026-10-30T05:00:00.000Z', 0.6),
+      row('2026-10-30T09:00:00.000Z', 1.1),
+      row('2026-10-30T16:59:00.000Z', 1.1),
+    ];
+    assert.equal(rainCounterDelta(rows), 1.1);
+    const acc = scoreSlotWindow(
+      rows,
+      [],
+      new Date('2026-10-29T17:00:00.000Z'),
+      new Date('2026-10-30T17:00:00.000Z'),
+    );
+    assert.equal(acc.stationRainDeltaMm, 1.1);
+  });
+
+  it('a normal day equals the peak counter (29 Oct pattern)', () => {
+    const rows = [
+      row('2026-10-28T17:00:00.000Z', 0),
+      row('2026-10-29T08:00:00.000Z', 15),
+      row('2026-10-29T16:59:00.000Z', 23.1),
+    ];
+    assert.equal(rainCounterDelta(rows), 23.1);
+  });
+
+  it('adds rain after a mid-day counter reset', () => {
+    const rows = [
+      row('2026-10-28T17:00:00.000Z', 0),
+      row('2026-10-29T06:00:00.000Z', 5),
+      row('2026-10-29T07:00:00.000Z', 1),
+      row('2026-10-29T08:00:00.000Z', 3),
+    ];
+    assert.equal(rainCounterDelta(rows), 8);
+  });
+
+  it('returns null without counter values', () => {
+    assert.equal(rainCounterDelta([]), null);
+    assert.equal(rainCounterDelta([row('2026-10-30T00:00:00.000Z', null)]), null);
   });
 });
 
@@ -187,7 +211,7 @@ describe('slot accuracy', () => {
       new Date('2026-09-15T06:00:00.000Z'),
     );
     assert.equal(acc.thunderObservable, false);
-    assert.equal(acc.stationRainDeltaMm, 0);
+    assert.equal(acc.stationRainDeltaMm, 1);
     assert.ok(acc.forecastPrecipSumMm != null);
     assert.equal('rainYesNoMatch' in acc, false);
     assert.ok(acc.rainSkillNote.includes('double'));
