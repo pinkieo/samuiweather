@@ -11,8 +11,9 @@ export const revalidate = 0;
 
 /**
  * Station day archive for one ICT calendar day.
- * High/low/rain come from `ecowitt_observations` — not from `/latest` rainDayMm
- * (that counter resets at midnight).
+ * High/low/rain come from `ecowitt_observations` — not from `/latest` rainDayMm.
+ * Daily rain is the sum of counter increases. A late reset after 00:00 ICT
+ * must not carry the previous day's total into this day.
  */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);

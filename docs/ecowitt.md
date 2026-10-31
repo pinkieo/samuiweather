@@ -1,8 +1,8 @@
 # Ecowitt station — Baan Ton Kluay
 
 Status: CANONICAL
-Document version: 2.3
-Last updated: 2026-10-17
+Document version: 3.0
+Last updated: 2026-10-31
 Last verified: 2026-09-13
 Owner: ProSeadure
 
@@ -146,7 +146,7 @@ Code: `app/api/ecowitt/ingest/route.ts`
 ## Read path (dashboard + day archive)
 
 - `GET /api/ecowitt/latest` — latest row for `baan_ton_kluay` (now). `rainDayMm` is **today’s** station counter and resets at midnight ICT. It cannot score yesterday.
-- `GET /api/ecowitt/daily?date=YYYY-MM-DD` — one **ICT** calendar day from `ecowitt_observations`: sample count, high/low temperature, peak `rain_day_mm`, max wind/gust. Omit `date` for **yesterday ICT**. Empty day returns `available: false` (200), not 404.
+- `GET /api/ecowitt/daily?date=YYYY-MM-DD` — one **ICT** calendar day from `ecowitt_observations`: sample count, high/low temperature, daily rain from the station counter, max wind/gust. Omit `date` for **yesterday ICT**. Empty day returns `available: false` (200), not 404.
 - `GET /api/forecast/accuracy?date=YYYY-MM-DD` — Spire (`weather_history` ∪ `weather_forecast`, latest issuance per hour) vs that station day. Hourly MAE plus day min/max/rain. Same default date.
 - `GET /api/forecast/accuracy/trend?from=&to=` — one row per ICT day in the range (default last 60 days through yesterday). Same pairing rules. `npm run forecast:score-trend`.
 - `GET /api/forecast/overview` — 4× daily locked issuance vs station (raw mm and chance of rain; no wet/dry cutoff). Page: `/overview`. See `docs/forecast-overview.md`.
@@ -158,7 +158,7 @@ Cloud poll is `real_time` only. History for a past ICT day is the minute table, 
 
 Rows are ordered by `observed_at` (then `created_at`). Stale test rows with fake future timestamps can block live data — delete them in Supabase if `/latest` looks wrong.
 
-`rainDayMm` on `/daily` is `MAX(rain_day_mm)` inside that ICT day. Do not sum `rain_rate_mmh`.
+`rainDayMm` on `/daily` is the rain that fell during that ICT day, derived from the station counter `rain_day_mm` (`rainDayTotalMm` in `lib/ecowitt-data.ts`). The counter does not always reset at 00:00 ICT and can carry the previous day's total after midnight. The total is the sum of positive increases. A drop counts as a reset and the new value is added. A drop in the first two hours after ICT midnight is the late daily reset: readings before that drop are ignored so yesterday's total is not counted again. Do not use `MAX(rain_day_mm)` and do not sum `rain_rate_mmh`. `/latest` `rainDayMm` stays the live station counter.
 
 ### Forecast provenance for Ecowitt validation
 

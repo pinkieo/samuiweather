@@ -1,8 +1,8 @@
 # Samui / Sammi documentation index
 
 Status: CANONICAL
-Document version: 2.16
-Last updated: 2026-10-27
+Document version: 2.17
+Last updated: 2026-10-31
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -24,13 +24,13 @@ authorised production host.
 | Document | Subject | Version | Last updated | Last verified |
 |---|---|---|---|---|
 | [AGENTS.md](../AGENTS.md) | Agent operating instructions for this repo | 1.0 | 2026-09-01 | NOT VERIFIED |
-| [docs/README.md](README.md) | Documentation index (this file) | 2.16 | 2026-10-27 | NOT VERIFIED |
+| [docs/README.md](README.md) | Documentation index (this file) | 2.17 | 2026-10-31 | NOT VERIFIED |
 | [ARCHITECTURE.md](../ARCHITECTURE.md) | Sammi AI / Samui weather architecture | 14.1 | 2026-10-27 | 2026-10-27 |
 | [docs/daily-vacation-forecast.md](daily-vacation-forecast.md) | Daily vacation brief | 3.2 | 2026-10-18 | NOT VERIFIED |
 | [docs/daily-forecast-board.md](daily-forecast-board.md) | Guest daily forecast board (`/board/today`) | 6.1 | 2026-10-27 | 2026-10-27 |
 | [docs/sammi-broadcast.md](sammi-broadcast.md) | Sammi tourist weather TV (3× daily feature) | 8.3 | 2026-10-18 | NOT VERIFIED |
 | [docs/weather-ingest.md](weather-ingest.md) | 4× daily Spire ingest (cron-job.org) | 3.0 | 2026-10-21 | NOT VERIFIED |
-| [docs/ecowitt.md](ecowitt.md) | Ecowitt station ingest + ICT day archive | 2.3 | 2026-10-17 | 2026-09-13 |
+| [docs/ecowitt.md](ecowitt.md) | Ecowitt station ingest + ICT day archive | 3.0 | 2026-10-31 | 2026-09-13 |
 | [docs/forecast-overview.md](forecast-overview.md) | 4× daily Spire OPF lock vs Ecowitt | 2.1 | 2026-10-17 | NOT VERIFIED |
 
 ## Draft
