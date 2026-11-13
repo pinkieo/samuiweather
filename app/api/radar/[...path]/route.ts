@@ -81,7 +81,9 @@ export async function GET(
       headers: {
         'User-Agent': 'SamuiWeatherDashboard/1.0 (Koh Samui local weather app)',
       },
-      next: { revalidate: 300 },
+      // Do not use next.revalidate here: a stuck Data Cache kept serving Nov 7 tiles
+      // after RainViewer had already 404'd those frame ids.
+      cache: 'no-store',
     });
 
     if (!upstream.ok) {

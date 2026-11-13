@@ -226,6 +226,14 @@ export default function SamuiExploreMap({
     return Math.max(...radarFrames.map((f) => f.time));
   }, [radarFrames]);
 
+  const formatIctHm = (unixSec: number, hour12 = false) =>
+    new Date(unixSec * 1000).toLocaleTimeString(hour12 ? 'en-US' : 'en-GB', {
+      timeZone: 'Asia/Bangkok',
+      hour: hour12 ? 'numeric' : '2-digit',
+      minute: '2-digit',
+      hour12,
+    });
+
   const liveClockHm = useMemo(() => {
     void liveClockKey;
     return new Date().toLocaleTimeString('en-GB', {
@@ -235,6 +243,14 @@ export default function SamuiExploreMap({
       hour12: false,
     });
   }, [liveClockKey]);
+
+  /** Two missed ~10 min scans — do not keep the LIVE badge or "rain right now" copy. */
+  const RADAR_STALE_AFTER_SEC = 20 * 60;
+  const radarAgeSec =
+    latestRadarScanSec == null
+      ? null
+      : Math.max(0, Math.round(Date.now() / 1000 - latestRadarScanSec));
+  const radarIsStale = radarAgeSec == null || radarAgeSec > RADAR_STALE_AFTER_SEC;
 
   const liveFeedSubline = useMemo(() => {
     void liveAgeKey;
@@ -388,10 +404,7 @@ export default function SamuiExploreMap({
   const activeScanClockLabel = useMemo(() => {
     const t = radarScrub?.time ?? latestRadarFrame?.time;
     if (!t) return null;
-    return new Date(t * 1000).toLocaleTimeString(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-    });
+    return `${formatIctHm(t, false)} ICT`;
   }, [radarScrub?.time, latestRadarFrame?.time]);
 
   const radarTiles = useMemo(
@@ -702,13 +715,29 @@ export default function SamuiExploreMap({
           <button
             type="button"
             onClick={() => onRefreshLive?.()}
-            className="flex flex-wrap items-baseline gap-x-1.5 rounded-md border border-emerald-500/40 bg-emerald-950/80 px-2 py-0.5 shadow-lg backdrop-blur-sm transition-colors hover:bg-emerald-900/75"
+            className={
+              radarIsStale
+                ? 'flex flex-wrap items-baseline gap-x-1.5 rounded-md border border-amber-500/50 bg-amber-950/80 px-2 py-0.5 shadow-lg backdrop-blur-sm transition-colors hover:bg-amber-900/75'
+                : 'flex flex-wrap items-baseline gap-x-1.5 rounded-md border border-emerald-500/40 bg-emerald-950/80 px-2 py-0.5 shadow-lg backdrop-blur-sm transition-colors hover:bg-emerald-900/75'
+            }
             title="Refresh radar now"
           >
-            <span className="text-[8px] font-black uppercase tracking-widest text-emerald-200">
-              LIVE
+            <span
+              className={
+                radarIsStale
+                  ? 'text-[8px] font-black uppercase tracking-widest text-amber-200'
+                  : 'text-[8px] font-black uppercase tracking-widest text-emerald-200'
+              }
+            >
+              {radarIsStale ? 'STALE' : 'LIVE'}
             </span>
-            <span className="font-mono text-[9px] font-bold tabular-nums tracking-normal text-emerald-50/95">
+            <span
+              className={
+                radarIsStale
+                  ? 'font-mono text-[9px] font-bold tabular-nums tracking-normal text-amber-50/95'
+                  : 'font-mono text-[9px] font-bold tabular-nums tracking-normal text-emerald-50/95'
+              }
+            >
               {liveClockHm} ICT
             </span>
           </button>
@@ -948,12 +977,14 @@ export default function SamuiExploreMap({
                 : 'Latest RainViewer scan only — no animation loop. Map crossfades when a newer scan appears after refresh.'
             }
           >
-            🌧 Radar · {radarScrub ? 'scrub' : 'live'}
+            🌧 Radar · {radarScrub ? 'scrub' : radarIsStale ? 'stale' : 'live'}
             {activeScanClockLabel ? ` · ${activeScanClockLabel}` : ''} · refresh{' '}
             {Math.round(radarDisplay.framesPollMs / 60000)}m · fade {radarDisplay.fadeTransitionMs}ms
           </div>
           <p className="rounded-lg border border-white/10 bg-slate-950/85 px-2 py-1 text-[8px] leading-snug text-slate-500 backdrop-blur-sm">
-            {mapFooterHolidayLine}
+            {radarIsStale
+              ? 'Radar scan is stale — this is not live rain. The time bar below is the forecast.'
+              : mapFooterHolidayLine}
           </p>
         </div>
       </div>

@@ -6,19 +6,26 @@ import { getRainViewerIngestProof } from '@/lib/rainviewer-ingest-proof';
  * Upstream: https://api.rainviewer.com/public/weather-maps.json — `radar.past` is typically ~2–3 h of scans.
  */
 export const runtime = 'edge';
-/** Avoid half-stale cached responses in dev — always fresh `weather-maps.json`. */
+/** Never cache this route — a stuck Next/Vercel Data Cache froze production on a 6-day-old catalog. */
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 /** If upstream `past` is empty, use the last N scans (RainViewer ~10 min cadence). */
 const FALLBACK_TAIL = 18;
+
+/** Treat a catalog older than two missed 10-min scans as stale so the UI can drop the LIVE badge. */
+const STALE_AFTER_SECONDS = 20 * 60;
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, must-revalidate',
+};
 
 export async function GET() {
   try {
     const res = await fetch('https://api.rainviewer.com/public/weather-maps.json', {
       headers: { 'User-Agent': 'SamuiWeatherDashboard/1.0' },
-      ...(process.env.NODE_ENV === 'development'
-        ? ({ cache: 'no-store' } as const)
-        : { next: { revalidate: 120 } }),
+      cache: 'no-store',
     });
     if (!res.ok) {
       return NextResponse.json(
@@ -29,8 +36,10 @@ export async function GET() {
           upstream: null,
           error: 'upstream_not_ok',
           ingest: getRainViewerIngestProof(),
+          ageSeconds: null,
+          stale: true,
         },
-        { status: 502 },
+        { status: 502, headers: NO_STORE_HEADERS },
       );
     }
     const data: unknown = await res.json();
@@ -80,13 +89,22 @@ export async function GET() {
       .map((f: { path: string; time: number }) => ({ path: f.path, time: f.time }));
 
     /** Full `weather-maps.json` — station IDs (PHU, SRT, SKA, …) are not inside this JSON; see `ingest`. */
-    return NextResponse.json({
-      frames,
-      nowcastFrames,
-      nowFrame,
-      upstream: data,
-      ingest: getRainViewerIngestProof(),
-    });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const ageSeconds = nowFrame ? Math.max(0, nowSec - nowFrame.time) : null;
+    const stale = ageSeconds != null && ageSeconds > STALE_AFTER_SECONDS;
+
+    return NextResponse.json(
+      {
+        frames,
+        nowcastFrames,
+        nowFrame,
+        upstream: data,
+        ingest: getRainViewerIngestProof(),
+        ageSeconds,
+        stale,
+      },
+      { headers: NO_STORE_HEADERS },
+    );
   } catch {
     return NextResponse.json(
       {
@@ -96,8 +114,10 @@ export async function GET() {
         upstream: null,
         error: 'exception',
         ingest: getRainViewerIngestProof(),
+        ageSeconds: null,
+        stale: true,
       },
-      { status: 500 },
+      { status: 500, headers: NO_STORE_HEADERS },
     );
   }
 }
