@@ -36,6 +36,7 @@
     "broadcast:schedule": "npx tsx scripts/broadcast-schedule.ts",
     "broadcast:schedule:dry": "npx tsx scripts/broadcast-schedule.ts --dry-run",
     "board:screenshot": "npx tsx scripts/screenshot-daily-board.ts",
+    "test:nowcast": "npx tsx --test tests/nowcast-synthetic.test.ts tests/nowcast-service.test.ts tests/nowcast-parity.test.ts",
     "test:unit": "npx tsx --test tests/daily-vacation-brief.test.ts tests/forecast-reference.test.ts tests/dashboard-region.test.ts tests/broadcast-script.test.ts tests/broadcast-catalog.test.ts tests/broadcast-synoptic.test.ts tests/wind-overlay.test.ts tests/theyr-rdas-wind.test.ts tests/ecowitt-daily.test.ts tests/forecast-overview.test.ts tests/weather-ingest.test.ts tests/forecast-uv.test.ts tests/daily-board.test.ts tests/daily-board-uv.test.ts tests/daily-board-live.test.ts"
   },
   "dependencies": {
@@ -47,6 +48,7 @@
     "maplibre-gl": "^5.23.0",
     "next": "^15.1.0",
     "openai": "^6.34.0",
+    "pngjs": "^7.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-map-gl": "^8.1.1",
@@ -57,6 +59,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/suncalc": "^1.9.2",
