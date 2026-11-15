@@ -69,7 +69,20 @@ export function describe(item: Item, tIssue: number): string {
   }
   if (st === 'receding') return `${nm} ${d} km ${br}, drifting away${weak}`;
   if (st === 'passing') {
-    return `${nm} ${d} km ${br}${weak}, likely passing about ${geo.pyRound(ex.closestKm)} km from Bo Phut around ${fmtIct(tIssue + ex.closestAtMin * 60)}`;
+    let txt: string;
+    if (ex.closestAtEdge || ex.closestAtMin === null) {
+      // closest approach of the central track lies at/after the 3 h horizon: no time is given
+      txt = `${nm} ${d} km ${br}${weak}, still approaching at 3 h (about ${geo.pyRound(ex.closestKm)} km from Bo Phut by then), not expected to reach it within 3 h`;
+    } else {
+      txt = `${nm} ${d} km ${br}${weak}, likely passing about ${geo.pyRound(ex.closestKm)} km from Bo Phut around ${fmtIct(tIssue + ex.closestAtMin * 60)}`;
+    }
+    if (ex.etaWindowMin) {
+      // a minority of ensemble members still reach Bo Phut: say so instead of contradicting them
+      const [lo, hi] = ex.etaWindowMin;
+      const when = hi - lo < 10 ? `around ${fmtIct(tIssue + lo * 60)}` : `between ${fmtIct(tIssue + lo * 60)} and ${fmtIct(tIssue + hi * 60)}`;
+      txt += `, small chance of rain at Bo Phut ${when}`;
+    }
+    return txt;
   }
   if (ex.prob > 0 || (trend === 'growing' && d < 25)) {
     return `${nm} ${d} km ${br}${weak}, nearly stationary, small chance of drifting onto the island`;

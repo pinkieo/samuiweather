@@ -64,7 +64,7 @@ def main():
                 trend=tr.trend.get("label"), dlnA=tr.trend.get("dlnA_per_h"), ddbz=tr.trend.get("ddbz_per_h"), status=ex["status"], edge_km_now=ex["edge_km_now"],
                 eta=ex["eta_central_min"], window=list(ex["eta_window_min"]) if ex["eta_window_min"] else None, prob=ex["prob"],
                 clear=ex["clear_central_min"], eta_near=ex["eta_near_central_min"], prob_near=ex["prob_near"],
-                closest_km=ex["closest_km"], closest_at=ex["closest_at_min"],
+                closest_km=ex["closest_km"], closest_at=ex["closest_at_min"], closest_at_edge=ex["closest_at_edge"],
                 text=verdict.describe(it, nc["issue_frame_t"])))
         v = nc["verdict"]
         expected.append(dict(

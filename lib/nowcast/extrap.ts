@@ -95,7 +95,10 @@ export interface Extrapolation {
   etaNearWindowMin: [number, number] | null;
   clearNearMin: number | null;
   closestKm: number;
-  closestAtMin: number;
+  /** Lead (min) of the central member's closest approach; null when it falls on the last lead (3 h horizon edge). */
+  closestAtMin: number | null;
+  /** True when the central track is still closing in at the end of the horizon (closest approach not observable). */
+  closestAtEdge: boolean;
   distAtEnd: number;
   sigmaKmh: number;
   nMembers: number;
@@ -116,6 +119,9 @@ export function extrapolate(tr: Track): Extrapolation {
   const sp = speedOf(tr);
   const d0 = central[0];
   const dend = central[central.length - 1];
+  // If the minimum sits on the last lead (end of the 3 h horizon) the cell is still closing in and the true
+  // closest-approach time is beyond what we can see: report null instead of a fake time.
+  const atEdge = k === LEADS.length - 1;
   let status: Status;
   if (d0 <= C.POINT_KM) status = 'overhead';
   else if (pt.prob >= 0.25 || pt.etaCentral !== null) status = 'approaching';
@@ -137,7 +143,8 @@ export function extrapolate(tr: Track): Extrapolation {
     etaNearWindowMin: nr.window,
     clearNearMin: nr.clearCentral,
     closestKm: central[k],
-    closestAtMin: LEADS[k],
+    closestAtMin: atEdge ? null : LEADS[k],
+    closestAtEdge: atEdge,
     distAtEnd: dend,
     sigmaKmh: sig,
     nMembers: mem.length,

@@ -323,8 +323,10 @@ export function trendOf(all: Cell[], maxN = 5): Trend {
   const t = cs.map((c) => (c.t - t0) / 3600.0);
   const a = cs.map((c) => Math.log(c.areaKm2));
   const d = cs.map((c) => c.maxDbz);
-  const sa = polyfit1(t, a)[0];
-  const sd = polyfit1(t, d)[0];
+  // Round the fitted slopes: integer dBZ data can give a slope of exactly +-3.0 and float noise (1e-10) would otherwise
+  // decide which side of the hard threshold it lands on. Same rounding in the Python prototype (round(x, 9)).
+  const sa = geo.pyRound(polyfit1(t, a)[0] * 1e9) / 1e9;
+  const sd = geo.pyRound(polyfit1(t, d)[0] * 1e9) / 1e9;
   let label: Trend['label'];
   if (sa > 0.35 || sd > 3.0) label = 'growing';
   else if (sa < -0.35 || sd < -3.0) label = 'decaying';
