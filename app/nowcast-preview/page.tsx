@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import NowcastPanel from '@/components/nowcast/NowcastPanel';
+import '@/components/nowcast/nowcast-panel.css';
 
 /**
  * EXPERIMENTAL preview page for the Samui rain nowcast. Not linked from anywhere; noindex.
@@ -12,10 +13,7 @@ export const metadata: Metadata = {
 
 export default function NowcastPreviewPage() {
   return (
-    <main
-      className="nowcast-page"
-      style={{ height: '100dvh', overflowY: 'auto', padding: '1rem', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}
-    >
+    <main className="nowcast-page">
       <p className="nowcast-preview-banner">
         <strong>EXPERIMENTAL PREVIEW</strong> &mdash; this page is not part of samuiweather.com.
       </p>

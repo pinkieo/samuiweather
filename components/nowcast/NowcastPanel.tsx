@@ -1,17 +1,19 @@
 'use client';
 
 /**
- * EXPERIMENTAL rain nowcast panel — intentionally plain and unstyled (Tom styles it).
- * No Tailwind utilities on purpose: every element has a stable `nowcast-*` class hook.
+ * EXPERIMENTAL rain nowcast panel. Styles live in nowcast-panel.css
+ * (imported by app/nowcast-preview/page.tsx). Fetching is unchanged.
  *
- * Class hooks (Tom):
+ * Class hooks:
  *   .nowcast-panel            root <section>; data-state = loading | ok | unavailable | error; data-stale = true | false
  *   .nowcast-header           title row
  *   .nowcast-title            "Rain nowcast · Bo Phut"
+ *   .nowcast-badges           Experimental + optional STALE
  *   .nowcast-badge            shared badge look
  *   .nowcast-badge--experimental   always visible "Experimental" label
  *   .nowcast-badge--stale          "STALE" badge, only rendered when the newest radar frame is > 20 min old
  *   .nowcast-verdict          one-line hedged verdict (data-category = approaching | overhead | near | receding | passing | stationary | none)
+ *   .nowcast-radar            scope, clock, legend, motion loop (presentational)
  *   .nowcast-meta             frame time / age / update line
  *   .nowcast-cells            cell table; rows .nowcast-cell + .nowcast-cell--<status>; cells .nowcast-cell-name|distance|motion|text
  *   .nowcast-nocells / .nowcast-farcells   empty / "more cells not listed" notes
@@ -22,6 +24,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { NowcastResponse } from '@/lib/nowcast/service';
+import NowcastRadar from './NowcastRadar';
 
 const REFRESH_MS = 120_000;
 /** Same radius the verdict uses for "rain within N km"; farther cells stay in the JSON only. */
@@ -56,8 +59,10 @@ export default function NowcastPanel({ endpoint = '/api/nowcast' }: { endpoint?:
     <section className="nowcast-panel" data-state={error ? 'error' : (data?.status ?? 'loading')} data-stale={stale ? 'true' : 'false'}>
       <header className="nowcast-header">
         <h2 className="nowcast-title">Rain nowcast &middot; Bo Phut</h2>
-        <span className="nowcast-badge nowcast-badge--experimental">Experimental</span>
-        {stale && <span className="nowcast-badge nowcast-badge--stale">STALE</span>}
+        <div className="nowcast-badges">
+          <span className="nowcast-badge nowcast-badge--experimental">Experimental</span>
+          {stale && <span className="nowcast-badge nowcast-badge--stale">STALE</span>}
+        </div>
       </header>
 
       {!data && !error && <p className="nowcast-loading">Loading radar nowcast&hellip;</p>}
@@ -73,21 +78,24 @@ export default function NowcastPanel({ endpoint = '/api/nowcast' }: { endpoint?:
       {data?.status === 'ok' && (
         <>
           <p className="nowcast-verdict" data-category={data.verdict.category}>
-            {data.verdict.text}
+            <span className="nowcast-verdict-mark" aria-hidden="true" />
+            <span className="nowcast-verdict-text">{data.verdict.text}</span>
           </p>
+          <NowcastRadar cells={data.cells} frameUnix={data.frame.newestUnix} />
           <p className="nowcast-meta">
             Newest radar frame {data.frame.newestIct} (Bangkok time), {Math.round(data.frame.ageMin)} min old &middot; updated{' '}
             {data.generatedAtIct} &middot; {data.frame.unique} distinct scans
           </p>
 
           {nearby.length > 0 && (
+            <div className="nowcast-table-wrap">
             <table className="nowcast-cells">
               <thead>
                 <tr>
-                  <th>Cell</th>
-                  <th>Distance</th>
-                  <th>Motion</th>
-                  <th>Outlook</th>
+                  <th scope="col">Cell</th>
+                  <th scope="col">Distance</th>
+                  <th scope="col">Motion</th>
+                  <th scope="col">Outlook</th>
                 </tr>
               </thead>
               <tbody>
@@ -105,6 +113,7 @@ export default function NowcastPanel({ endpoint = '/api/nowcast' }: { endpoint?:
                 ))}
               </tbody>
             </table>
+            </div>
           )}
 
           {nearby.length === 0 && <p className="nowcast-nocells">No radar rain cells within {TABLE_MAX_EDGE_KM} km of Bo Phut.</p>}
