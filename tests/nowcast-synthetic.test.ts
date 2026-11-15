@@ -10,8 +10,11 @@ import { PNG } from 'pngjs';
 import * as geo from '../lib/nowcast/geo';
 import * as C from '../lib/nowcast/config';
 import { issueNowcast, type Nowcast } from '../lib/nowcast/nowcast';
-import { headingOf, linearSumAssignment, speedOf } from '../lib/nowcast/tracker';
+import { headingOf, linearSumAssignment, speedOf, trendOf } from '../lib/nowcast/tracker';
+import { describe } from '../lib/nowcast/verdict';
+import type { Cell } from '../lib/nowcast/cells';
 import { fmtIct } from '../lib/nowcast/verdict';
+import { LEADS } from '../lib/nowcast/extrap';
 import { UNIVERSAL_BLUE } from '../lib/nowcast/palette';
 import { pngToQ } from '../lib/nowcast/rainviewer';
 import { nowcastFromFrames, unavailable } from '../lib/nowcast/service';
@@ -198,4 +201,57 @@ test('service: ok payload carries experimental flag, per-cell hedged text and Ba
     assert.equal(stale.verdict.stale, true);
     assert.ok(stale.verdict.text.startsWith('STALE'));
   }
+});
+
+// ---- regression: closest-approach time of "passing" cells (live bug: many cells showed 15:50 = end of the 3 h horizon) ----
+
+test('passing cell still closing in at the 3 h horizon edge: no fake closest-approach time', () => {
+  // starts 80 km W / 30 km N, 20 km/h east: still 20 km W / 30 km N at +3 h => closest approach not reached
+  const { nc } = run([[-80, 30, 20, 0, 7, 45]]);
+  const ex = nc.items[0].ex;
+  assert.equal(ex.status, 'passing');
+  assert.equal(ex.closestAtEdge, true);
+  assert.equal(ex.closestAtMin, null);
+  assert.match(nc.verdict.text, /still approaching at 3 h \(about \d+ km from Bo Phut by then\)/);
+  assert.ok(!nc.verdict.text.includes('likely passing'), nc.verdict.text);
+  assert.ok(!/\d\d:\d\d/.test(nc.verdict.text), `no clock time expected: ${nc.verdict.text}`);
+});
+
+test('passing cell with an interior closest approach: time is the central-member minimum, not the horizon end', () => {
+  const { nc } = run([[-80, 30, 30, 0, 7, 45]]);
+  const ex = nc.items[0].ex;
+  assert.equal(ex.status, 'passing');
+  assert.equal(ex.closestAtEdge, false);
+  let k = 0;
+  ex.curve.forEach((d, i) => {
+    if (d < ex.curve[k]) k = i;
+  });
+  assert.equal(ex.closestAtMin, LEADS[k]);
+  assert.ok(ex.closestAtMin !== null && ex.closestAtMin >= 80 && ex.closestAtMin <= 120, `closestAtMin ${ex.closestAtMin}`);
+  assert.ok(ex.closestAtMin < LEADS[LEADS.length - 1]);
+  assert.ok(nc.verdict.text.includes(`likely passing about 23 km from Bo Phut around ${fmtIct(nc.issueFrameT + ex.closestAtMin * 60)}`), nc.verdict.text);
+});
+
+test('passing text never contradicts a minority of ensemble members that reach Bo Phut', () => {
+  const cell = { areaKm2: 100, elong: 1, maxDbz: 40, edgeBearing: 270, edgeKm: 20 } as unknown as Cell;
+  const track = { tid: 1, trend: { label: 'steady' }, v: [20, 0] } as never;
+  const base = { status: 'passing', edgeKmNow: 20, closestKm: 12.4, closestAtMin: 100, closestAtEdge: false, etaWindowMin: [95, 95] };
+  let t = describe({ cell, track, ex: base as never }, T0);
+  assert.ok(t.includes('likely passing about 12 km from Bo Phut around'), t);
+  assert.ok(t.endsWith(`small chance of rain at Bo Phut around ${fmtIct(T0 + 95 * 60)}`), t);
+  t = describe({ cell, track, ex: { ...base, etaWindowMin: [95, 140] } as never }, T0);
+  assert.ok(t.endsWith(`small chance of rain at Bo Phut between ${fmtIct(T0 + 95 * 60)} and ${fmtIct(T0 + 140 * 60)}`), t);
+  t = describe({ cell, track, ex: { ...base, closestAtMin: null, closestAtEdge: true, etaWindowMin: null } as never }, T0);
+  assert.ok(t.includes('still approaching at 3 h (about 12 km'), t);
+  assert.ok(!t.includes('small chance'), t);
+});
+
+test('trend slopes are rounded: a slope exactly on the 3 dBZ/h threshold is "steady" whatever the float noise', () => {
+  const mk = (noise: number): Cell[] =>
+    [45, 44.5, 44, 43.5].map((d, i) => ({ t: T0 + i * 600, areaKm2: 50, maxDbz: d + noise * (i % 2 ? -1 : 1) }) as unknown as Cell);
+  for (const noise of [0, 1e-12, -1e-12]) assert.equal(trendOf(mk(noise)).label, 'steady', `noise ${noise}`);
+  const clearly = [45, 44, 43, 42].map((d, i) => ({ t: T0 + i * 600, areaKm2: 50, maxDbz: d }) as unknown as Cell);
+  assert.equal(trendOf(clearly).label, 'decaying');
+  const growing = [40, 41, 42, 43.2].map((d, i) => ({ t: T0 + i * 600, areaKm2: 50, maxDbz: d }) as unknown as Cell);
+  assert.equal(trendOf(growing).label, 'growing');
 });

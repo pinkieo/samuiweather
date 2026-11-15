@@ -37,7 +37,7 @@ const expected = JSON.parse(readFileSync(path.join(DIR, 'parity-expected.json'),
       tid: number; n_obs: number; cx: number; cy: number; area_px: number; area_km2: number; max_dbz: number; elong: number;
       edge_km: number; edge_bearing: number; vx: number; vy: number; speed: number; heading: number | null; v_conf: string;
       v_spread: number; trend: string; dlnA: number | null; ddbz: number | null; status: string; edge_km_now: number; eta: number | null; window: [number, number] | null;
-      prob: number; clear: number | null; eta_near: number | null; prob_near: number; closest_km: number; closest_at: number; text: string;
+      prob: number; clear: number | null; eta_near: number | null; prob_near: number; closest_km: number; closest_at: number | null; closest_at_edge: boolean; text: string;
     }>;
   }>;
 };
@@ -57,7 +57,7 @@ test('palette decode: random + palette + near-palette RGBA matches the prototype
 });
 
 test('TS port == Python prototype on archived frames (all issue times)', () => {
-  const stats = { issues: 0, cells: 0, maxVel: 0, maxSpread: 0, maxKm: 0, maxAngle: 0, maxGeom: 0, approaching: 0, overhead: 0, verdictsEqual: 0, trendTies: 0, verdictTies: 0 };
+  const stats = { issues: 0, cells: 0, maxVel: 0, maxSpread: 0, maxKm: 0, maxAngle: 0, maxGeom: 0, approaching: 0, overhead: 0, edgeCells: 0, interiorPassing: 0, verdictsEqual: 0 };
   const problems: string[] = [];
   const hoursS = expected.generated_from.hours * 3600;
   for (const ex of expected.issues) {
@@ -77,9 +77,8 @@ test('TS port == Python prototype on archived frames (all issue times)', () => {
       if (d > TOL.velKmh) bad(`prior_global differs by ${d.toFixed(4)} km/h`);
     }
     const v = nc.verdict;
-    let issueTie = false; // set when a trend threshold tie (see below) legitimately changes wording
-    const verdictMismatch = v.text === ex.verdict.text ? null : `verdict text\n   ts: ${v.text}\n   py: ${ex.verdict.text}`;
-    if (!verdictMismatch) stats.verdictsEqual++;
+    if (v.text === ex.verdict.text) stats.verdictsEqual++;
+    else bad(`verdict text\n   ts: ${v.text}\n   py: ${ex.verdict.text}`);
     if (v.category !== ex.verdict.category) bad(`category ${v.category} != ${ex.verdict.category}`);
     if (v.stale !== ex.verdict.stale) bad('stale flag differs');
     if (v.frameTimeIct !== ex.verdict.frame_time_ict) bad('frame time (ICT) differs');
@@ -90,7 +89,6 @@ test('TS port == Python prototype on archived frames (all issue times)', () => {
       bad(`cell count ${nc.items.length} != ${ex.cells.length}`);
       continue;
     }
-    const tieStart = stats.trendTies;
     for (const pc of ex.cells) {
       const it = nc.items.find((i) => Math.abs(i.cell.cx - pc.cx) < 1e-6 && Math.abs(i.cell.cy - pc.cy) < 1e-6 && i.cell.areaPx === pc.area_px);
       if (!it) {
@@ -100,6 +98,8 @@ test('TS port == Python prototype on archived frames (all issue times)', () => {
       stats.cells++;
       if (pc.status === 'approaching') stats.approaching++;
       if (pc.status === 'overhead') stats.overhead++;
+      if (pc.status === 'passing' && pc.closest_at_edge) stats.edgeCells++;
+      if (pc.status === 'passing' && !pc.closest_at_edge) stats.interiorPassing++;
       const c = `cell tid=${pc.tid}`;
       const { cell, track: tr, ex: e } = it;
       if (tr.tid !== pc.tid) bad(`${c}: tid ${tr.tid}`);
@@ -119,14 +119,8 @@ test('TS port == Python prototype on archived frames (all issue times)', () => {
         stats.maxAngle = Math.max(stats.maxAngle, dh);
         if (dh > TOL.angleDeg) bad(`${c}: heading differs by ${dh.toFixed(2)}°`);
       } else if ((pc.heading === null) !== !(speedOf(tr) > 0.5)) bad(`${c}: heading presence differs`);
-      let cellTie = false;
-      if (tr.trend.label !== pc.trend) {
-        // The trend thresholds (0.35 ln-area/h, 3 dBZ/h) are hard cut-offs: when a fitted slope sits within 1e-6 of one
-        // (integer dBZ data can give exactly 3.0), the last float bit decides and numpy's polyfit may land on the other side.
-        const near = (x: number | null, thr: number) => x !== null && Math.abs(Math.abs(x) - thr) < 1e-6;
-        if (near(pc.ddbz, 3.0) || near(pc.dlnA, 0.35) || near(tr.trend.ddbzPerH, 3.0) || near(tr.trend.dlnAPerH, 0.35)) { stats.trendTies++; cellTie = true; issueTie = true; }
-        else bad(`${c}: trend ${tr.trend.label} != ${pc.trend}`);
-      }
+      // slopes are rounded to 1e-9 in both implementations, so threshold ties no longer depend on float noise
+      if (tr.trend.label !== pc.trend) bad(`${c}: trend ${tr.trend.label} != ${pc.trend}`);
       if (tr.trend.dlnAPerH !== null && pc.dlnA !== null && (Math.abs(tr.trend.dlnAPerH - pc.dlnA) > 1e-6 || Math.abs((tr.trend.ddbzPerH ?? 0) - (pc.ddbz ?? 0)) > 1e-6)) bad(`${c}: trend slopes differ`);
       if (e.status !== pc.status) bad(`${c}: status ${e.status} != ${pc.status}`);
       const dk = Math.max(Math.abs(e.edgeKmNow - pc.edge_km_now), Math.abs(e.closestKm - pc.closest_km));
@@ -135,17 +129,14 @@ test('TS port == Python prototype on archived frames (all issue times)', () => {
       if (e.etaCentralMin !== pc.eta) bad(`${c}: eta ${e.etaCentralMin} != ${pc.eta}`);
       if (JSON.stringify(e.etaWindowMin) !== JSON.stringify(pc.window)) bad(`${c}: window ${JSON.stringify(e.etaWindowMin)} != ${JSON.stringify(pc.window)}`);
       if (Math.abs(e.prob - pc.prob) > 1e-9 || Math.abs(e.probNear - pc.prob_near) > 1e-9) bad(`${c}: probability differs`);
-      if (e.clearCentralMin !== pc.clear || e.etaNearCentralMin !== pc.eta_near || e.closestAtMin !== pc.closest_at) bad(`${c}: clear/near/closest_at differs`);
+      if (e.clearCentralMin !== pc.clear || e.etaNearCentralMin !== pc.eta_near || e.closestAtMin !== pc.closest_at || e.closestAtEdge !== pc.closest_at_edge) bad(`${c}: clear/near/closest_at differs`);
       const text = describe(it, nc.issueFrameT);
-      if (text !== pc.text && !cellTie) bad(`${c}: text\n   ts: ${text}\n   py: ${pc.text}`);
-    }
-    if (verdictMismatch) {
-      if (issueTie || stats.trendTies > tieStart) stats.verdictTies++;
-      else bad(verdictMismatch);
+      if (text !== pc.text) bad(`${c}: text\n   ts: ${text}\n   py: ${pc.text}`);
     }
   }
   console.log('PARITY SUMMARY', JSON.stringify({ ...stats, tolerances: TOL, problems: problems.length }));
   assert.ok(stats.cells > 100, `parity set too small (${stats.cells} cells)`);
   assert.ok(stats.approaching > 0 && stats.overhead > 0, 'parity set should include approaching and overhead cells');
+  assert.ok(stats.edgeCells > 0 && stats.interiorPassing > 0, 'parity set should include passing cells at the horizon edge and interior ones');
   assert.equal(problems.length, 0, `\n${problems.slice(0, 25).join('\n')}${problems.length > 25 ? `\n… +${problems.length - 25} more` : ''}`);
 });
