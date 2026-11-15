@@ -8,7 +8,10 @@
  * The last frame is the newest scan, with no time offset.
  */
 import { useEffect, useId, useMemo, useState } from 'react';
+import { BOPHUT } from '@/lib/nowcast/config';
+import { KMPX, lonlatToGpx } from '@/lib/nowcast/geo';
 import type { NowcastCell } from '@/lib/nowcast/service';
+import { COAST_RINGS } from './coastline';
 
 /** Minutes relative to the newest scan. The loop plays forward and lands on 0. */
 const LEADS_MIN = [-50, -40, -30, -20, -10, 0] as const;
@@ -22,59 +25,6 @@ const CY = 200;
 const RANGE_KM = 78;
 const PX_PER_KM = 186 / RANGE_KM;
 const RINGS = [10, 30, 50, 70] as const;
-
-/**
- * Koh Samui shore, clockwise from the north tip. Denser than the guest
- * silhouette in lib/daily-board-map.ts so the Chaweng bay and the long
- * north coast still read at radar scale. [lat, lon].
- */
-const SAMUI: ReadonlyArray<readonly [number, number]> = [
-  [9.592, 100.008],
-  [9.594, 100.028],
-  [9.586, 100.048],
-  [9.574, 100.064],
-  [9.562, 100.078],
-  [9.552, 100.092],
-  [9.544, 100.098],
-  [9.532, 100.084],
-  [9.518, 100.074],
-  [9.504, 100.07],
-  [9.488, 100.066],
-  [9.472, 100.06],
-  [9.458, 100.05],
-  [9.446, 100.034],
-  [9.434, 100.016],
-  [9.428, 99.998],
-  [9.434, 99.978],
-  [9.45, 99.958],
-  [9.47, 99.944],
-  [9.492, 99.936],
-  [9.514, 99.934],
-  [9.536, 99.946],
-  [9.556, 99.964],
-  [9.572, 99.984],
-  [9.586, 99.998],
-];
-
-/** Koh Phangan, north of Samui, simplified. */
-const PHANGAN: ReadonlyArray<readonly [number, number]> = [
-  [9.786, 100.008],
-  [9.78, 100.042],
-  [9.764, 100.072],
-  [9.742, 100.092],
-  [9.718, 100.084],
-  [9.698, 100.058],
-  [9.69, 100.028],
-  [9.694, 99.996],
-  [9.71, 99.972],
-  [9.736, 99.966],
-  [9.762, 99.978],
-  [9.78, 99.994],
-];
-
-const BOPHUT = { lat: 9.56, lon: 100.03 };
-const KM_PER_DEG_LAT = 110.574;
-const KM_PER_DEG_LON = 111.32 * Math.cos((BOPHUT.lat * Math.PI) / 180);
 
 const DBZ_STOPS = [
   { label: '20+', color: '#22d3ee' },
@@ -157,17 +107,24 @@ function cellEastNorth(cell: PlottedCell, leadMin: number): [number, number] {
   return [east + de, north + dn];
 }
 
-function coastPath(points: ReadonlyArray<readonly [number, number]>): string {
-  return (
-    points
+/** Same east/north kilometres as cell bearings (lib/nowcast/geo pxToKmRel). */
+const [GX0, GY0] = lonlatToGpx(BOPHUT.lat, BOPHUT.lon);
+
+function projectLatLon(lat: number, lon: number): [number, number] {
+  const [x, y] = lonlatToGpx(lat, lon);
+  return [(x - GX0) * KMPX, -(y - GY0) * KMPX];
+}
+
+function coastOutline(): string {
+  return COAST_RINGS.map((ring) =>
+    ring
       .map(([lat, lon], index) => {
-        const east = (lon - BOPHUT.lon) * KM_PER_DEG_LON;
-        const north = (lat - BOPHUT.lat) * KM_PER_DEG_LAT;
+        const [east, north] = projectLatLon(lat, lon);
         const [x, y] = toSvg(east, north);
-        return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
+        return `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
       })
-      .join(' ') + ' Z'
-  );
+      .join(' ') + ' Z',
+  ).join(' ');
 }
 
 /** Percent position inside the square scope, for HTML labels that stay one size. */
@@ -199,8 +156,7 @@ function starPoints(outer: number, inner: number): string {
   return pts.join(' ');
 }
 
-const SAMUI_PATH = coastPath(SAMUI);
-const PHANGAN_PATH = coastPath(PHANGAN);
+const COAST_D = coastOutline();
 const STAR = starPoints(6.5, 2.6);
 
 export default function NowcastRadar({ cells, frameUnix }: { cells: NowcastCell[]; frameUnix: number }) {
@@ -287,8 +243,7 @@ export default function NowcastRadar({ cells, frameUnix }: { cells: NowcastCell[
         </defs>
         <circle cx={CX} cy={CY} r={188} fill={`url(#${seaId})`} />
         <g clipPath={`url(#${clipId})`}>
-          <path d={SAMUI_PATH} fill="#1c4f3d" />
-          <path d={PHANGAN_PATH} fill="#1c4f3d" />
+          <path d={COAST_D} fill="#1c4f3d" fillRule="nonzero" />
           <g className="nowcast-echoes" shapeRendering="crispEdges">
             {plotted.map((cell) => {
               const [east, north] = cellEastNorth(cell, lead);
@@ -312,8 +267,7 @@ export default function NowcastRadar({ cells, frameUnix }: { cells: NowcastCell[
               );
             })}
           </g>
-          <path d={SAMUI_PATH} fill="none" stroke="#5eead4" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
-          <path d={PHANGAN_PATH} fill="none" stroke="#5eead4" strokeWidth={1.35} vectorEffect="non-scaling-stroke" />
+          <path d={COAST_D} fill="none" stroke="#5eead4" strokeWidth={1.15} vectorEffect="non-scaling-stroke" />
         </g>
         {RINGS.filter((km) => km !== 10).map((km) => (
           <circle
@@ -343,12 +297,12 @@ export default function NowcastRadar({ cells, frameUnix }: { cells: NowcastCell[
         <span
           key={km}
           className={km === 10 ? 'nowcast-tag nowcast-tag--near' : 'nowcast-tag'}
-          style={km === 10 ? ringTag(10, 262, 8) : ringTag(km, 72, 3.6)}
+          style={km === 10 ? ringTag(10, 248, 12) : ringTag(km, 72, 3.6)}
         >
           {km} km
         </span>
       ))}
-      <span className="nowcast-tag nowcast-tag--place" style={tagStyle(2.2, -3.1)}>
+      <span className="nowcast-tag nowcast-tag--place" style={tagStyle(1.15, -2.05)}>
         Bo Phut
       </span>
       </div>

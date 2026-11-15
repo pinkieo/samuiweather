@@ -124,7 +124,10 @@ export default function NowcastPanel({ endpoint = '/api/nowcast' }: { endpoint?:
           )}
 
           <p className="nowcast-disclaimer">{data.disclaimer}</p>
-          <p className="nowcast-source">Source: {data.source}</p>
+          <p className="nowcast-source">
+            Source: {data.source}
+            <span className="nowcast-osm"> · Coastline © OpenStreetMap contributors</span>
+          </p>
         </>
       )}
     </section>
