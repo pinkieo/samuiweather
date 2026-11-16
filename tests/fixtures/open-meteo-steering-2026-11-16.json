@@ -1,0 +1,22 @@
+{
+  "latitude": 9.525483,
+  "longitude": 100.02611,
+  "hourly_units": {
+    "time": "iso8601",
+    "wind_speed_700hPa": "km/h",
+    "wind_direction_700hPa": "°",
+    "wind_speed_850hPa": "km/h",
+    "wind_direction_850hPa": "°",
+    "wind_speed_500hPa": "km/h",
+    "wind_direction_500hPa": "°"
+  },
+  "hourly": {
+    "time": ["2026-11-16T00:00", "2026-11-16T01:00", "2026-11-16T02:00"],
+    "wind_speed_700hPa": [16.3, 17.8, 18.4],
+    "wind_direction_700hPa": [99, 102, 102],
+    "wind_speed_850hPa": [8.8, 8.4, 9.0],
+    "wind_direction_850hPa": [28, 49, 66],
+    "wind_speed_500hPa": [26.8, 28.0, 27.8],
+    "wind_direction_500hPa": [100, 100, 97]
+  }
+}

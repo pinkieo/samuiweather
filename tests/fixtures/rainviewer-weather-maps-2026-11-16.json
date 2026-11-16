@@ -1,0 +1,65 @@
+{
+  "savedAt": "2026-11-16T06:10:00Z",
+  "source": "https://api.rainviewer.com/public/weather-maps.json",
+  "note": "Recorded RainViewer catalog (frame paths and times only). Tiles are not stored.",
+  "version": "2.0",
+  "generated": 1794809424,
+  "host": "https://tilecache.rainviewer.com",
+  "radar": {
+    "past": [
+      {
+        "path": "/v2/radar/9ce8be6e94d8",
+        "time": 1794802200
+      },
+      {
+        "path": "/v2/radar/1bb48978e509",
+        "time": 1794802800
+      },
+      {
+        "path": "/v2/radar/13ec7314f503",
+        "time": 1794803400
+      },
+      {
+        "path": "/v2/radar/157f0ab6c2d1",
+        "time": 1794804000
+      },
+      {
+        "path": "/v2/radar/6b0e45e0b676",
+        "time": 1794804600
+      },
+      {
+        "path": "/v2/radar/550d406ba273",
+        "time": 1794805200
+      },
+      {
+        "path": "/v2/radar/d83c23d800dc",
+        "time": 1794805800
+      },
+      {
+        "path": "/v2/radar/bb8e628f222d",
+        "time": 1794806400
+      },
+      {
+        "path": "/v2/radar/02c67446d757",
+        "time": 1794807000
+      },
+      {
+        "path": "/v2/radar/f3fed5af36d4",
+        "time": 1794807600
+      },
+      {
+        "path": "/v2/radar/1c767a870468",
+        "time": 1794808200
+      },
+      {
+        "path": "/v2/radar/46adaf956dc7",
+        "time": 1794808800
+      },
+      {
+        "path": "/v2/radar/ee2be4f31555",
+        "time": 1794809400
+      }
+    ],
+    "nowcast": []
+  }
+}

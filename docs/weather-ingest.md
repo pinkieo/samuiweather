@@ -1,8 +1,8 @@
 # Spire forecast ingest (4× daily)
 
 Status: CANONICAL
-Document version: 3.0
-Last updated: 2026-10-21
+Document version: 5.0
+Last updated: 2026-11-16
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -103,3 +103,76 @@ Tourist TV is **three** films, one hour after the daytime cycles: 07:00,
 13:00, 19:00 ICT. The 00:00 ingest is not a show (overnight lock / optional
 night summary). No 11:00 film — that hour has no new issuance.
 See `docs/sammi-broadcast.md`.
+
+## Radar nowcast (after a successful ingest)
+
+The cron route does not choose a UTC hour. cron-job.org fires at 00:05,
+06:05, 12:05 and 18:05 in `Asia/Bangkok` (ICT, UTC+7). The handler runs
+when it is called and skips a second Spire pull when
+`weather_forecast.updated_at` is younger than 180 minutes. Stored keys
+are UTC instants (`valid_time_utc`, `issuance_time_utc`, `updated_at`)
+plus a display label `valid_time_ict`.
+
+Hourly rain chance is not computed in this app. Spire’s point forecast
+and the optimized-point overlay supply
+`probability_of_precipitation_1hr`. `flattenForDb` stores that percent
+on `weather_forecast` and `weather_forecast_snapshot`. The view
+`sammi_forecast.kans_regen_pct_sammi` is derived from that column.
+
+After the rows are built, `runSamuiNowcastAfterIngest` fetches
+RainViewer `weather-maps.json` and unsmoothed Universal Blue tiles
+(color scheme 2, `0_0`) for Koh Samui (9.5127 N, 100.0137 E). dBZ comes
+only from RainViewer’s published palette. A pixel that is not an exact
+palette color is not given a reflectivity.
+
+Rules in `lib/samui-nowcast.ts`:
+
+- A scan older than 20 minutes is skipped. The model percents stay.
+- Clear radar (fresh scan, no ≥20 dBZ echo in the 700 hPa upstream
+  radius or the 30 km ring, no new cell within 50 km, no growth) may
+  call the next 2 hours dry. Hours from 2 h to 6 h keep the model
+  percent and a “shower can still form” flag. Hours at 6 h and beyond
+  are left as the model, including afternoon island convection.
+- The dry-call number is not published unless
+  `NOWCAST_PUBLISH_CALIBRATED_LOWERING=1` and the Brier score beats the
+  raw model for that month and wind bin, with at least 30 issuances and
+  5 rain events. The flag is off. Do not set it in production until a
+  replay shows that skill.
+- ETA is a window from a 9-member ensemble, never one clock time.
+  Tracked motion needs 3 genuine past frames spanning at least 30
+  minutes. Otherwise the fallback is 700 hPa wind, then the 850–500 hPa
+  vector mean. If only one of 850 or 500 hPa is present, that level is
+  used and named. Ecowitt wind is not steering. It can only mark a gust
+  front (gust at least 5 m/s above the sustained wind) or a 2°C
+  temperature drop. A northeast monsoon surge on the steering wind
+  (from 22.5–67.5° at 12 m/s or more), a new or growing cell within
+  50 km, or that station signature is “developing” and has no ETA.
+- If radar or the wind the rule needs is missing, the model percent is
+  unchanged and the reason is stored.
+
+Steering wind is Open-Meteo, not Spire. During ingest the route requests
+`wind_speed_700hPa`, `wind_direction_700hPa`, `wind_speed_850hPa`,
+`wind_direction_850hPa`, `wind_speed_500hPa`, and
+`wind_direction_500hPa` at 9.56 N, 100.03 E with `wind_speed_unit=kmh`
+and `timezone=GMT`. Speed is stored in km/h and direction in degrees
+on `values_json.open_meteo_steering`, with `source` `open-meteo` and
+`fetched_at_utc`. The nowcast converts km/h to m/s. 700 hPa is the
+steering wind. The snapshot `source_composition` records the same
+block. A failed response, a unit other than km/h, or an hour Open-Meteo
+did not return is stored as `error: "wind missing"` with no invented
+speed. The model rain percent is left as Spire.
+
+Provenance (radar time, cells, ETA source, original vs published
+percent) is written to `samui_nowcast_run` when
+`supabase/025_samui_nowcast.sql` has been applied. Until then the ingest
+still logs the decision and returns it on the cron JSON. The cron
+response is not a substitute for that table.
+
+Cell summaries, not image bytes, go to `samui_radar_archive`. Nothing in
+this repo, Vercel cron, or the cron-job.org setup scripts deleted radar
+frames at 30 days. RainViewer itself only serves about 2 hours. The new
+purge keeps 180 days, long enough for one Northeast-monsoon season
+(about October through February) plus margin, and it will not accept a
+shorter window. Do not apply migration 025 to production from the
+preview. Do not change the production cron or env to turn the publish
+flag on.

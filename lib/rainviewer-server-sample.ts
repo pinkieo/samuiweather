@@ -55,7 +55,7 @@ function paeth(a: number, b: number, c: number): number {
 }
 
 /** Full-tile decode: RGBA8 flat `width * height * 4`. Color types 2 (RGB) and 6 (RGBA); interlace 0 only. */
-function decodeRainviewerPngToRgba(u8: Uint8Array): { width: number; height: number; rgba: Uint8Array } | null {
+export function decodeRainviewerPngToRgba(u8: Uint8Array): { width: number; height: number; rgba: Uint8Array } | null {
   if (u8.length < 24 || u8[0] !== 0x89) return null;
   let pos = 8;
   let width = 0;

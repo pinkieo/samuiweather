@@ -1,8 +1,8 @@
 # Samui Weather Pro
 
 Status: REFERENCE
-Document version: 1.0
-Last updated: 2026-09-01
+Document version: 1.1
+Last updated: 2026-11-16
 Last verified: NOT VERIFIED
 Owner: ProSeadure
 
@@ -12,7 +12,7 @@ Live: samuiweather.com
 All user-visible strings in the app (map overlays, cards, buttons, tooltips, the hybrid rain timeline, etc.) are **English** only — do not ship **Dutch** in the product UI. (Sammi’s voice stays English per `SKILL.md`.)
 
 ## Things To Do
-- Build a real radar nowcast engine: analyze multiple RainViewer/TMD radar frames, detect rain cells, estimate movement, project showers forward, and render a trustworthy future overlay instead of replaying static radar snapshots.
+- The ingest nowcast (`lib/samui-nowcast.ts`, `docs/weather-ingest.md`) checks RainViewer cells after each Spire cycle. It does not yet draw a future radar overlay on the map. That map projection is still to do.
 
 ## Updates
 - **Spire 15-day point forecast:** The long horizon uses `time_bundle=6_hourly_15day` (360h), not only `medium_range_std_freq` / `6_hourly` (~7 days). The app (`lib/spire.ts`) and ingest (`weather_engine_hourly.py`) use the same merge; optional `SPIRE_FORECAST_PRODUCT` / `SPIRE_FORECAST_UNIT_SYSTEM`. See [.cursor/skills/samui-concierge/SKILL.md](.cursor/skills/samui-concierge/SKILL.md).

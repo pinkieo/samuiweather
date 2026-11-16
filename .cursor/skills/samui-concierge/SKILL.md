@@ -28,6 +28,7 @@ description: >-
 
 **Forecasts** → always `SPIRE_API_TOKEN` via `/api/spire/forecast`.
 **Live radar** → RainViewer tiles (aggregates TMD Surat Thani Doppler), proxied via `/api/radar/[...path]`.
+**Nowcast** → after ingest, `lib/samui-nowcast.ts` may annotate the next hours from RainViewer. Steering wind is Open-Meteo 700/850/500 hPa (km/h on the row, m/s inside the nowcast), not Ecowitt. Published `probability_of_precipitation_1hr` stays the Spire percent unless `NOWCAST_PUBLISH_CALIBRATED_LOWERING=1` and the Brier gate in `docs/weather-ingest.md` passes. That flag stays off.
 **Never** use OpenWeather, OpenMeteo, or any other forecast source.
 **Never** call RainViewer tiles directly from the browser — always go through the proxy.
 

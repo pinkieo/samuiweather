@@ -10,6 +10,12 @@ import {
 } from '@/lib/rainviewer-server-sample';
 import { fetchOpenUvHourMap, stampUvIndex, uvIndexFromSpireValues } from '@/lib/forecast-uv';
 import {
+  fetchOpenMeteoSteering,
+  steeringBlockForValidTime,
+  withOpenMeteoSteering,
+} from '@/lib/open-meteo-steering';
+import { runSamuiNowcastAfterIngest } from '@/lib/samui-nowcast-run';
+import {
   SAMUI_CENTER,
   computeSpirePointDataStats,
   fetchSpireMergedRawAt,
@@ -35,6 +41,19 @@ export type WeatherIngestSummary = {
   radar_status?: RadarStatus;
   age_minutes?: number;
   skip_if_fresh_minutes?: number;
+  nowcast?: {
+    state: string;
+    reason: string;
+    eta_source: string | null;
+    eta_earliest_min: number | null;
+    eta_latest_min: number | null;
+    publish_lowering: boolean;
+    steering_levels?: string[];
+  };
+  steering_wind?: {
+    ok: boolean;
+    reason?: string;
+  };
 };
 
 function pickNum(v: Record<string, unknown>, keys: string[]): number | null {
@@ -279,6 +298,12 @@ function buildSnapshotRow(
         product: process.env.SPIRE_FORECAST_PRODUCT?.trim() || null,
         unit_system: process.env.SPIRE_FORECAST_UNIT_SYSTEM?.trim() || null,
       },
+      open_meteo_pressure_level_wind: (() => {
+        const values = flat.values_json;
+        if (!values || typeof values !== 'object') return null;
+        const block = (values as Record<string, unknown>).open_meteo_steering;
+        return block ?? null;
+      })(),
       optimized_point_probability_overlay: {
         endpoint: '/forecast/point/optimized',
         location: process.env.SPIRE_OPF_LOCATION?.trim() || 'custom:PR_W1XNKK0',
@@ -386,17 +411,94 @@ export async function runWeatherIngest(opts?: {
   const retrievedAt = new Date().toISOString();
   const nowIso = retrievedAt;
   const openUvHours = await fetchOpenUvHourMap(lat, lon);
-  const payload: Record<string, unknown>[] = [];
-  const snapshots: Record<string, unknown>[] = [];
+  const staged: { entry: unknown; flat: Record<string, unknown> }[] = [];
   for (const entry of merged) {
     const flat = flattenForDb(locationId, entry, radar.status, radar.rain);
     if (!flat) continue;
     stampUvIndex(flat, openUvHours);
+    staged.push({ entry, flat });
+  }
+
+  let steeringSummary: WeatherIngestSummary['steering_wind'] = {
+    ok: false,
+    reason: 'Open-Meteo steering was not fetched. Wind missing.',
+  };
+  try {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 8000);
+    const fetched = await fetchOpenMeteoSteering({ signal: ac.signal }).finally(() => clearTimeout(timer));
+    steeringSummary = fetched.ok ? { ok: true } : { ok: false, reason: fetched.reason };
+    for (const { flat } of staged) {
+      const values = flat.values_json;
+      if (!values || typeof values !== 'object' || Array.isArray(values)) continue;
+      const block = steeringBlockForValidTime(fetched, String(flat.valid_time_utc));
+      flat.values_json = withOpenMeteoSteering(values as Record<string, unknown>, block);
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : 'Open-Meteo request failed.';
+    steeringSummary = { ok: false, reason: `${detail} Wind missing.` };
+    console.warn('[weather-ingest] open-meteo steering', detail);
+  }
+
+  let nowcastSummary: WeatherIngestSummary['nowcast'] | undefined;
+  try {
+    const nowMs = Date.now();
+    let nearestValues: Record<string, unknown> | null = null;
+    let nearestDt = Infinity;
+    const hours = staged.map(({ flat }) => {
+      const validMs = Date.parse(String(flat.valid_time_utc));
+      const dt = Math.abs(validMs - nowMs);
+      if (Number.isFinite(dt) && dt < nearestDt) {
+        nearestDt = dt;
+        const values = flat.values_json;
+        nearestValues = values && typeof values === 'object' ? (values as Record<string, unknown>) : null;
+      }
+      return {
+        validTimeUnix: Number.isFinite(validMs) ? Math.floor(validMs / 1000) : 0,
+        popPct:
+          typeof flat.probability_of_precipitation_1hr === 'number'
+            ? flat.probability_of_precipitation_1hr
+            : null,
+      };
+    });
+    const decision = await runSamuiNowcastAfterIngest({
+      locationId,
+      lat,
+      lon,
+      hours,
+      spireValues: nearestValues,
+    });
+    nowcastSummary = {
+      state: decision.state,
+      reason: decision.reason,
+      eta_source: decision.eta?.source ?? null,
+      eta_earliest_min: decision.eta?.earliestMin ?? null,
+      eta_latest_min: decision.eta?.latestMin ?? null,
+      publish_lowering: decision.publishLowering,
+      steering_levels: decision.steeringLevels,
+    };
+    if (decision.publishLowering) {
+      const byValid = new Map(decision.hours.map((hour) => [hour.validTimeUnix, hour]));
+      for (const { flat } of staged) {
+        const validMs = Date.parse(String(flat.valid_time_utc));
+        const hour = byValid.get(Math.floor(validMs / 1000));
+        if (!hour || hour.publishedPopPct === hour.originalPopPct) continue;
+        flat.probability_of_precipitation_1hr = hour.publishedPopPct;
+      }
+    }
+  } catch (err) {
+    console.warn('[samui-nowcast] skipped', err instanceof Error ? err.message : err);
+  }
+
+  const payload: Record<string, unknown>[] = [];
+  const snapshots: Record<string, unknown>[] = [];
+  for (const { entry, flat } of staged) {
     const row = coerceWholeFloats({ ...flat, updated_at: nowIso });
     payload.push(row);
-    const pop = (flat.values_json as Record<string, unknown> | undefined)?.probability_of_precipitation_1hr;
-    const thunder = (flat.values_json as Record<string, unknown> | undefined)?.probability_of_thunderstorm;
-    const fog = (flat.values_json as Record<string, unknown> | undefined)?.probability_of_fog;
+    const values = flat.values_json as Record<string, unknown> | undefined;
+    const pop = values?.probability_of_precipitation_1hr;
+    const thunder = values?.probability_of_thunderstorm;
+    const fog = values?.probability_of_fog;
     const opfApplied = pop != null || thunder != null || fog != null;
     snapshots.push(buildSnapshotRow(locationId, lat, lon, entry, flat, retrievedAt, opfApplied));
   }
@@ -421,6 +523,8 @@ export async function runWeatherIngest(opts?: {
     last_valid_time: stats.lastValidTime,
     updated_at: nowIso,
     radar_status: radar.status,
+    nowcast: nowcastSummary,
+    steering_wind: steeringSummary,
   };
   return { ok: true, summary };
 }
