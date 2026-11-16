@@ -1,7 +1,7 @@
 # Sammi AI - Project skills & architecture (V2)
 
 Status: CANONICAL
-Document version: 15.0
+Document version: 16.0
 Last updated: 2026-11-16
 Last verified: NOT VERIFIED
 Owner: ProSeadure
@@ -27,7 +27,7 @@ Sammi keeps a clear split between what is happening *now* and what will *happen*
 - **Goal:** All future conditions on the dashboard, chat answers about tomorrow / next week.
 - **Data:** Wind, maritime, rain chance, temperature.
 - **Policy:** Do **not** use OpenWeather for forecasts. Spire (satellite) only.
-- **Radar nowcast:** after each successful 4× ICT ingest, RainViewer cells may call the next 2 hours dry or attach an ETA window. The published hourly percent stays the Spire value until `NOWCAST_PUBLISH_CALIBRATED_LOWERING=1` and a Brier gate passes. Ecowitt wind does not steer cells. Contract: `docs/weather-ingest.md`.
+- **Radar nowcast:** after each successful 4× ICT ingest, RainViewer cells may call the next 2 hours dry or attach an ETA window. The published hourly percent stays the Spire value until `NOWCAST_PUBLISH_CALIBRATED_LOWERING=1` and a Brier gate passes. Steering wind is Open-Meteo 700 hPa (then 850 and 500 hPa) stored on the forecast row in km/h. Ecowitt wind does not steer cells. Contract: `docs/weather-ingest.md`.
 
 ### 3. Windy-look weather overlay (picture only)
 - Copied from VIP operational-intelligence: georeferenced MapLibre wind raster + particle canvas inside the map canvas container. Not a windy.com iframe.

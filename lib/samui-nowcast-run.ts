@@ -6,6 +6,7 @@
 import { ECOWITT_LOCATION_ID } from './ecowitt-data';
 import { decodeRainviewerPngToRgba } from './rainviewer-server-sample';
 import { latLonToRainviewerTileFraction, RAINVIEWER_NATIVE_Z } from './rainviewer-tile-math';
+import { steeringVectorsFromValues } from './open-meteo-steering';
 import {
   evaluateSamuiNowcast,
   publishFlagFromEnv,
@@ -16,6 +17,7 @@ import {
   type NowcastDecision,
   type RadarScan,
   type StationSample,
+  type WindVector,
 } from './samui-nowcast';
 import {
   coverageRadiusKm,
@@ -141,9 +143,16 @@ export async function runSamuiNowcastAfterIngest(args: NowcastRunArgs): Promise<
   const nowUnix = args.nowUnix ?? Math.floor(Date.now() / 1000);
   const lat = args.lat ?? SAMUI_NOWCAST_PIN.lat;
   const lon = args.lon ?? SAMUI_NOWCAST_PIN.lon;
-  const wind700 = readSpireLevelWind(args.spireValues, '700');
-  const wind850 = readSpireLevelWind(args.spireValues, '850');
-  const wind500 = readSpireLevelWind(args.spireValues, '500');
+  const openMeteo = steeringVectorsFromValues(args.spireValues);
+  const wind700: WindVector | null = openMeteo.fromOpenMeteo
+    ? openMeteo.wind700
+    : readSpireLevelWind(args.spireValues, '700');
+  const wind850: WindVector | null = openMeteo.fromOpenMeteo
+    ? openMeteo.wind850
+    : readSpireLevelWind(args.spireValues, '850');
+  const wind500: WindVector | null = openMeteo.fromOpenMeteo
+    ? openMeteo.wind500
+    : readSpireLevelWind(args.spireValues, '500');
   const station = await loadStation(nowUnix).catch(() => null);
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 6000);

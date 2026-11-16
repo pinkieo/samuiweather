@@ -126,7 +126,7 @@ export type NowcastEta = {
   latestUnix: number;
   earliestMin: number;
   latestMin: number;
-  source: 'tracked' | '700hPa' | '850-500hPa-mean';
+  source: 'tracked' | '700hPa' | '850-500hPa-mean' | '850hPa' | '500hPa';
   horizonMin: number;
   spreadWidened: boolean;
   members: EtaMember[];
@@ -161,6 +161,8 @@ export type NowcastDecision = {
   publishLowering: boolean;
   calibration: CalibrationGate;
   cells: NowcastCellView[];
+  /** Pressure levels that supplied the steering wind. Empty when wind is missing. */
+  steeringLevels: string[];
   stationWindUsedForSteering: false;
 };
 
@@ -263,16 +265,27 @@ export function meanWind(a: WindVector, b: WindVector): WindVector {
   return { speedMps, fromDeg: (fromDeg + 360) % 360 };
 }
 
-export type SteeringWind = WindVector & { source: '700hPa' | '850-500hPa-mean' };
+export type SteeringWind = WindVector & {
+  source: '700hPa' | '850-500hPa-mean' | '850hPa' | '500hPa';
+  levels: string[];
+};
 
-/** 700 hPa first. Otherwise the vector mean of 850 and 500. Never the surface wind. */
+/**
+ * 700 hPa first. Otherwise the 850–500 hPa vector mean when both exist.
+ * If only one of those two levels is present, that level is used and named.
+ * Never the surface wind.
+ */
 export function selectSteeringWind(
   wind700: WindVector | null,
   wind850: WindVector | null,
   wind500: WindVector | null,
 ): SteeringWind | null {
-  if (wind700) return { ...wind700, source: '700hPa' };
-  if (wind850 && wind500) return { ...meanWind(wind850, wind500), source: '850-500hPa-mean' };
+  if (wind700) return { ...wind700, source: '700hPa', levels: ['700hPa'] };
+  if (wind850 && wind500) {
+    return { ...meanWind(wind850, wind500), source: '850-500hPa-mean', levels: ['850hPa', '500hPa'] };
+  }
+  if (wind850) return { ...wind850, source: '850hPa', levels: ['850hPa'] };
+  if (wind500) return { ...wind500, source: '500hPa', levels: ['500hPa'] };
   return null;
 }
 
@@ -692,11 +705,15 @@ function applyEtaHours(hours: NowcastHour[], eta: NowcastEta): NowcastHour[] {
 }
 
 function finish(
-  partial: Omit<NowcastDecision, 'hours' | 'publishLowering' | 'calibration' | 'stationWindUsedForSteering'> & {
+  partial: Omit<
+    NowcastDecision,
+    'hours' | 'publishLowering' | 'calibration' | 'stationWindUsedForSteering' | 'steeringLevels'
+  > & {
     hours: NowcastHour[];
   },
   publishFlag: boolean,
   gate: CalibrationGate,
+  steeringLevels: string[],
 ): NowcastDecision {
   const publishLowering = publishFlag && partial.state === 'clear' && gate.allow;
   const hours =
@@ -706,6 +723,7 @@ function finish(
     hours,
     publishLowering,
     calibration: gate,
+    steeringLevels,
     stationWindUsedForSteering: false,
   };
 }
@@ -717,7 +735,8 @@ export function evaluateSamuiNowcast(input: EvaluateNowcastInput): NowcastDecisi
   const wind850 = cleanWind(input.wind850);
   const wind500 = cleanWind(input.wind500);
   const steering = selectSteeringWind(wind700, wind850, wind500);
-  const surgeWind = wind700 ?? (steering && steering.source === '850-500hPa-mean' ? steering : null);
+  const surgeWind = steering;
+  const steeringLevels = steering?.levels ?? [];
   const month = utcMonth(input.nowUnix);
   const windBin = wind700
     ? windBinFromDeg(wind700.fromDeg)
@@ -740,6 +759,7 @@ export function evaluateSamuiNowcast(input: EvaluateNowcastInput): NowcastDecisi
       },
       publishFlag,
       gate,
+      steeringLevels,
     );
 
   if (input.scans == null) {
@@ -822,6 +842,7 @@ export function evaluateSamuiNowcast(input: EvaluateNowcastInput): NowcastDecisi
       },
       publishFlag,
       gate,
+      steeringLevels,
     );
   }
 
@@ -865,6 +886,7 @@ export function evaluateSamuiNowcast(input: EvaluateNowcastInput): NowcastDecisi
       },
       publishFlag,
       gate,
+      steeringLevels,
     );
   }
 
@@ -874,7 +896,11 @@ export function evaluateSamuiNowcast(input: EvaluateNowcastInput): NowcastDecisi
         ? 'tracked motion'
         : best.eta.source === '700hPa'
           ? '700 hPa wind'
-          : 'the 850-500 hPa mean wind';
+          : best.eta.source === '850hPa'
+            ? '850 hPa wind (500 hPa was not available)'
+            : best.eta.source === '500hPa'
+              ? '500 hPa wind (850 hPa was not available)'
+              : 'the 850-500 hPa mean wind (850 hPa and 500 hPa)';
     return finish(
       {
         state: 'approaching',
@@ -887,6 +913,7 @@ export function evaluateSamuiNowcast(input: EvaluateNowcastInput): NowcastDecisi
       },
       publishFlag,
       gate,
+      steeringLevels,
     );
   }
 
@@ -907,6 +934,7 @@ export function evaluateSamuiNowcast(input: EvaluateNowcastInput): NowcastDecisi
     },
     publishFlag,
     gate,
+    steeringLevels,
   );
 }
 

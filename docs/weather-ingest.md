@@ -1,7 +1,7 @@
 # Spire forecast ingest (4× daily)
 
 Status: CANONICAL
-Document version: 4.0
+Document version: 5.0
 Last updated: 2026-11-16
 Last verified: NOT VERIFIED
 Owner: ProSeadure
@@ -140,15 +140,27 @@ Rules in `lib/samui-nowcast.ts`:
   replay shows that skill.
 - ETA is a window from a 9-member ensemble, never one clock time.
   Tracked motion needs 3 genuine past frames spanning at least 30
-  minutes. Otherwise the fallback is 700 hPa wind, or the 850–500 hPa
-  vector mean. Ecowitt wind is not steering. It can only mark a gust
+  minutes. Otherwise the fallback is 700 hPa wind, then the 850–500 hPa
+  vector mean. If only one of 850 or 500 hPa is present, that level is
+  used and named. Ecowitt wind is not steering. It can only mark a gust
   front (gust at least 5 m/s above the sustained wind) or a 2°C
-  temperature drop. A northeast monsoon surge (700 hPa, or the 850–500
-  mean when 700 is missing, from 22.5–67.5° at 12 m/s or more), a new
-  or growing cell within 50 km, or that station signature is
-  “developing” and has no ETA.
+  temperature drop. A northeast monsoon surge on the steering wind
+  (from 22.5–67.5° at 12 m/s or more), a new or growing cell within
+  50 km, or that station signature is “developing” and has no ETA.
 - If radar or the wind the rule needs is missing, the model percent is
   unchanged and the reason is stored.
+
+Steering wind is Open-Meteo, not Spire. During ingest the route requests
+`wind_speed_700hPa`, `wind_direction_700hPa`, `wind_speed_850hPa`,
+`wind_direction_850hPa`, `wind_speed_500hPa`, and
+`wind_direction_500hPa` at 9.56 N, 100.03 E with `wind_speed_unit=kmh`
+and `timezone=GMT`. Speed is stored in km/h and direction in degrees
+on `values_json.open_meteo_steering`, with `source` `open-meteo` and
+`fetched_at_utc`. The nowcast converts km/h to m/s. 700 hPa is the
+steering wind. The snapshot `source_composition` records the same
+block. A failed response, a unit other than km/h, or an hour Open-Meteo
+did not return is stored as `error: "wind missing"` with no invented
+speed. The model rain percent is left as Spire.
 
 Provenance (radar time, cells, ETA source, original vs published
 percent) is written to `samui_nowcast_run` when

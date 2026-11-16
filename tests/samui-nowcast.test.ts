@@ -383,7 +383,11 @@ describe('samui nowcast rules', () => {
       { speedMps: 10, fromDeg: 0 },
     );
     assert.equal(mean?.source, '850-500hPa-mean');
+    assert.deepEqual(mean?.levels, ['850hPa', '500hPa']);
     assert.ok(mean && Math.abs(mean.fromDeg - 45) < 1);
+    const only850 = selectSteeringWind(null, { speedMps: 10, fromDeg: 270 }, null);
+    assert.equal(only850?.source, '850hPa');
+    assert.deepEqual(only850?.levels, ['850hPa']);
 
     const decision = base({
       scans: track(-30, -20, 2, 20),

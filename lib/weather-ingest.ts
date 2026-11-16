@@ -9,6 +9,11 @@ import {
   sampleRainViewerTileAtLocation,
 } from '@/lib/rainviewer-server-sample';
 import { fetchOpenUvHourMap, stampUvIndex, uvIndexFromSpireValues } from '@/lib/forecast-uv';
+import {
+  fetchOpenMeteoSteering,
+  steeringBlockForValidTime,
+  withOpenMeteoSteering,
+} from '@/lib/open-meteo-steering';
 import { runSamuiNowcastAfterIngest } from '@/lib/samui-nowcast-run';
 import {
   SAMUI_CENTER,
@@ -43,6 +48,11 @@ export type WeatherIngestSummary = {
     eta_earliest_min: number | null;
     eta_latest_min: number | null;
     publish_lowering: boolean;
+    steering_levels?: string[];
+  };
+  steering_wind?: {
+    ok: boolean;
+    reason?: string;
   };
 };
 
@@ -288,6 +298,12 @@ function buildSnapshotRow(
         product: process.env.SPIRE_FORECAST_PRODUCT?.trim() || null,
         unit_system: process.env.SPIRE_FORECAST_UNIT_SYSTEM?.trim() || null,
       },
+      open_meteo_pressure_level_wind: (() => {
+        const values = flat.values_json;
+        if (!values || typeof values !== 'object') return null;
+        const block = (values as Record<string, unknown>).open_meteo_steering;
+        return block ?? null;
+      })(),
       optimized_point_probability_overlay: {
         endpoint: '/forecast/point/optimized',
         location: process.env.SPIRE_OPF_LOCATION?.trim() || 'custom:PR_W1XNKK0',
@@ -403,6 +419,27 @@ export async function runWeatherIngest(opts?: {
     staged.push({ entry, flat });
   }
 
+  let steeringSummary: WeatherIngestSummary['steering_wind'] = {
+    ok: false,
+    reason: 'Open-Meteo steering was not fetched. Wind missing.',
+  };
+  try {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 8000);
+    const fetched = await fetchOpenMeteoSteering({ signal: ac.signal }).finally(() => clearTimeout(timer));
+    steeringSummary = fetched.ok ? { ok: true } : { ok: false, reason: fetched.reason };
+    for (const { flat } of staged) {
+      const values = flat.values_json;
+      if (!values || typeof values !== 'object' || Array.isArray(values)) continue;
+      const block = steeringBlockForValidTime(fetched, String(flat.valid_time_utc));
+      flat.values_json = withOpenMeteoSteering(values as Record<string, unknown>, block);
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : 'Open-Meteo request failed.';
+    steeringSummary = { ok: false, reason: `${detail} Wind missing.` };
+    console.warn('[weather-ingest] open-meteo steering', detail);
+  }
+
   let nowcastSummary: WeatherIngestSummary['nowcast'] | undefined;
   try {
     const nowMs = Date.now();
@@ -438,6 +475,7 @@ export async function runWeatherIngest(opts?: {
       eta_earliest_min: decision.eta?.earliestMin ?? null,
       eta_latest_min: decision.eta?.latestMin ?? null,
       publish_lowering: decision.publishLowering,
+      steering_levels: decision.steeringLevels,
     };
     if (decision.publishLowering) {
       const byValid = new Map(decision.hours.map((hour) => [hour.validTimeUnix, hour]));
@@ -486,6 +524,7 @@ export async function runWeatherIngest(opts?: {
     updated_at: nowIso,
     radar_status: radar.status,
     nowcast: nowcastSummary,
+    steering_wind: steeringSummary,
   };
   return { ok: true, summary };
 }
