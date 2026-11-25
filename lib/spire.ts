@@ -301,6 +301,10 @@ export interface SamuiWeatherForecastRow {
   dcape?: number | null;
   /** J/kg (≤ 0) — convective inhibition; `thunderstorm` / profile bundle when present. */
   cin?: number | null;
+  /** °C — raw Open-Meteo ECMWF IFS 0.25° temperature at this UTC hour (v4 preview). */
+  ecmwfTempRawC?: number | null;
+  /** °C — v4 50/50 Spire+ECMWF 30-day bias-corrected blend at this hour (raw `temp` untouched). */
+  tempBlendC?: number | null;
   /** Index 0 only + WAQI when ok */
   station?: string | null;
   /**

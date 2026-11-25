@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSamuiForecastMerged, type SamuiWeatherForecastRow } from '@/lib/spire';
+import { enrichWeatherWithV4Blend } from '@/lib/v4-temperature-blend';
+import type { V4TemperatureBlendSummary } from '@/lib/v4-temperature-blend-math';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import {
   CACHE_CONTROL_NO_STORE,
@@ -20,6 +22,7 @@ export interface WeatherApiResponse {
   location: { name: string; lat: number; lon: number };
   freshness: WeatherProvenance;
   forecast: SamuiWeatherForecastRow[];
+  temperatureBlend?: V4TemperatureBlendSummary;
 }
 
 function emptyRow(timeIso: string, r: Record<string, unknown>): SamuiWeatherForecastRow {
@@ -96,10 +99,12 @@ export async function GET() {
       lat: SAMUI_PLACE.lat,
       lon: SAMUI_PLACE.lon,
     });
+    const blended = await enrichWeatherWithV4Blend(forecast);
     const body: WeatherApiResponse = {
       location: SAMUI_PLACE,
       freshness,
-      forecast,
+      forecast: blended.forecast,
+      temperatureBlend: blended.temperatureBlend,
     };
     return NextResponse.json(body, { headers: provenanceHeaders(freshness) });
   } catch (error) {
@@ -117,10 +122,12 @@ export async function GET() {
         lat: SAMUI_PLACE.lat,
         lon: SAMUI_PLACE.lon,
       });
+      const blended = await enrichWeatherWithV4Blend(fallback.rows);
       const body: WeatherApiResponse = {
         location: SAMUI_PLACE,
         freshness,
-        forecast: fallback.rows,
+        forecast: blended.forecast,
+        temperatureBlend: blended.temperatureBlend,
       };
       return NextResponse.json(body, {
         headers: {
